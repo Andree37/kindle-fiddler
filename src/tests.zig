@@ -10,5 +10,6 @@ test {
     _ = @import("state.zig");
     _ = @import("system.zig");
     _ = @import("text.zig");
+    _ = @import("toolbar.zig");
     _ = @import("touch.zig");
 }

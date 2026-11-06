@@ -1,5 +1,5 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
-//! Usage: panelshot [panel | notes | library [page [read]]]
+//! Usage: panelshot [panel | notes | toolbar [sheet] | library [page [read]]]
 const std = @import("std");
 const linux = std.os.linux;
 const file = @import("file.zig");
@@ -9,6 +9,7 @@ const menu = @import("menu.zig");
 const notes = @import("notes.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
+const toolbar = @import("toolbar.zig");
 
 fn write(data: []const u8) void {
     var at: usize = 0;
@@ -83,8 +84,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
+    if (std.mem.eql(u8, mode, "toolbar")) {
+        const sheet = argv.len > 2;
+        @memset(buf, 0xe8);
+        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, sheet);
+        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
+        write(buf);
+        return;
+    }
+
     quick.brightness = 11;
-    try menu.render(fonts, page, "A sample book title", true, &quick);
-    write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, menu.height(true) }));
-    write(buf[0 .. w * menu.height(true)]);
+    try menu.render(fonts, page, &quick);
+    write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, menu.height }));
+    write(buf[0 .. w * menu.height]);
 }

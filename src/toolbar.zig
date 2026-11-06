@@ -1,0 +1,197 @@
+//! Reading toolbar: a single tap at the top of a page opens it.
+const std = @import("std");
+const icons = @import("icons.zig");
+const library = @import("library.zig");
+const menu = @import("menu.zig");
+const system = @import("system.zig");
+const text = @import("text.zig");
+
+pub const top_height = 228;
+pub const sheet_height = 420; // With the text sheet open
+pub const bottom_top = 1410;
+pub const scrub_top = 1500;
+const screen_height = 1696;
+const margin = 72;
+const status_row = 66;
+const tool_row = 156;
+const scrub_left = 110;
+const scrub_right = 1162;
+const scrub_y = 1610;
+
+pub const Hit = enum { close, stay, home, text, goto, bookmark, search, more, chapter_prev, chapter_next, scrub, smaller, larger, tighter, looser };
+
+const Tool = struct { hit: Hit, x: i32 };
+const tools = [_]Tool{
+    .{ .hit = .text, .x = 696 },
+    .{ .hit = .goto, .x = 816 },
+    .{ .hit = .bookmark, .x = 936 },
+    .{ .hit = .search, .x = 1056 },
+    .{ .hit = .more, .x = 1176 },
+};
+
+const Button = struct { hit: Hit, plus: bool, left: i32 };
+const sheet_buttons = [_]Button{
+    .{ .hit = .smaller, .plus = false, .left = 290 },
+    .{ .hit = .larger, .plus = true, .left = 430 },
+    .{ .hit = .tighter, .plus = false, .left = 880 },
+    .{ .hit = .looser, .plus = true, .left = 1020 },
+};
+const button_width = 120;
+const sheet_row = 280;
+
+pub fn hit(x: i32, y: i32, sheet: bool) Hit {
+    if (y < status_row) return .stay;
+    if (y < top_height) {
+        if (y >= tool_row + 12) return .stay;
+        if (x < 300) return .home;
+        for (tools) |t| {
+            if (@abs(x - t.x) < 56) return t.hit;
+        }
+        return .stay;
+    }
+    if (sheet and y < sheet_height) {
+        if (y >= sheet_row and y < sheet_row + 100) {
+            for (sheet_buttons) |b| {
+                if (x >= b.left and x < b.left + button_width) return b.hit;
+            }
+        }
+        return .stay;
+    }
+    if (y < bottom_top) return .close;
+    if (y >= scrub_top) return .scrub;
+    if (x < 220) return .chapter_prev;
+    if (x >= 1052) return .chapter_next;
+    return .stay;
+}
+
+/// Page index for a finger at `x` on the scrubber.
+pub fn pageAt(x: i32, total: usize) usize {
+    const span = scrub_right - scrub_left;
+    const clamped = std.math.clamp(x, scrub_left, scrub_right);
+    const last: i64 = @intCast(total - 1);
+    return @intCast(@divTrunc((clamped - scrub_left) * last + span / 2, span));
+}
+
+fn knobX(page_index: usize, total: usize) i32 {
+    if (total <= 1) return scrub_left;
+    const span: i64 = scrub_right - scrub_left;
+    const at: i64 = @intCast(page_index);
+    return @intCast(scrub_left + @divTrunc(at * span, @as(i64, @intCast(total - 1))));
+}
+
+/// Page where the chapter before or after the current one starts.
+/// `sections` holds each page's section. Back goes to this chapter's start first.
+pub fn chapterTarget(sections: []const u32, current: usize, forward: bool) usize {
+    if (forward) {
+        var i = current + 1;
+        while (i < sections.len) : (i += 1) {
+            if (sections[i] != sections[current]) return i;
+        }
+        return current;
+    }
+    var start = current;
+    while (start > 0 and sections[start - 1] == sections[current]) start -= 1;
+    if (start != current or start == 0) return start;
+    start -= 1;
+    while (start > 0 and sections[start - 1] == sections[current - 1]) start -= 1;
+    return start;
+}
+
+/// Band that changes while dragging, redrawn alone in pure black and white when `mono`.
+pub fn drawScrub(fonts: library.Fonts, page: text.Page, index: usize, total: usize, mono: bool) !void {
+    page.fillRect(0, scrub_top, page.width, screen_height - scrub_top, 0xff);
+    var label: [32]u8 = undefined;
+    const s = std.fmt.bufPrint(&label, "Page {d} of {d}", .{ index + 1, total }) catch "";
+    const w = try fonts.small.measure(s);
+    try fonts.small.draw(page, @as(f32, @floatFromInt(page.width)) / 2 - w / 2, scrub_top + 56, s);
+    const knob = knobX(index, total);
+    page.fillRect(scrub_left, scrub_y - 2, scrub_right - scrub_left, 4, if (mono) 0x00 else 0xa0);
+    page.fillRect(scrub_left, scrub_y - 4, @intCast(knob - scrub_left), 8, 0x00);
+    page.disc(knob, scrub_y, 25, 0, 0x00);
+    page.disc(knob, scrub_y, 21, 0, 0xff);
+    if (mono) page.threshold(scrub_top, screen_height - scrub_top);
+}
+
+fn drawSheet(fonts: library.Fonts, page: text.Page) !void {
+    page.fillRect(0, top_height, page.width, sheet_height - top_height, 0xff);
+    page.fillRect(0, sheet_height - 4, page.width, 4, 0x00);
+    try fonts.small.draw(page, margin, sheet_row + 62, "Text size");
+    try fonts.small.draw(page, 640, sheet_row + 62, "Spacing");
+    for (sheet_buttons) |b| {
+        const left: u32 = @intCast(b.left);
+        page.fillRect(left, sheet_row, button_width, 100, 0xe8);
+        const cx: f32 = @floatFromInt(left + button_width / 2);
+        const cy: f32 = sheet_row + 50;
+        page.stroke(cx - 22, cy, cx + 22, cy, 5);
+        if (b.plus) page.stroke(cx, cy - 22, cx, cy + 22, 5);
+    }
+}
+
+pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const system.Quick, sheet: bool) !void {
+    const w: f32 = @floatFromInt(page.width);
+    page.fillRect(0, 0, page.width, top_height, 0xff);
+
+    const clock = quick.clockText();
+    const time = clock[0 .. std.mem.indexOfScalar(u8, clock, ' ') orelse clock.len];
+    try fonts.caption.draw(page, margin, 54, time);
+    try icons.statusCluster(page, fonts.caption, w - margin, 45, 54, quick, false);
+
+    icons.back(page, margin + 18, 118);
+    try fonts.small.draw(page, margin + 56, 130, "Home");
+    try fonts.title.draw(page, tools[0].x - 34, 132, "Aa");
+    icons.lines(page, tools[1].x, 118);
+    icons.bookmark(page, tools[2].x, 118);
+    icons.search(page, tools[3].x, 118);
+    icons.dots(page, tools[4].x, 118);
+
+    page.fillRect(0, tool_row + 12, page.width, 1, 0xb0);
+    try library.drawClipped(fonts.caption, page, margin, tool_row + 54, title, w - 2 * margin);
+    page.tint(margin, tool_row + 20, page.width - 2 * margin, 46, 0x50);
+    page.fillRect(0, top_height - 4, page.width, 4, 0x00);
+    if (sheet) try drawSheet(fonts, page);
+
+    page.fillRect(0, bottom_top, page.width, screen_height - bottom_top, 0xff);
+    page.fillRect(0, bottom_top, page.width, 4, 0x00);
+    icons.skip(page, 110, bottom_top + 46, false);
+    icons.skip(page, w - 110, bottom_top + 46, true);
+    try drawScrub(fonts, page, index, total, false);
+}
+
+test "toolbar buttons map to actions" {
+    try std.testing.expectEqual(Hit.home, hit(120, 118, false));
+    try std.testing.expectEqual(Hit.text, hit(696, 118, false));
+    try std.testing.expectEqual(Hit.goto, hit(816, 118, false));
+    try std.testing.expectEqual(Hit.bookmark, hit(936, 118, false));
+    try std.testing.expectEqual(Hit.search, hit(1056, 118, false));
+    try std.testing.expectEqual(Hit.more, hit(1176, 118, false));
+    try std.testing.expectEqual(Hit.stay, hit(500, 118, false));
+    try std.testing.expectEqual(Hit.close, hit(600, 800, false));
+    try std.testing.expectEqual(Hit.chapter_prev, hit(110, 1450, false));
+    try std.testing.expectEqual(Hit.chapter_next, hit(1162, 1450, false));
+    try std.testing.expectEqual(Hit.scrub, hit(600, 1610, false));
+    try std.testing.expectEqual(Hit.scrub, hit(100, 1650, false));
+}
+
+test "text sheet takes taps only while open" {
+    try std.testing.expectEqual(Hit.close, hit(350, 320, false));
+    try std.testing.expectEqual(Hit.smaller, hit(350, 320, true));
+    try std.testing.expectEqual(Hit.looser, hit(1100, 320, true));
+    try std.testing.expectEqual(Hit.stay, hit(700, 250, true));
+}
+
+test "scrubber maps position to page" {
+    try std.testing.expectEqual(@as(usize, 0), pageAt(0, 280));
+    try std.testing.expectEqual(@as(usize, 279), pageAt(1272, 280));
+    try std.testing.expectEqual(@as(usize, 140), pageAt(636, 280));
+    try std.testing.expectEqual(@as(usize, 0), pageAt(600, 1));
+}
+
+test "chapter skipping" {
+    const sections = [_]u32{ 1, 1, 2, 2, 2, 3, 3 };
+    try std.testing.expectEqual(@as(usize, 2), chapterTarget(&sections, 0, true));
+    try std.testing.expectEqual(@as(usize, 5), chapterTarget(&sections, 3, true));
+    try std.testing.expectEqual(@as(usize, 6), chapterTarget(&sections, 6, true));
+    try std.testing.expectEqual(@as(usize, 2), chapterTarget(&sections, 4, false)); // Start of this one
+    try std.testing.expectEqual(@as(usize, 0), chapterTarget(&sections, 2, false)); // Then the one before
+    try std.testing.expectEqual(@as(usize, 0), chapterTarget(&sections, 0, false));
+}

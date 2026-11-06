@@ -1,4 +1,4 @@
-//! Bar shown over a book: tap the top of a page to open it.
+//! Quick panel: drag down from the top of any screen to open it.
 const std = @import("std");
 const icons = @import("icons.zig");
 const library = @import("library.zig");
@@ -6,18 +6,11 @@ const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
 
-const panel_height = 780; // Status, shortcuts and brightness
-const toolbar_bottom = 900; // Library and Kindle, inside a book only
-const book_height = 1040; // Plus text settings
+pub const height = 780;
 
 const slider_left = 160;
 const slider_right = 1110;
 const slider_y = 680;
-
-/// The book rows only apply inside a book.
-pub fn height(in_book: bool) u32 {
-    return if (in_book) book_height else panel_height;
-}
 
 pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
 pub const spacings = [_]f32{ 1.2, 1.35, 1.5, 1.7 };
@@ -41,15 +34,7 @@ pub fn step(value: usize, delta: i32, len: usize) usize {
     return @min(value + 1, len - 1);
 }
 
-pub const Hit = enum { none, close, library, smaller, larger, tighter, looser, dimmer, brighter, slider, airplane, settings };
-
-const Button = struct { hit: Hit, label: []const u8, left: i32, right: i32 };
-const text_buttons = [_]Button{
-    .{ .hit = .smaller, .label = "-", .left = 300, .right = 420 },
-    .{ .hit = .larger, .label = "+", .left = 440, .right = 560 },
-    .{ .hit = .tighter, .label = "-", .left = 880, .right = 1000 },
-    .{ .hit = .looser, .label = "+", .left = 1020, .right = 1140 },
-};
+pub const Hit = enum { none, close, dimmer, brighter, slider, airplane, settings };
 
 const Icon = enum { airplane, wifi, bluetooth, sync, gear };
 const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
@@ -69,17 +54,8 @@ pub fn levelAt(x: i32) u32 {
     return @intCast(@divTrunc((clamped - slider_left) * system.max_brightness + span / 2, span));
 }
 
-pub fn hit(x: i32, y: i32, in_book: bool) Hit {
-    if (y >= height(in_book)) return .close;
-    if (y >= panel_height) {
-        if (y < toolbar_bottom) {
-            return if (x < 300) .library else .none;
-        }
-        for (text_buttons) |b| {
-            if (x >= b.left and x < b.right) return b.hit;
-        }
-        return .none;
-    }
+pub fn hit(x: i32, y: i32) Hit {
+    if (y >= height) return .close;
     if (y >= slider_y - 60) {
         if (y >= slider_y + 60) return .close; // The chevron
         if (x < slider_left) return .dimmer;
@@ -140,11 +116,10 @@ fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
     };
 }
 
-pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book: bool, quick: *const system.Quick) !void {
-    const h = height(in_book);
+pub fn render(fonts: library.Fonts, page: text.Page, quick: *const system.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
-    page.fillRect(0, 0, page.width, h, 0xff);
-    page.fillRect(0, h - 4, page.width, 4, 0x00);
+    page.fillRect(0, 0, page.width, height, 0xff);
+    page.fillRect(0, height - 4, page.width, 4, 0x00);
 
     try fonts.title.draw(page, 60, 70, "Kindle Paperwhite");
     try fonts.small.draw(page, 60, 120, quick.clockText());
@@ -160,20 +135,6 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book:
     try drawSlider(fonts, page, quick, false);
     icons.chevron(page, w / 2, 754);
 
-    if (!in_book) return;
-    page.fillRect(0, panel_height - 2, page.width, 2, 0x80);
-    try fonts.title.draw(page, 60, 860, "< Library");
-    try library.drawClipped(fonts.small, page, 320, 860, title, 620);
-    page.fillRect(0, toolbar_bottom, page.width, 2, 0x80);
-    try fonts.small.draw(page, 60, 990, "Text size");
-    try fonts.small.draw(page, 640, 990, "Spacing");
-    for (text_buttons) |b| {
-        const left: u32 = @intCast(b.left);
-        page.fillRect(left, 930, @intCast(b.right - b.left), 90, 0xe0);
-        const cx: f32 = @floatFromInt(left + 60);
-        page.stroke(cx - 22, 975, cx + 22, 975, 5);
-        if (b.label[0] == '+') page.stroke(cx, 953, cx, 997, 5);
-    }
 }
 
 /// Settings share the state file format: size, then spacing.
@@ -187,24 +148,17 @@ pub fn save(path: [*:0]const u8, s: Settings) void {
 }
 
 test "panel maps taps like the stock layout" {
-    try std.testing.expectEqual(Hit.airplane, hit(318, 240, false));
-    try std.testing.expectEqual(Hit.settings, hit(636, 240, false)); // Wi-Fi
-    try std.testing.expectEqual(Hit.none, hit(954, 240, false)); // Bluetooth
-    try std.testing.expectEqual(Hit.none, hit(477, 430, false)); // Sync
-    try std.testing.expectEqual(Hit.settings, hit(795, 430, false));
-    try std.testing.expectEqual(Hit.none, hit(954, 430, false));
-    try std.testing.expectEqual(Hit.dimmer, hit(90, 680, false));
-    try std.testing.expectEqual(Hit.brighter, hit(1180, 680, false));
-    try std.testing.expectEqual(Hit.slider, hit(600, 680, false));
-    try std.testing.expectEqual(Hit.close, hit(636, 760, false));
-    try std.testing.expectEqual(Hit.close, hit(600, 1000, false));
-}
-
-test "book rows sit under the panel" {
-    try std.testing.expectEqual(Hit.library, hit(100, 840, true));
-    try std.testing.expectEqual(Hit.smaller, hit(350, 970, true));
-    try std.testing.expectEqual(Hit.looser, hit(1100, 970, true));
-    try std.testing.expectEqual(Hit.close, hit(600, 1200, true));
+    try std.testing.expectEqual(Hit.airplane, hit(318, 240));
+    try std.testing.expectEqual(Hit.settings, hit(636, 240)); // Wi-Fi
+    try std.testing.expectEqual(Hit.none, hit(954, 240)); // Bluetooth
+    try std.testing.expectEqual(Hit.none, hit(477, 430)); // Sync
+    try std.testing.expectEqual(Hit.settings, hit(795, 430));
+    try std.testing.expectEqual(Hit.none, hit(954, 430));
+    try std.testing.expectEqual(Hit.dimmer, hit(90, 680));
+    try std.testing.expectEqual(Hit.brighter, hit(1180, 680));
+    try std.testing.expectEqual(Hit.slider, hit(600, 680));
+    try std.testing.expectEqual(Hit.close, hit(636, 760));
+    try std.testing.expectEqual(Hit.close, hit(600, 1000));
 }
 
 test "slider maps position to level" {

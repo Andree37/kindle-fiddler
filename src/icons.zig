@@ -78,9 +78,9 @@ fn arrowHead(p: Pen, radius: f32, degrees: f32) void {
     const a = std.math.degreesToRadians(degrees);
     const tip_x = @cos(a) * radius;
     const tip_y = @sin(a) * radius;
-    const back = a - pi / 2;
+    const behind = a - pi / 2;
     for ([_]f32{ -0.6, 0.6 }) |spread| {
-        const b = back + spread;
+        const b = behind + spread;
         p.line(tip_x, tip_y, tip_x + @cos(b) * 14, tip_y + @sin(b) * 14, 4);
     }
 }
@@ -116,6 +116,49 @@ pub fn battery(page: text.Page, x: f32, cy: f32, percent: u32) void {
     page.stroke(x + w + 7, y + 11, x + w + 7, y + h - 11, 6);
     const fill = batteryFill(w - 10, percent);
     if (fill > 0) page.fillRect(@intFromFloat(x + 5), @intFromFloat(y + 5), fill, h - 10, 0x00);
+}
+
+pub fn back(page: text.Page, cx: f32, cy: f32) void {
+    page.stroke(cx - 18, cy, cx + 18, cy, 4);
+    page.stroke(cx - 18, cy, cx - 4, cy - 14, 4);
+    page.stroke(cx - 18, cy, cx - 4, cy + 14, 4);
+}
+
+pub fn lines(page: text.Page, cx: f32, cy: f32) void {
+    var i: f32 = -1;
+    while (i <= 1) : (i += 1) {
+        page.stroke(cx - 22, cy + i * 14, cx - 16, cy + i * 14, 4);
+        page.stroke(cx - 6, cy + i * 14, cx + 24, cy + i * 14, 4);
+    }
+}
+
+pub fn bookmark(page: text.Page, cx: f32, cy: f32) void {
+    page.stroke(cx - 15, cy - 22, cx + 15, cy - 22, 4);
+    page.stroke(cx - 15, cy - 22, cx - 15, cy + 22, 4);
+    page.stroke(cx + 15, cy - 22, cx + 15, cy + 22, 4);
+    page.stroke(cx - 15, cy + 22, cx, cy + 9, 4);
+    page.stroke(cx, cy + 9, cx + 15, cy + 22, 4);
+}
+
+pub fn search(page: text.Page, cx: f32, cy: f32) void {
+    page.arc(cx - 5, cy - 5, 17, 0, 2 * pi, 4);
+    page.stroke(cx + 8, cy + 8, cx + 23, cy + 23, 5);
+}
+
+pub fn dots(page: text.Page, cx: f32, cy: f32) void {
+    const x: i32 = @intFromFloat(cx);
+    const y: i32 = @intFromFloat(cy);
+    page.disc(x, y - 16, 4, 0, 0x00);
+    page.disc(x, y, 4, 0, 0x00);
+    page.disc(x, y + 16, 4, 0, 0x00);
+}
+
+/// Chapter skip: a bar and a triangle, pointing right when `forward`.
+pub fn skip(page: text.Page, cx: f32, cy: f32, forward: bool) void {
+    const dir: f32 = if (forward) 1 else -1;
+    const pts = [_][2]f32{ .{ cx - 14 * dir, cy - 18 }, .{ cx + 12 * dir, cy }, .{ cx - 14 * dir, cy + 18 } };
+    page.fillPoly(&pts);
+    page.stroke(cx + 15 * dir, cy - 18, cx + 15 * dir, cy + 18, 5);
 }
 
 pub fn menu(page: text.Page, x: f32, y: f32) void {

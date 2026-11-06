@@ -2,8 +2,8 @@
 //! Usage: noface <library.tsv> <body.ttf> <title.ttf> <ui.ttf> <ui-bold.ttf> <state-dir>
 //!
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
-//! Tapping the top of a page, or dragging down from it, opens a bar with Library,
-//! Kindle and settings. Dragging down from the top of the library opens Menu.
+//! Tapping the top of a page opens the toolbar. Dragging down from the top opens
+//! the quick panel, in a book or in the library.
 //! All Settings or the power button returns to the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
@@ -17,6 +17,7 @@ const notes = @import("notes.zig");
 const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
+const toolbar = @import("toolbar.zig");
 const touch_zones = @import("touch.zig");
 
 const page_waveform: hwtcon.Waveform = .reagl;
@@ -122,6 +123,7 @@ const Input = struct {
     top_y: i32 = 0,
     top_us: u64 = 0,
     last_touched: usize = 0,
+    grips: bool = true, // Off while controls sit where a thumb usually rests
     drag_slot: ?usize = null,
     last_input: u64 = 0,
     stashed: ?Action = null,
@@ -261,7 +263,7 @@ const Input = struct {
         in.last_touched = touched;
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
-        if (touch_zones.isGrip(px, py, in.width, in.height)) return null;
+        if (in.grips and touch_zones.isGrip(px, py, in.width, in.height)) return null;
         if (py < touch_zones.top_zone) {
             in.top_slot = touched;
             in.top_x = px;
@@ -402,6 +404,7 @@ const Session = struct {
 };
 
 const Outcome = enum { library, quit };
+const View = enum { page, toolbar, sheet, panel, note };
 
 fn saveProgress(entry: *library.Entry, path: [*:0]const u8, s: *const Session) void {
     const pos = s.pages[s.current];
@@ -434,18 +437,76 @@ fn pageContaining(pages: []const text.Pos, para: usize, byte: usize) usize {
     return found;
 }
 
-/// Draws the bar over `background` and shows it.
-fn drawMenu(a: *App, background: []const u8, title: []const u8, in_book: bool, whole_page: bool) !void {
+/// Draws the quick panel over `background` and shows it.
+fn drawMenu(a: *App, background: []const u8) !void {
     @memcpy(a.overlay, background);
-    try menu.render(a.ui, a.page(a.overlay), title, in_book, &a.quick);
+    try menu.render(a.ui, a.page(a.overlay), &a.quick);
     @memcpy(a.screen.pixels, a.overlay);
-    const h: u32 = if (whole_page) a.screen.height else menu.height(in_book);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, h, page_waveform, .partial));
+    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height, page_waveform, .partial));
 }
 
-fn closeMenu(a: *App, background: []const u8, in_book: bool) !void {
+fn closeMenu(a: *App, background: []const u8) !void {
     @memcpy(a.screen.pixels, background);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height(in_book), page_waveform, .partial));
+    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height, page_waveform, .partial));
+}
+
+/// Draws the toolbar over the current page.
+fn drawToolbar(a: *App, s: *Session, title: []const u8, sheet: bool, whole_page: bool) !void {
+    @memcpy(a.overlay, try s.ensure(s.current, s.current));
+    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, sheet);
+    @memcpy(a.screen.pixels, a.overlay);
+    if (whole_page) {
+        try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, a.screen.height, page_waveform, .partial));
+        return;
+    }
+    const top: u32 = if (sheet) toolbar.sheet_height else toolbar.top_height;
+    const first = try a.screen.updateRegion(0, 0, a.screen.width, top, page_waveform, .partial);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, page_waveform, .partial));
+    try a.screen.waitComplete(first);
+}
+
+fn closeToolbar(a: *App, s: *Session, sheet: bool) !void {
+    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
+    const top: u32 = if (sheet) toolbar.sheet_height else toolbar.top_height;
+    const first = try a.screen.updateRegion(0, 0, a.screen.width, top, page_waveform, .partial);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, page_waveform, .partial));
+    try a.screen.waitComplete(first);
+}
+
+/// Follows a finger along the page scrubber, then jumps there.
+fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32) !void {
+    a.input.beginDrag();
+    const screen_page = a.page(a.screen.pixels);
+    var target = toolbar.pageAt(first_x, s.pages.len);
+    var marker: ?u32 = null;
+    const band = a.screen.height - toolbar.scrub_top;
+    try toolbar.drawScrub(a.ui, screen_page, target, s.pages.len, true);
+    marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .drag => |first| {
+                if (marker) |m| {
+                    try a.screen.waitComplete(m);
+                    marker = null;
+                }
+                const next = toolbar.pageAt(a.input.latestDrag() orelse first, s.pages.len);
+                if (next == target) continue;
+                target = next;
+                try toolbar.drawScrub(a.ui, screen_page, target, s.pages.len, true);
+                marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
+            },
+            .drag_end => break,
+            .tap, .pull => {},
+            .power, .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+        }
+    }
+    if (marker) |m| try a.screen.waitComplete(m);
+    s.current = target;
+    try drawToolbar(a, s, title, sheet, true);
 }
 
 /// Shows a note, or the next part of a long one.
@@ -482,7 +543,7 @@ fn closeNote(a: *App, s: *Session) !void {
 }
 
 /// Follows a finger along the brightness slider until it lifts.
-fn dragBrightness(a: *App, background: []const u8, title: []const u8, in_book: bool) !void {
+fn dragBrightness(a: *App, background: []const u8) !void {
     a.input.beginDrag();
     const screen_page = a.page(a.screen.pixels);
     var marker: ?u32 = null;
@@ -515,7 +576,7 @@ fn dragBrightness(a: *App, background: []const u8, title: []const u8, in_book: b
     }
     if (marker) |m| try a.screen.waitComplete(m);
     std.debug.print("drag: {d} updates in {d} ms\n", .{ updates, (nowUs() - started) / 1000 });
-    try drawMenu(a, background, title, in_book, false);
+    try drawMenu(a, background);
     // Clears what the fast waveform left behind, in that row only.
     try a.screen.waitComplete(try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .gc16, .partial));
 }
@@ -578,44 +639,66 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     saveProgress(entry, state_path, &session);
 
     var since_save: u32 = 0;
-    var menu_open = false;
-    var note_open = false;
+    var view: View = .page;
+    a.input.grips = true;
+    defer a.input.grips = true;
     defer saveProgress(entry, state_path, &session);
     while (true) {
         switch (a.input.next()) {
-            .tap => |t| {
-                if (note_open) {
-                    const inside: bool = t.y >= session.note_top;
-                    if (inside and session.note_next != null) {
+            .tap => |t| switch (view) {
+                .note => {
+                    if (t.y >= session.note_top and session.note_next != null) {
                         try showNote(a, &session, session.note_next.?, a.screen.height - session.note_top);
                     } else {
-                        note_open = false;
+                        view = .page;
                         try closeNote(a, &session);
                     }
-                    continue;
-                }
-                if (menu_open) {
-                    const choice = menu.hit(t.x, t.y, true);
+                },
+                .panel => {
+                    const choice = menu.hit(t.x, t.y);
+                    const page = try session.ensure(session.current, session.current);
                     if (applyQuick(a, choice, t.x)) {
-                        const page = try session.ensure(session.current, session.current);
                         if (choice == .slider) {
-                            try dragBrightness(a, page, entry.title, true);
+                            try dragBrightness(a, page);
                         } else {
-                            try drawMenu(a, page, entry.title, true, false);
+                            try drawMenu(a, page);
                         }
                         continue;
                     }
                     switch (choice) {
-                        .none, .dimmer, .brighter, .slider, .airplane => {},
                         .settings => {
                             system.openSettings();
                             return .quit;
                         },
-                        .library => return .library,
                         .close => {
-                            menu_open = false;
-                            try closeMenu(a, try session.ensure(session.current, session.current), true);
+                            view = .page;
+                            try closeMenu(a, page);
                         },
+                        else => {},
+                    }
+                },
+                .toolbar, .sheet => {
+                    const sheet = view == .sheet;
+                    switch (toolbar.hit(t.x, t.y, sheet)) {
+                        .stay, .goto, .bookmark, .search, .more => {},
+                        .close => {
+                            view = .page;
+                            a.input.grips = true;
+                            try closeToolbar(a, &session, sheet);
+                        },
+                        .home => return .library,
+                        .text => {
+                            view = if (sheet) .toolbar else .sheet;
+                            // Shrinking needs the page back under where the sheet was.
+                            try drawToolbar(a, &session, entry.title, view == .sheet, sheet);
+                        },
+                        .chapter_prev, .chapter_next => |direction| {
+                            const sections = try alloc.alloc(u32, session.pages.len);
+                            for (session.pages, sections) |p, *out| out.* = session.paragraphs[p.para].section;
+                            session.current = toolbar.chapterTarget(sections, session.current, direction == .chapter_next);
+                            try drawToolbar(a, &session, entry.title, sheet, true);
+                        },
+                        .scrub => try dragScrub(a, &session, entry.title, sheet, t.x),
                         .smaller, .larger, .tighter, .looser => |change| {
                             var next = a.settings;
                             switch (change) {
@@ -627,58 +710,60 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                             if (std.meta.eql(next, a.settings)) continue;
                             a.settings = next;
                             try relayout(a, alloc, &session);
-                            try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, true);
+                            try drawToolbar(a, &session, entry.title, sheet, true);
                         },
                     }
-                    continue;
-                }
-                if (t.y < touch_zones.top_zone) {
-                    menu_open = true;
-                    a.quick = system.read();
-                    try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
-                    continue;
-                }
-                if (session.referenceAt(t.x, t.y)) |target| {
-                    note_open = true;
-                    try openNote(a, &session, target);
-                    continue;
-                }
-                const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
-                const last: i64 = @intCast(session.pages.len - 1);
-                const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
-                if (target == session.current) continue;
-                try session.show(@intCast(target), t.us, false);
-                since_save += 1;
-                if (since_save >= save_every) {
-                    saveProgress(entry, state_path, &session);
-                    since_save = 0;
-                }
+                },
+                .page => {
+                    if (t.y < touch_zones.top_zone) {
+                        view = .toolbar;
+                        a.input.grips = false;
+                        a.quick = system.read();
+                        try drawToolbar(a, &session, entry.title, false, false);
+                        continue;
+                    }
+                    if (session.referenceAt(t.x, t.y)) |target| {
+                        view = .note;
+                        try openNote(a, &session, target);
+                        continue;
+                    }
+                    const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
+                    const last: i64 = @intCast(session.pages.len - 1);
+                    const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
+                    if (target == session.current) continue;
+                    try session.show(@intCast(target), t.us, false);
+                    since_save += 1;
+                    if (since_save >= save_every) {
+                        saveProgress(entry, state_path, &session);
+                        since_save = 0;
+                    }
+                },
             },
             .drag, .drag_end => {},
             .pull => {
-                if (menu_open or note_open) continue;
-                menu_open = true;
+                if (view != .page) continue;
+                view = .panel;
                 a.quick = system.read();
-                try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
+                try drawMenu(a, try session.ensure(session.current, session.current));
             },
             .power, .idle, .stop => return .quit,
         }
     }
 }
 
-/// The bar over the library. Returns true to quit to the stock UI.
+/// The quick panel over the library. Returns true to quit to the stock UI.
 fn libraryMenu(a: *App, background: []const u8) !bool {
     a.quick = system.read();
-    try drawMenu(a, background, "", false, false);
+    try drawMenu(a, background);
     while (true) {
         switch (a.input.next()) {
             .tap => |t| {
-                const choice = menu.hit(t.x, t.y, false);
+                const choice = menu.hit(t.x, t.y);
                 if (applyQuick(a, choice, t.x)) {
                     if (choice == .slider) {
-                        try dragBrightness(a, background, "", false);
+                        try dragBrightness(a, background);
                     } else {
-                        try drawMenu(a, background, "", false, false);
+                        try drawMenu(a, background);
                     }
                     continue;
                 }
@@ -687,8 +772,8 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                         system.openSettings();
                         return true;
                     },
-                    .close, .library => {
-                        try closeMenu(a, background, false);
+                    .close => {
+                        try closeMenu(a, background);
                         return false;
                     },
                     else => {},
