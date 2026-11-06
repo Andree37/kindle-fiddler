@@ -391,15 +391,15 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, 
 
 fn drawStatus(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
-    icons.menu(page, margin, 34);
+    // One centre line for everything in the strip.
+    const centre = 48;
+    const baseline = centre + 9;
+    icons.menu(page, margin, centre - 14);
     const clock = quick.clockText();
     const time = clock[0 .. std.mem.indexOfScalar(u8, clock, ' ') orelse clock.len];
     const tw = try fonts.caption.measure(time);
-    try fonts.caption.draw(page, w / 2 - tw / 2, 58, time);
-    if (quick.wifi_on) icons.wifi(page, w - 268, 40, 0.4, quick.wifi_bars);
-    var pct: [8]u8 = undefined;
-    try fonts.caption.draw(page, w - 226, 58, std.fmt.bufPrint(&pct, "{d}%", .{quick.battery}) catch "");
-    icons.batterySmall(page, w - margin - 62, 34, quick.battery);
+    try fonts.caption.draw(page, w / 2 - tw / 2, baseline, time);
+    try icons.statusCluster(page, fonts.caption, w - margin, centre, baseline, quick, false);
 }
 
 fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: Filter, order: Order) !void {

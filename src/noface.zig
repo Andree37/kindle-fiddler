@@ -76,12 +76,17 @@ fn openInput(path: [*:0]const u8) !i32 {
     return fd;
 }
 
-const Axis = struct { value: i32, max: i32 };
-
-fn axis(fd: i32, req: u32) Axis {
+fn axisMax(fd: i32, req: u32) i32 {
     var info = std.mem.zeroes([6]i32);
     _ = linux.ioctl(fd, req, @intFromPtr(&info));
-    return .{ .value = info[0], .max = @max(info[2], 1) };
+    return @max(info[2], 1);
+}
+
+/// Current position of a multitouch axis in both slots (EVIOCGMTSLOTS).
+fn slotValues(fd: i32, code: u32) [2]i32 {
+    var request = [_]i32{ @intCast(code), 0, 0 };
+    _ = linux.ioctl(fd, 0x800c450a, @intFromPtr(&request));
+    return .{ request[1], request[2] };
 }
 
 const Action = union(enum) {
@@ -820,17 +825,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const touch = try openInput(touch_device);
     const power = try openInput(power_device);
     // The kernel only reports coordinates that change, so start from the current ones.
-    const axis_x = axis(touch, eviocgabs_x);
-    const axis_y = axis(touch, eviocgabs_y);
     var input = Input{
         .touch = touch,
         .power = power,
         .width = @intCast(screen.width),
         .height = @intCast(screen.height),
-        .x_max = axis_x.max,
-        .y_max = axis_y.max,
-        .xs = .{ axis_x.value, axis_x.value },
-        .ys = .{ axis_y.value, axis_y.value },
+        .x_max = axisMax(touch, eviocgabs_x),
+        .y_max = axisMax(touch, eviocgabs_y),
+        .xs = slotValues(touch, abs_mt_x),
+        .ys = slotValues(touch, abs_mt_y),
         .last_input = nowUs(),
     };
 

@@ -55,7 +55,8 @@ pub fn bluetooth(page: text.Page, cx: f32, cy: f32) void {
 }
 
 pub fn wifi(page: text.Page, cx: f32, cy: f32, scale: f32, bars: u32) void {
-    const p = Pen{ .page = page, .cx = cx, .cy = cy, .scale = scale };
+    // Drawn around its own middle, so it can share a line with text.
+    const p = Pen{ .page = page, .cx = cx, .cy = cy + 2 * scale, .scale = scale };
     page.disc(@intFromFloat(p.x(0)), @intFromFloat(p.y(24)), @intFromFloat(@max(6 * scale, 2)), 0, 0x00);
     const radii = [_]f32{ 19, 34, 49 };
     for (radii, 0..) |r, i| {
@@ -101,9 +102,13 @@ pub fn batteryFill(inner: u32, percent: u32) u32 {
     return inner * level / 100;
 }
 
-pub fn battery(page: text.Page, x: f32, y: f32, percent: u32) void {
+pub const battery_width = 85; // Including the terminal
+
+/// `cy` is the vertical centre.
+pub fn battery(page: text.Page, x: f32, cy: f32, percent: u32) void {
     const w = 78;
     const h = 36;
+    const y = cy - h / 2;
     page.stroke(x, y, x + w, y, 3);
     page.stroke(x, y + h, x + w, y + h, 3);
     page.stroke(x, y, x, y + h, 3);
@@ -131,15 +136,32 @@ pub fn menu(page: text.Page, x: f32, y: f32) void {
     page.stroke(x, y + 28, x + 44, y + 28, 4);
 }
 
+/// Wi-Fi, percent and battery on one centre line, right-aligned to `right`.
+pub fn statusCluster(page: text.Page, font: *text.Font, right: f32, cy: f32, baseline: i32, quick: anytype, large: bool) !void {
+    const battery_w: f32 = if (large) battery_width else battery_small_width;
+    const gap: f32 = if (large) 20 else 16;
+    const battery_x = right - battery_w;
+    if (large) battery(page, battery_x, cy, quick.battery) else batterySmall(page, battery_x, cy, quick.battery);
+    var label: [8]u8 = undefined;
+    const pct = std.fmt.bufPrint(&label, "{d}%", .{quick.battery}) catch "";
+    const pct_x = battery_x - gap - try font.measure(pct);
+    try font.draw(page, pct_x, baseline, pct);
+    if (quick.wifi_on) wifi(page, pct_x - gap - 22, cy, 0.42, quick.wifi_bars);
+}
+
 pub fn check(page: text.Page, cx: f32, cy: f32) void {
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 25, 0, 0xff);
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 22, 0, 0x00);
     page.fillPolyWhiteCheck(cx, cy);
 }
 
-pub fn batterySmall(page: text.Page, x: f32, y: f32, percent: u32) void {
+pub const battery_small_width = 59; // Including the terminal
+
+/// `cy` is the vertical centre.
+pub fn batterySmall(page: text.Page, x: f32, cy: f32, percent: u32) void {
     const w = 54;
     const h = 26;
+    const y = cy - h / 2;
     page.stroke(x, y, x + w, y, 2);
     page.stroke(x, y + h, x + w, y + h, 2);
     page.stroke(x, y, x, y + h, 2);

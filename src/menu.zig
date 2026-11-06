@@ -151,10 +151,7 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book:
 
     try fonts.title.draw(page, 60, 70, "Kindle Paperwhite");
     try fonts.small.draw(page, 60, 120, quick.clockText());
-    if (quick.wifi_on) icons.wifi(page, w - 300, 56, 0.42, quick.wifi_bars);
-    var pct: [8]u8 = undefined;
-    try fonts.small.draw(page, w - 250, 72, std.fmt.bufPrint(&pct, "{d}%", .{quick.battery}) catch "");
-    icons.battery(page, w - 140, 44, quick.battery);
+    try icons.statusCluster(page, fonts.small, w - 60, 58, 70, quick, true);
 
     for (shortcuts) |s| {
         drawIcon(page, s, quick);
