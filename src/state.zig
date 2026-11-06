@@ -26,6 +26,13 @@ pub fn pathFor(buf: []u8, dir: []const u8, book_path: []const u8) ![:0]u8 {
     return std.fmt.bufPrintSentinel(buf, "{s}/state-{s}", .{ dir, &hex }, 0);
 }
 
+/// True when the Kindle's own position should win over ours: we have nothing
+/// beyond page one, or the stock reader had the book open more recently.
+pub fn preferKindle(saved: State, kindle_last: u64) bool {
+    if (saved.para == 0 and saved.byte == 0) return true;
+    return kindle_last > saved.opened;
+}
+
 pub fn parse(content: []const u8) State {
     var it = std.mem.tokenizeAny(u8, content, " \n");
     var s = State{};
@@ -82,4 +89,10 @@ test "new files keep percent and time" {
     const s = parse("1 2 37 1793990000\n");
     try std.testing.expectEqual(@as(u32, 37), s.percent.?);
     try std.testing.expectEqual(@as(u64, 1793990000), s.opened);
+}
+
+test "kindle position wins until we have our own" {
+    try std.testing.expect(preferKindle(.{}, 100));
+    try std.testing.expect(preferKindle(.{ .para = 5, .opened = 100 }, 200));
+    try std.testing.expect(!preferKindle(.{ .para = 5, .opened = 300 }, 200));
 }

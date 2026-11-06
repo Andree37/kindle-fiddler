@@ -11,6 +11,8 @@ pub const Entry = struct {
     percent: u32,
     last: u64,
     finished: bool = false,
+    kindle_percent: u32 = 0,
+    kindle_last: u64 = 0,
     thumbnail: [:0]const u8 = "",
     added: u64 = 0,
     cover: ?[]u8 = null,
@@ -86,6 +88,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .last = last,
             // Taken here, before our own progress replaces the percent.
             .finished = read_state == read_state_finished or percent >= finished_percent,
+            .kindle_percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
+            .kindle_last = last,
             .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
             .added = added,
         });

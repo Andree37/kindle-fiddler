@@ -359,7 +359,10 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     var path_buf: [320]u8 = undefined;
     const state_path = try state.pathFor(&path_buf, a.state_dir, entry.path);
     const saved = state.load(state_path);
-    const start = pageContaining(pages, saved.para, saved.byte);
+    const start = if (state.preferKindle(saved, entry.kindle_last))
+        @min(pages.len * entry.kindle_percent / 100, pages.len - 1)
+    else
+        pageContaining(pages, saved.para, saved.byte);
 
     for (&a.slots) |*slot| slot.page = -1;
     var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start };
@@ -526,6 +529,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var path_buf: [320]u8 = undefined;
     for (entries) |*e| {
         const saved = state.load(try state.pathFor(&path_buf, state_dir, e.path));
+        if (state.preferKindle(saved, e.kindle_last)) continue;
         if (saved.percent) |p| e.percent = @min(p, 100);
         e.last = @max(e.last, saved.opened);
     }
