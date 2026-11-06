@@ -21,6 +21,22 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(exe);
     }
 
+    for ([_][]const u8{"pagetest"}) |name| {
+        const exe = b.addExecutable(.{
+            .name = name,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(b.fmt("src/{s}.zig", .{name})),
+                .target = target,
+                .optimize = .ReleaseFast,
+                .strip = true,
+                .link_libc = true,
+            }),
+        });
+        exe.root_module.addIncludePath(b.path("third_party"));
+        exe.root_module.addCSourceFile(.{ .file = b.path("src/stb_shim.c"), .flags = &.{"-O2"} });
+        b.installArtifact(exe);
+    }
+
     const test_step = b.step("test", "Run unit tests on the host");
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
