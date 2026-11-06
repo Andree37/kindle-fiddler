@@ -151,13 +151,25 @@ fn loadState(path: [*:0]const u8) text.Pos {
 }
 
 fn saveState(path: [*:0]const u8, pos: text.Pos) void {
-    const rc = linux.open(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644);
+    // Write beside the real file and rename, so a crash can't lose the old position.
+    var tmp: [256]u8 = undefined;
+    const name = std.mem.sliceTo(path, 0);
+    const tmp_len = name.len + 4;
+    if (tmp_len >= tmp.len) return;
+    @memcpy(tmp[0..name.len], name);
+    @memcpy(tmp[name.len..tmp_len], ".tmp");
+    tmp[tmp_len] = 0;
+    const tmp_path: [*:0]const u8 = @ptrCast(&tmp);
+
+    const rc = linux.open(tmp_path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644);
     if (failed(rc)) return;
     const fd: i32 = @intCast(rc);
-    defer _ = linux.close(fd);
     var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d} {d}\n", .{ pos.para, pos.byte }) catch return;
-    _ = linux.write(fd, s.ptr, s.len);
+    const s = std.fmt.bufPrint(&buf, "{d} {d}\n", .{ pos.para, pos.byte }) catch "";
+    const written = linux.write(fd, s.ptr, s.len);
+    _ = linux.close(fd);
+    if (failed(written) or written != s.len or s.len == 0) return;
+    _ = linux.rename(tmp_path, path);
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {

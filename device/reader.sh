@@ -17,5 +17,6 @@ lipc-set-prop com.lab126.powerd preventScreenSaver 1
 lipc-set-prop com.lab126.pillow disableEnablePillow disable
 killall -STOP awesome
 
-"$DIR/reader" "$1" "$FONT" "$DIR/state" >> "$DIR/reader.log" 2>&1
+STATE="$DIR/state-$(basename "$1" | md5sum | cut -c1-16)"
+"$DIR/reader" "$1" "$FONT" "$STATE" >> "$DIR/reader.log" 2>&1
 echo "exit code $?" >> "$DIR/reader.log"
