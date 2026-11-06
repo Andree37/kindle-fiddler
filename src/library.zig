@@ -28,6 +28,31 @@ pub fn cleanTitle(raw: []const u8) []const u8 {
     return std.mem.trim(u8, raw[0..end], " ");
 }
 
+/// Filename conversion turned ":" into "_", and some titles carry a series prefix
+/// like "[Bobiverse 01] \u{2022} We Are Legion".
+pub fn fixTitle(alloc: std.mem.Allocator, raw: []const u8) ![]const u8 {
+    var t = cleanTitle(raw);
+    const bullet = "\u{2022} ";
+    if (t.len > 0 and t[0] == '[') {
+        if (std.mem.indexOf(u8, t, bullet)) |at| t = t[at + bullet.len..];
+    }
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < t.len) {
+        if (std.mem.startsWith(u8, t[i..], " _ ")) {
+            try out.appendSlice(alloc, ": ");
+            i += 3;
+        } else if (std.mem.startsWith(u8, t[i..], "_ ")) {
+            try out.appendSlice(alloc, ": ");
+            i += 2;
+        } else {
+            try out.append(alloc, t[i]);
+            i += 1;
+        }
+    }
+    return std.mem.trimEnd(u8, out.items, "_ ");
+}
+
 /// Authors can repeat as "Liu, Cixin [Liu, Cixin]".
 pub fn cleanAuthor(raw: []const u8) []const u8 {
     const end = std.mem.indexOf(u8, raw, " [") orelse raw.len;
@@ -48,7 +73,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
         if (path.len == 0) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
-            .title = cleanTitle(title),
+            .title = try fixTitle(alloc, title),
             .author = cleanAuthor(author),
             .percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
             .last = last,
@@ -251,4 +276,15 @@ test "tabs stay out of the top-left hold corner" {
     try std.testing.expectEqual(Hit{ .tab = .reading }, hit(600, 80, 1272, 0, 79));
     try std.testing.expectEqual(Hit{ .tab = .read }, hit(800, 80, 1272, 0, 79));
     try std.testing.expectEqual(Hit.exit, hit(1000, 80, 1272, 0, 79));
+}
+
+test "titles get colons and lose series prefixes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings("The Butcher's Masquerade: Dungeon Crawler Carl (Book 5)", try fixTitle(a, "The Butcher's Masquerade_ Dungeon Crawler Carl (Book 5) -- Matt Dinniman"));
+    try std.testing.expectEqualStrings("Streaming Data: Understanding the Real-time Pipeline", try fixTitle(a, "Streaming Data _ Understanding the Real-time Pipeline -- Andrew"));
+    try std.testing.expectEqualStrings("Why Look at Animals", try fixTitle(a, "Why Look at Animals_ -- John Berger"));
+    try std.testing.expectEqualStrings("We Are Legion", try fixTitle(a, "[Bobiverse 01] \u{2022} We Are Legion -- Taylor"));
+    try std.testing.expectEqualStrings("file_name", try fixTitle(a, "file_name"));
 }
