@@ -1,13 +1,17 @@
-//! Fast page-turning reader. Usage: reader <book.kfx> <font.ttf> <state-file>
+//! Fast reader with its own library screen.
+//! Usage: reader <library.tsv> <regular.ttf> <bold.ttf> <state-dir>
 //!
-//! Touch-down turns the page: left third goes back, the rest goes forward.
-//! Hold the top-left corner for one second to quit. The power button quits too.
+//! In a book, touch-down turns the page: left third goes back, the rest forward.
+//! Hold the top-left corner for one second to return to the library.
+//! In the library, "Kindle" or the power button returns to the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
 const cache = @import("cache.zig");
 const file = @import("file.zig");
 const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
+const library = @import("library.zig");
+const state = @import("state.zig");
 const text = @import("text.zig");
 const touch_zones = @import("touch.zig");
 
@@ -27,7 +31,6 @@ const eviocgabs_y: u32 = 0x80184540 + 0x36;
 const ev_key = 1;
 const ev_abs = 3;
 const abs_mt_slot = 0x2f;
-const abs_mt_touch_major = 0x30;
 const abs_mt_x = 0x35;
 const abs_mt_y = 0x36;
 const abs_mt_tracking = 0x39;
@@ -52,6 +55,12 @@ fn nowUs() u64 {
     return @as(u64, @intCast(ts.sec)) * 1_000_000 + @as(u64, @intCast(ts.nsec)) / 1000;
 }
 
+fn unixTime() u64 {
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.REALTIME, &ts);
+    return @intCast(ts.sec);
+}
+
 fn failed(rc: usize) bool {
     return rc > std.math.maxInt(usize) - 4096;
 }
@@ -68,59 +77,178 @@ fn openInput(path: [*:0]const u8) !i32 {
 fn axisMax(fd: i32, req: u32) i32 {
     var info = std.mem.zeroes([6]i32);
     _ = linux.ioctl(fd, req, @intFromPtr(&info));
-    return info[2];
+    return @max(info[2], 1);
 }
+
+const Action = union(enum) {
+    tap: struct { x: i32, y: i32, us: u64 },
+    hold,
+    power,
+    idle,
+    stop,
+};
+
+/// Turns raw touch events into taps and the corner hold.
+/// The panel reports two slots. Every new finger counts, so a resting thumb
+/// can't block taps from another finger.
+const Input = struct {
+    touch: i32,
+    power: i32,
+    width: i32,
+    height: i32,
+    x_max: i32,
+    y_max: i32,
+    events: [64]InputEvent = undefined,
+    event_count: usize = 0,
+    event_next: usize = 0,
+    slot: usize = 0,
+    xs: [2]i32 = .{ 0, 0 },
+    ys: [2]i32 = .{ 0, 0 },
+    pending: ?usize = null,
+    down_us: u64 = 0,
+    hold_slot: ?usize = null,
+    hold_started: ?u64 = null,
+    last_input: u64 = 0,
+
+    fn next(in: *Input) Action {
+        while (true) {
+            if (stop_requested.load(.acquire)) return .stop;
+            while (in.event_next < in.event_count) {
+                const e = in.events[in.event_next];
+                in.event_next += 1;
+                if (in.handle(e)) |action| return action;
+            }
+            if (in.hold_started) |t| {
+                if (nowUs() - t >= corner_hold_ms * 1000) {
+                    in.hold_started = null;
+                    in.hold_slot = null;
+                    return .hold;
+                }
+            }
+            if (nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
+
+            var fds = [_]linux.pollfd{
+                .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
+                .{ .fd = in.power, .events = linux.POLL.IN, .revents = 0 },
+            };
+            _ = linux.poll(&fds, fds.len, if (in.hold_started != null) 50 else 1000);
+
+            var power_events: [16]InputEvent = undefined;
+            const power_n = linux.read(in.power, @ptrCast(&power_events), @sizeOf(@TypeOf(power_events)));
+            if (!failed(power_n) and power_n >= @sizeOf(InputEvent)) {
+                for (power_events[0 .. power_n / @sizeOf(InputEvent)]) |e| {
+                    if (e.kind == ev_key and e.value == 1) return .power;
+                }
+            }
+
+            const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
+            if (!failed(n) and n >= @sizeOf(InputEvent)) {
+                in.event_count = n / @sizeOf(InputEvent);
+                in.event_next = 0;
+                in.last_input = nowUs();
+            }
+        }
+    }
+
+    fn handle(in: *Input, e: InputEvent) ?Action {
+        if (e.kind == ev_abs) {
+            switch (e.code) {
+                abs_mt_slot => in.slot = @min(@as(usize, @intCast(@max(e.value, 0))), 1),
+                abs_mt_x => in.xs[in.slot] = e.value,
+                abs_mt_y => in.ys[in.slot] = e.value,
+                abs_mt_tracking => {
+                    if (e.value >= 0) {
+                        in.pending = in.slot;
+                        in.down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
+                    } else if (in.hold_slot == in.slot) {
+                        in.hold_slot = null;
+                        in.hold_started = null;
+                    }
+                },
+                else => {},
+            }
+            return null;
+        }
+        // Coordinates of a new touch arrive just before the SYN that ends its packet.
+        if (e.kind != 0) return null;
+        const touched = in.pending orelse return null;
+        in.pending = null;
+        const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
+        const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
+        if (touch_zones.isGrip(px, py, in.width, in.height)) return null;
+        if (px < 200 and py < 200) {
+            in.hold_started = nowUs();
+            in.hold_slot = touched;
+            return null;
+        }
+        return .{ .tap = .{ .x = px, .y = py, .us = in.down_us } };
+    }
+};
 
 const Slot = struct { page: i64 = -1, buf: []u8 };
 
-const Reader = struct {
+const App = struct {
+    alloc: std.mem.Allocator,
     screen: *hwtcon.Screen,
-    font: *text.Font,
+    input: *Input,
+    body: *text.Font,
     footer: *text.Font,
-    book: kfx.Book,
-    layout: text.Layout,
-    pages: []const text.Pos,
     slots: [3]Slot,
-    current: usize = 0,
-    turns: u32 = 0,
+    state_dir: []const u8,
+    layout: text.Layout,
 
-    fn geometry(r: *Reader, buf: []u8) text.Page {
-        return .{ .buf = buf, .width = r.screen.width, .height = r.screen.height, .stride = r.screen.stride };
+    fn page(a: *App, buf: []u8) text.Page {
+        return .{ .buf = buf, .width = a.screen.width, .height = a.screen.height, .stride = a.screen.stride };
     }
 
+    fn present(a: *App, buf: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode) !void {
+        @memcpy(a.screen.pixels, buf);
+        try a.screen.waitComplete(try a.screen.update(wf, mode));
+    }
+};
+
+const Session = struct {
+    app: *App,
+    paragraphs: []const kfx.Paragraph,
+    pages: []const text.Pos,
+    current: usize,
+    turns: u32 = 0,
+
     /// Get a rendered page, reusing a cached one when possible.
-    fn ensure(r: *Reader, index: usize, center: usize) ![]const u8 {
-        for (r.slots) |s| {
-            if (s.page == @as(i64, @intCast(index))) return s.buf;
+    fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
+        const a = s.app;
+        for (a.slots) |slot| {
+            if (slot.page == @as(i64, @intCast(index))) return slot.buf;
         }
         var cached: [3]i64 = undefined;
-        for (r.slots, &cached) |s, *c| c.* = s.page;
+        for (a.slots, &cached) |slot, *c| c.* = slot.page;
         const victim = cache.victim(cached, @intCast(center));
-        const buf = r.slots[victim].buf;
-        const page = r.geometry(buf);
-        _ = try text.renderPage(r.font, page, r.book.paragraphs, r.pages[index], r.layout);
+        const buf = a.slots[victim].buf;
+        const page = a.page(buf);
+        _ = try text.renderPage(a.body, page, s.paragraphs, s.pages[index], a.layout);
 
         var label: [32]u8 = undefined;
-        const s = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, r.pages.len }) catch "";
-        const x = @as(f32, @floatFromInt(r.screen.width)) / 2 - 50;
-        try r.footer.draw(page, x, @intCast(r.screen.height - 60), s);
+        const counter = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, s.pages.len }) catch "";
+        const x = @as(f32, @floatFromInt(a.screen.width)) / 2 - 50;
+        try a.footer.draw(page, x, @intCast(a.screen.height - 60), counter);
 
-        r.slots[victim].page = @intCast(index);
+        a.slots[victim].page = @intCast(index);
         return buf;
     }
 
-    fn show(r: *Reader, index: usize, touched_us: ?u64, force_clean: bool) !void {
-        const buf = try r.ensure(index, index);
-        @memcpy(r.screen.pixels, buf);
-        r.current = index;
-        r.turns += 1;
-        const clean = force_clean or r.turns % clean_refresh_every == 0;
+    fn show(s: *Session, index: usize, touched_us: ?u64, force_clean: bool) !void {
+        const a = s.app;
+        const buf = try s.ensure(index, index);
+        @memcpy(a.screen.pixels, buf);
+        s.current = index;
+        s.turns += 1;
+        const clean = force_clean or s.turns % clean_refresh_every == 0;
         const marker = if (clean)
-            try r.screen.update(.gc16, .full)
+            try a.screen.update(.gc16, .full)
         else
-            try r.screen.update(page_waveform, .partial);
+            try a.screen.update(page_waveform, .partial);
         const queued = nowUs();
-        try r.screen.waitComplete(marker);
+        try a.screen.waitComplete(marker);
         const done = nowUs();
         if (touched_us) |t| {
             std.debug.print("turn to {d}: touch to queued {d} us, touch to done {d} ms{s}\n", .{
@@ -128,93 +256,161 @@ const Reader = struct {
             });
         }
         // Prepare both neighbours now, so the next turn is only a copy.
-        if (index + 1 < r.pages.len) _ = try r.ensure(index + 1, index);
-        if (index > 0) _ = try r.ensure(index - 1, index);
-    }
-
-    fn turn(r: *Reader, delta: i32, touched_us: u64) !void {
-        const target = @as(i64, @intCast(r.current)) + delta;
-        if (target < 0 or target >= r.pages.len) return;
-        try r.show(@intCast(target), touched_us, false);
+        if (index + 1 < s.pages.len) _ = try s.ensure(index + 1, index);
+        if (index > 0) _ = try s.ensure(index - 1, index);
     }
 };
 
-fn loadState(path: [*:0]const u8) text.Pos {
-    const rc = linux.open(path, .{ .ACCMODE = .RDONLY }, 0);
-    if (failed(rc)) return .{};
-    const fd: i32 = @intCast(rc);
-    defer _ = linux.close(fd);
-    var buf: [64]u8 = undefined;
-    const n = linux.read(fd, &buf, buf.len);
-    if (failed(n)) return .{};
-    var it = std.mem.tokenizeAny(u8, buf[0..n], " \n");
-    const para = std.fmt.parseInt(usize, it.next() orelse return .{}, 10) catch return .{};
-    const byte = std.fmt.parseInt(usize, it.next() orelse return .{}, 10) catch return .{};
-    return .{ .para = para, .byte = byte };
+const Outcome = enum { library, quit };
+
+fn saveProgress(entry: *library.Entry, path: [*:0]const u8, s: *const Session) void {
+    const pos = s.pages[s.current];
+    const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
+    const now = unixTime();
+    state.save(path, .{ .para = pos.para, .byte = pos.byte, .percent = percent, .opened = now });
+    entry.percent = percent;
+    entry.last = now;
 }
 
-fn saveState(path: [*:0]const u8, pos: text.Pos) void {
-    // Write beside the real file and rename, so a crash can't lose the old position.
-    var tmp: [256]u8 = undefined;
-    const name = std.mem.sliceTo(path, 0);
-    const tmp_len = name.len + 4;
-    if (tmp_len >= tmp.len) return;
-    @memcpy(tmp[0..name.len], name);
-    @memcpy(tmp[name.len..tmp_len], ".tmp");
-    tmp[tmp_len] = 0;
-    const tmp_path: [*:0]const u8 = @ptrCast(&tmp);
-
-    const rc = linux.open(tmp_path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644);
-    if (failed(rc)) return;
-    const fd: i32 = @intCast(rc);
-    var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d} {d}\n", .{ pos.para, pos.byte }) catch "";
-    const written = linux.write(fd, s.ptr, s.len);
-    _ = linux.close(fd);
-    if (failed(written) or written != s.len or s.len == 0) return;
-    _ = linux.rename(tmp_path, path);
-}
-
-pub fn main(init: std.process.Init.Minimal) !void {
-    const argv = init.args.vector;
-    if (argv.len != 4) return error.Usage;
-    const state_path = argv[3];
-    const alloc = std.heap.page_allocator;
+fn readBook(a: *App, entry: *library.Entry) !Outcome {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     const t0 = nowUs();
-    const book = try kfx.parse(alloc, try file.map(argv[1]));
-    const ttf = try file.map(argv[2]);
-    var screen = try hwtcon.Screen.open();
-    var font = try text.Font.init(alloc, ttf, 46, 1.35);
-    var footer = try text.Font.init(alloc, ttf, 28, 1.2);
-    const layout = text.Layout{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 };
+    const data = try file.map(entry.path);
+    defer file.unmap(data);
+    const book = try kfx.parse(alloc, data);
 
     // Paginate the whole book so going backwards is exact.
-    const geometry = text.Page{ .buf = &.{}, .width = screen.width, .height = screen.height, .stride = screen.stride };
+    const geometry = a.page(&.{});
     var pages: std.ArrayList(text.Pos) = .empty;
     var pos = text.Pos{};
     while (pos.para < book.paragraphs.len) {
         try pages.append(alloc, pos);
-        const next = try text.layoutPage(&font, null, geometry, book.paragraphs, pos, layout);
+        const next = try text.layoutPage(a.body, null, geometry, book.paragraphs, pos, a.layout);
         if (next.para == pos.para and next.byte == pos.byte) break;
         pos = next;
     }
     if (pages.items.len == 0) return error.EmptyBook;
-    std.debug.print("{d} pages, startup {d} ms\n", .{ pages.items.len, (nowUs() - t0) / 1000 });
+    std.debug.print("{d} pages, open {d} ms\n", .{ pages.items.len, (nowUs() - t0) / 1000 });
 
-    const saved_pos = loadState(state_path);
+    var path_buf: [320]u8 = undefined;
+    const state_path = try state.pathFor(&path_buf, a.state_dir, entry.path);
+    const saved = state.load(state_path);
     var start: usize = 0;
     for (pages.items, 0..) |p, i| {
-        if (p.para < saved_pos.para or (p.para == saved_pos.para and p.byte <= saved_pos.byte)) start = i;
+        if (p.para < saved.para or (p.para == saved.para and p.byte <= saved.byte)) start = i;
     }
+
+    for (&a.slots) |*slot| slot.page = -1;
+    var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages.items, .current = start };
+    try session.show(start, null, true);
+    saveProgress(entry, state_path, &session);
+
+    var since_save: u32 = 0;
+    defer saveProgress(entry, state_path, &session);
+    while (true) {
+        switch (a.input.next()) {
+            .tap => |t| {
+                const delta: i32 = if (t.x < @divTrunc(a.input.width, 3)) -1 else 1;
+                const target = @as(i64, @intCast(session.current)) + delta;
+                if (target < 0 or target >= session.pages.len) continue;
+                try session.show(@intCast(target), t.us, false);
+                since_save += 1;
+                if (since_save >= save_every) {
+                    saveProgress(entry, state_path, &session);
+                    since_save = 0;
+                }
+            },
+            .hold => return .library,
+            .power, .idle, .stop => return .quit,
+        }
+    }
+}
+
+fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
+    var index: usize = 0;
+    var message: []const u8 = "";
+    const buf = a.slots[0].buf;
+    a.slots[0].page = -1;
+
+    while (true) {
+        library.sort(entries);
+        index = 0;
+        try library.render(fonts, a.page(buf), entries, index, message);
+        try a.present(buf, .gc16, .full);
+        message = "";
+
+        browse: while (true) {
+            switch (a.input.next()) {
+                .tap => |t| switch (library.hit(t.x, t.y, a.input.width, index, entries.len)) {
+                    .none => {},
+                    .exit => return,
+                    .prev, .next => {
+                        const forward = library.hit(t.x, t.y, a.input.width, index, entries.len) == .next;
+                        const count = library.pageCount(entries.len);
+                        if (forward and index + 1 >= count) continue;
+                        if (!forward and index == 0) continue;
+                        index = if (forward) index + 1 else index - 1;
+                        try library.render(fonts, a.page(buf), entries, index, "");
+                        try a.present(buf, page_waveform, .partial);
+                    },
+                    .book => |i| {
+                        const outcome = readBook(a, &entries[i]) catch |err| blk: {
+                            std.debug.print("could not open book: {s}\n", .{@errorName(err)});
+                            message = "This book can't be opened here.";
+                            break :blk Outcome.library;
+                        };
+                        if (outcome == .quit) return;
+                        a.slots[0].page = -1;
+                        break :browse;
+                    },
+                },
+                .hold => {},
+                .power, .idle, .stop => return,
+            }
+        }
+    }
+}
+
+pub fn main(init: std.process.Init.Minimal) !void {
+    const argv = init.args.vector;
+    if (argv.len != 5) return error.Usage;
+    const alloc = std.heap.page_allocator;
+
+    const list = try file.map(argv[1]);
+    const entries = try library.parse(alloc, list);
+    const state_dir = std.mem.sliceTo(argv[4], 0);
+    var path_buf: [320]u8 = undefined;
+    for (entries) |*e| {
+        const saved = state.load(try state.pathFor(&path_buf, state_dir, e.path));
+        if (saved.percent) |p| e.percent = @min(p, 100);
+        e.last = @max(e.last, saved.opened);
+    }
+
+    const regular = try file.map(argv[2]);
+    const bold = try file.map(argv[3]);
+    var screen = try hwtcon.Screen.open();
+    var body = try text.Font.init(alloc, regular, 46, 1.35);
+    var footer = try text.Font.init(alloc, regular, 28, 1.2);
+    var title = try text.Font.init(alloc, bold, 40, 1.2);
+    var small = try text.Font.init(alloc, regular, 30, 1.2);
 
     var slots: [3]Slot = undefined;
     for (&slots) |*s| s.* = .{ .buf = try alloc.alloc(u8, screen.pixels.len) };
 
     const touch = try openInput(touch_device);
     const power = try openInput(power_device);
-    const x_max = @max(axisMax(touch, eviocgabs_x), 1);
-    const y_max = @max(axisMax(touch, eviocgabs_y), 1);
+    var input = Input{
+        .touch = touch,
+        .power = power,
+        .width = @intCast(screen.width),
+        .height = @intCast(screen.height),
+        .x_max = axisMax(touch, eviocgabs_x),
+        .y_max = axisMax(touch, eviocgabs_y),
+        .last_input = nowUs(),
+    };
 
     installSignals();
     const saved_screen = try alloc.alloc(u8, screen.pixels.len);
@@ -229,104 +425,16 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (failed(linux.ioctl(touch, eviocgrab, 1))) return error.GrabFailed;
     defer _ = linux.ioctl(touch, eviocgrab, 0);
 
-    var reader = Reader{
+    var app = App{
+        .alloc = alloc,
         .screen = &screen,
-        .font = &font,
+        .input = &input,
+        .body = &body,
         .footer = &footer,
-        .book = book,
-        .layout = layout,
-        .pages = pages.items,
         .slots = slots,
-        .current = start,
+        .state_dir = state_dir,
+        .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 },
     };
-    try reader.show(start, null, true);
-
-    var fds = [_]linux.pollfd{
-        .{ .fd = touch, .events = linux.POLL.IN, .revents = 0 },
-        .{ .fd = power, .events = linux.POLL.IN, .revents = 0 },
-    };
-    // The panel reports two touch slots. Every new finger counts, so a resting
-    // thumb can't block taps from another finger.
-    var slot: usize = 0;
-    var xs = [_]i32{ 0, 0 };
-    var ys = [_]i32{ 0, 0 };
-    var sizes = [_]i32{ 0, 0 };
-    var pending_down: ?usize = null;
-    var hold_slot: ?usize = null;
-    var down_us: u64 = 0;
-    var hold_started: ?u64 = null;
-    var last_input = nowUs();
-    var since_save: u32 = 0;
-
-    defer saveState(state_path, reader.pages[reader.current]);
-
-    while (!stop_requested.load(.acquire)) {
-        const wait: i32 = if (hold_started != null) 50 else 1000;
-        _ = linux.poll(&fds, fds.len, wait);
-
-        var events: [64]InputEvent = undefined;
-        const power_n = linux.read(power, @ptrCast(&events), @sizeOf(@TypeOf(events)));
-        if (!failed(power_n) and power_n >= @sizeOf(InputEvent)) {
-            for (events[0 .. power_n / @sizeOf(InputEvent)]) |e| {
-                if (e.kind == ev_key and e.value == 1) {
-                    std.debug.print("quit: power button\n", .{});
-                    return;
-                }
-            }
-        }
-
-        const n = linux.read(touch, @ptrCast(&events), @sizeOf(@TypeOf(events)));
-        if (!failed(n) and n >= @sizeOf(InputEvent)) {
-            last_input = nowUs();
-            for (events[0 .. n / @sizeOf(InputEvent)]) |e| {
-                if (e.kind == ev_abs and e.code == abs_mt_slot) slot = @min(@as(usize, @intCast(@max(e.value, 0))), 1);
-                if (e.kind == ev_abs and e.code == abs_mt_touch_major) sizes[slot] = e.value;
-                if (e.kind == ev_abs and e.code == abs_mt_x) xs[slot] = e.value;
-                if (e.kind == ev_abs and e.code == abs_mt_y) ys[slot] = e.value;
-                if (e.kind == ev_abs and e.code == abs_mt_tracking) {
-                    if (e.value >= 0) {
-                        pending_down = slot;
-                        down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
-                    } else if (hold_slot == slot) {
-                        hold_slot = null;
-                        hold_started = null;
-                    }
-                }
-                // Coordinates of a new touch arrive just before the SYN that ends its packet.
-                if (e.kind == 0 and pending_down != null) {
-                    const touched = pending_down.?;
-                    pending_down = null;
-                    const px = @divTrunc(xs[touched] * @as(i32, @intCast(screen.width)), x_max);
-                    const py = @divTrunc(ys[touched] * @as(i32, @intCast(screen.height)), y_max);
-                    std.debug.print("touch slot {d} at {d},{d} size {d}\n", .{ touched, px, py, sizes[touched] });
-                    if (touch_zones.isGrip(px, py, @intCast(screen.width), @intCast(screen.height))) {
-                        // Resting thumb, not a tap.
-                    } else if (px < 200 and py < 200) {
-                        hold_started = nowUs();
-                        hold_slot = touched;
-                    } else {
-                        const delta: i32 = if (px < @as(i32, @intCast(screen.width / 3))) -1 else 1;
-                        try reader.turn(delta, down_us);
-                        since_save += 1;
-                        if (since_save >= save_every) {
-                            saveState(state_path, reader.pages[reader.current]);
-                            since_save = 0;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (hold_started) |t| {
-            if (nowUs() - t >= corner_hold_ms * 1000) {
-                std.debug.print("quit: corner hold\n", .{});
-                return;
-            }
-        }
-        if (nowUs() - last_input > idle_quit_ms * 1000) {
-            std.debug.print("quit: idle\n", .{});
-            return;
-        }
-    }
-    std.debug.print("quit: signal\n", .{});
+    try runLibrary(&app, entries, .{ .title = &title, .small = &small });
+    std.debug.print("quit\n", .{});
 }
