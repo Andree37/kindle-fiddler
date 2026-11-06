@@ -243,12 +243,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .{ .fd = touch, .events = linux.POLL.IN, .revents = 0 },
         .{ .fd = power, .events = linux.POLL.IN, .revents = 0 },
     };
-    // The panel reports two touch slots. Only the first finger down counts.
+    // The panel reports two touch slots. Every new finger counts, so a resting
+    // thumb can't block taps from another finger.
     var slot: usize = 0;
     var xs = [_]i32{ 0, 0 };
     var ys = [_]i32{ 0, 0 };
-    var primary: ?usize = null;
-    var pending_down = false;
+    var pending_down: ?usize = null;
+    var hold_slot: ?usize = null;
     var down_us: u64 = 0;
     var hold_started: ?u64 = null;
     var last_input = nowUs();
@@ -280,23 +281,22 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 if (e.kind == ev_abs and e.code == abs_mt_y) ys[slot] = e.value;
                 if (e.kind == ev_abs and e.code == abs_mt_tracking) {
                     if (e.value >= 0) {
-                        if (primary == null) {
-                            primary = slot;
-                            pending_down = true;
-                            down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
-                        }
-                    } else if (primary == slot) {
-                        primary = null;
+                        pending_down = slot;
+                        down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
+                    } else if (hold_slot == slot) {
+                        hold_slot = null;
                         hold_started = null;
                     }
                 }
                 // Coordinates of a new touch arrive just before the SYN that ends its packet.
-                if (e.kind == 0 and pending_down and primary != null) {
-                    pending_down = false;
-                    const px = @divTrunc(xs[primary.?] * @as(i32, @intCast(screen.width)), x_max);
-                    const py = @divTrunc(ys[primary.?] * @as(i32, @intCast(screen.height)), y_max);
+                if (e.kind == 0 and pending_down != null) {
+                    const touched = pending_down.?;
+                    pending_down = null;
+                    const px = @divTrunc(xs[touched] * @as(i32, @intCast(screen.width)), x_max);
+                    const py = @divTrunc(ys[touched] * @as(i32, @intCast(screen.height)), y_max);
                     if (px < 200 and py < 200) {
                         hold_started = nowUs();
+                        hold_slot = touched;
                     } else {
                         const delta: i32 = if (px < @as(i32, @intCast(screen.width / 3))) -1 else 1;
                         try reader.turn(delta, down_us);
