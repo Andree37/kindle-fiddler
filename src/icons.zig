@@ -180,6 +180,18 @@ pub fn statusCluster(page: text.Page, font: *text.Font, right: f32, cy: f32, bas
     if (quick.wifi_on) wifi(page, pct_x - gap - 22, cy, 0.42, quick.wifi_bars);
 }
 
+/// Badge for a book that isn't on the device.
+pub fn cloud(page: text.Page, cx: f32, cy: f32) void {
+    const x: i32 = @intFromFloat(cx);
+    const y: i32 = @intFromFloat(cy);
+    page.disc(x, y, 30, 0, 0xff);
+    page.disc(x, y, 27, 0, 0x00);
+    page.disc(x - 11, y + 3, 9, 0, 0xff);
+    page.disc(x + 11, y + 3, 9, 0, 0xff);
+    page.disc(x + 1, y - 4, 12, 0, 0xff);
+    page.fillRect(@intCast(x - 11), @intCast(y + 3), 22, 9, 0xff);
+}
+
 pub fn check(page: text.Page, cx: f32, cy: f32) void {
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 25, 0, 0xff);
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 22, 0, 0x00);

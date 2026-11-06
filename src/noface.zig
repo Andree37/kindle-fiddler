@@ -848,6 +848,7 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
 
         browse: while (true) {
             var opening: ?*library.Entry = null;
+            var notice: []const u8 = "";
             switch (a.input.next()) {
                 .tap => |t| switch (loggedHit(t.x, t.y, index, count)) {
                     .none => continue,
@@ -881,8 +882,15 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                         opening = &entries[h];
                     },
                     .book => |i| {
-                        a.flash(library.bookRect(i, index));
-                        opening = &entries[visible[i]];
+                        const entry = &entries[visible[i]];
+                        if (entry.isLocal()) {
+                            a.flash(library.bookRect(i, index));
+                            opening = entry;
+                        } else if (entry.availability == .downloading) {
+                            notice = "Still downloading. It will open once it's finished.";
+                        } else {
+                            notice = "Not on this Kindle yet. Download it from All Settings > Kindle library.";
+                        }
                     },
                 },
                 .drag, .drag_end => continue,
@@ -902,7 +910,7 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                 a.slots[0].page = -1;
                 break :browse;
             }
-            try library.render(a.alloc, a.ui, a.page(buf), entries, hero, visible[0..count], index, filter, order, "", &a.quick);
+            try library.render(a.alloc, a.ui, a.page(buf), entries, hero, visible[0..count], index, filter, order, notice, &a.quick);
             try a.present(buf, .gc16, .partial);
         }
     }
@@ -918,6 +926,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const state_dir = std.mem.sliceTo(argv[6], 0);
     var path_buf: [320]u8 = undefined;
     for (entries) |*e| {
+        if (!e.isLocal()) continue;
         const saved = state.load(try state.pathFor(&path_buf, state_dir, e.path));
         if (state.preferKindle(saved, e.kindle_last)) continue;
         if (saved.percent) |p| e.percent = @min(p, 100);

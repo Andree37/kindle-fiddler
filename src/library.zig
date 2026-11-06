@@ -6,6 +6,8 @@ const icons = @import("icons.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
 
+pub const Availability = enum { local, cloud, downloading };
+
 pub const Entry = struct {
     path: [:0]const u8,
     title: []const u8,
@@ -17,6 +19,7 @@ pub const Entry = struct {
     kindle_last: u64 = 0,
     thumbnail: [:0]const u8 = "",
     added: u64 = 0,
+    availability: Availability = .local,
     cover: ?[]u8 = null,
     cover_tried: bool = false,
     hero: ?[]u8 = null,
@@ -29,6 +32,11 @@ pub const Entry = struct {
     /// Started but not finished, which is what the hero leads with.
     pub fn inProgress(e: Entry) bool {
         return !e.isRead() and e.percent > 0;
+    }
+
+    /// On this Kindle and complete, so it can be opened.
+    pub fn isLocal(e: Entry) bool {
+        return e.availability == .local;
     }
 };
 
@@ -87,7 +95,12 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
         const read_state = std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0;
         const thumbnail = fields.next() orelse "";
         const added = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
-        if (path.len == 0) continue;
+        const availability: Availability = switch (std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0) {
+            1 => .cloud,
+            2 => .downloading,
+            else => .local,
+        };
+        if (path.len == 0 and availability == .local) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
             .title = try fixTitle(alloc, title),
@@ -100,6 +113,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .kindle_last = last,
             .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
             .added = added,
+            .availability = availability,
         });
     }
     return out.toOwnedSlice(alloc);
@@ -143,11 +157,12 @@ pub fn sort(entries: []Entry, order: Order) void {
 pub fn pickHero(entries: []const Entry) ?usize {
     var best: ?usize = null;
     for (entries, 0..) |e, i| {
-        if (!e.inProgress()) continue;
+        if (!e.inProgress() or !e.isLocal()) continue;
         if (best == null or e.last > entries[best.?].last) best = i;
     }
     if (best != null) return best;
     for (entries, 0..) |e, i| {
+        if (!e.isLocal()) continue;
         if (best == null or e.last > entries[best.?].last) best = i;
     }
     return best;
@@ -384,6 +399,13 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) 
 fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
     try drawCover(alloc, fonts, page, e, x, y);
     const bar_y = y + cover.height + 8;
+    if (!e.isLocal()) {
+        page.tint(x, y, cover.width, cover.height, 0xa0);
+        icons.cloud(page, @floatFromInt(x + cover.width - 38), @floatFromInt(y + cover.height - 38));
+        const label = if (e.availability == .downloading) "Downloading" else e.title;
+        _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, label, cover.width, 1);
+        return;
+    }
     if (e.inProgress()) progressBar(page, x, bar_y, cover.width, e.percent);
     if (e.isRead()) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
     _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, cover.width, 1);
@@ -572,4 +594,14 @@ test "with nothing in progress the hero is the latest opened" {
         .{ .path = "/b", .title = "New", .author = "", .percent = 0, .last = 5 },
     };
     try std.testing.expectEqual(@as(usize, 1), pickHero(&rows).?);
+}
+
+test "cloud books list without a path and never lead" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const rows = try parse(arena.allocator(), "\tCloud\tx\t50\t9\t0\t\t1\t1\n/b\tHere\tx\t20\t1\t0\t\t1\t0\n/c\tGetting\tx\t0\t2\t0\t\t1\t2\n\tNoPath\tx\t0\t2\t0\t\t1\t0\n");
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqual(Availability.cloud, rows[0].availability);
+    try std.testing.expectEqual(Availability.downloading, rows[2].availability);
+    try std.testing.expectEqual(@as(usize, 1), pickHero(rows).?);
 }
