@@ -1,7 +1,7 @@
 //! Minimal Amazon Ion binary decoder: just enough to read KFX.
 const std = @import("std");
 
-pub const Kind = enum { null_, bool_, uint, nint, float, decimal, timestamp, symbol, string, clob, blob, list, sexp, struct_ };
+pub const Kind = enum { pad, null_, bool_, uint, nint, float, decimal, timestamp, symbol, string, clob, blob, list, sexp, struct_ };
 
 pub const Value = struct {
     kind: Kind,
@@ -18,7 +18,7 @@ pub const Value = struct {
         while (pos < v.body.len) {
             const key = readVarUint(v.body, &pos) catch return null;
             const value = decode(v.body, &pos) catch return null;
-            if (key == field) return value;
+            if (value.kind != .pad and key == field) return value;
         }
         return null;
     }
@@ -41,8 +41,11 @@ pub const Items = struct {
     pos: usize = 0,
 
     pub fn next(it: *Items) ?Value {
-        if (it.pos >= it.data.len) return null;
-        return decode(it.data, &it.pos) catch null;
+        while (it.pos < it.data.len) {
+            const v = decode(it.data, &it.pos) catch return null;
+            if (v.kind != .pad) return v;
+        }
+        return null;
     }
 };
 
@@ -63,7 +66,8 @@ fn beInt(d: []const u8) u64 {
     return v;
 }
 
-/// Decode the value at `pos`, skipping padding and annotations.
+/// Decode the value at `pos`, looking through annotations.
+/// Padding comes back as `.pad`: inside a struct a field ID follows it, not a value.
 pub fn decode(d: []const u8, pos: *usize) anyerror!Value {
     while (true) {
         if (pos.* >= d.len) return error.Truncated;
@@ -80,7 +84,7 @@ pub fn decode(d: []const u8, pos: *usize) anyerror!Value {
         pos.* += @intCast(len);
 
         switch (t) {
-            0 => continue, // padding
+            0 => return .{ .kind = .pad },
             2 => return .{ .kind = .uint, .body = body, .int = beInt(body) },
             3 => return .{ .kind = .nint, .body = body, .int = beInt(body) },
             4 => return .{ .kind = .float, .body = body },
@@ -108,7 +112,10 @@ pub fn decode(d: []const u8, pos: *usize) anyerror!Value {
 pub fn parse(d: []const u8) !Value {
     var pos: usize = 0;
     if (d.len >= 4 and std.mem.eql(u8, d[0..4], "\xe0\x01\x00\xea")) pos = 4;
-    return decode(d, &pos);
+    while (true) {
+        const v = try decode(d, &pos);
+        if (v.kind != .pad) return v;
+    }
 }
 
 test "struct lookup and strings" {
@@ -126,5 +133,20 @@ test "annotation is transparent and lists iterate" {
     var it = (try parse(&d)).items();
     try std.testing.expectEqual(@as(u64, 1), it.next().?.int);
     try std.testing.expectEqual(@as(u64, 2), it.next().?.int);
+    try std.testing.expect(it.next() == null);
+}
+
+test "padding between struct fields" {
+    // {10: pad, 11: "hi"}
+    const d = [_]u8{ 0xd7, 0x8a, 0x01, 0x00, 0x8b, 0x82, 'h', 'i' };
+    const v = try parse(&d);
+    try std.testing.expectEqualStrings("hi", v.get(11).?.text().?);
+    try std.testing.expect(v.get(10) == null);
+}
+
+test "padding in lists is skipped, even at the end" {
+    const d = [_]u8{ 0xb5, 0x21, 1, 0x01, 0x00, 0x00 };
+    var it = (try parse(&d)).items();
+    try std.testing.expectEqual(@as(u64, 1), it.next().?.int);
     try std.testing.expect(it.next() == null);
 }
