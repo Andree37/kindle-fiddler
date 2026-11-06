@@ -130,6 +130,13 @@ pub const Page = struct {
         }
     }
 
+    pub fn copyImage(p: Page, x: u32, y: u32, src: []const u8, w: u32, h: u32) void {
+        var row: u32 = 0;
+        while (row < h) : (row += 1) {
+            @memcpy(p.buf[(y + row) * p.stride + x ..][0..w], src[row * w..][0..w]);
+        }
+    }
+
     fn blit(p: Page, g: Glyph, x: i32, y: i32) void {
         const src = g.pixels orelse return;
         var row: i32 = 0;

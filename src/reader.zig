@@ -350,7 +350,9 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
         library.sort(entries);
         var count = library.select(entries, filter, visible);
         var index: usize = 0;
-        try library.render(fonts, a.page(buf), entries, visible[0..count], index, filter, message);
+        const r0 = nowUs();
+        try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, message);
+        std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         message = "";
 
@@ -387,7 +389,7 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                 .hold => continue,
                 .power, .idle, .stop => return,
             }
-            try library.render(fonts, a.page(buf), entries, visible[0..count], index, filter, "");
+            try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, "");
             try a.present(buf, page_waveform, .partial);
         }
     }

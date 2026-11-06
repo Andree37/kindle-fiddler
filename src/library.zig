@@ -1,6 +1,7 @@
 //! Book list, read from the tab-separated file start.sh exports from the
 //! Kindle's own database: path, title, author, percent, last opened.
 const std = @import("std");
+const cover = @import("cover.zig");
 const text = @import("text.zig");
 
 pub const Entry = struct {
@@ -10,6 +11,9 @@ pub const Entry = struct {
     percent: u32,
     last: u64,
     finished: bool = false,
+    thumbnail: [:0]const u8 = "",
+    cover: ?[]u8 = null,
+    cover_tried: bool = false,
 
     pub fn status(e: Entry) Filter {
         if (e.finished or e.percent >= finished_percent) return .read;
@@ -70,6 +74,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
         const percent = std.fmt.parseFloat(f32, fields.next() orelse "0") catch 0;
         const last = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
         const read_state = std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0;
+        const thumbnail = fields.next() orelse "";
         if (path.len == 0) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
@@ -79,6 +84,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .last = last,
             // Taken here, before our own progress replaces the percent.
             .finished = read_state == read_state_finished or percent >= finished_percent,
+            .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
         });
     }
     return out.toOwnedSlice(alloc);
@@ -172,7 +178,7 @@ fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8,
     try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
 }
 
-pub fn render(fonts: Fonts, page: text.Page, entries: []const Entry, visible: []const usize, index: usize, filter: Filter, message: []const u8) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, visible: []const usize, index: usize, filter: Filter, message: []const u8) !void {
     @memset(page.buf, 0xff);
     const right: f32 = @floatFromInt(page.width - margin);
     for (tabs) |t| {
@@ -187,20 +193,33 @@ pub fn render(fonts: Fonts, page: text.Page, entries: []const Entry, visible: []
     const first = index * rows_per_page;
     const shown = visible[@min(first, visible.len)..@min(first + rows_per_page, visible.len)];
     for (shown, 0..) |entry_index, i| {
-        const e = entries[entry_index];
+        const e = &entries[entry_index];
         const y: i32 = top + @as(i32, @intCast(i)) * row_height;
-        const avail: f32 = right - margin - 120;
-        try drawClipped(fonts.title, page, margin, y + 58, e.title, avail);
-        try drawClipped(fonts.small, page, margin, y + 104, e.author, avail);
+        if (!e.cover_tried) {
+            e.cover_tried = true;
+            if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail);
+        }
+        const cover_y: u32 = @intCast(y + 6);
+        if (e.cover) |c| {
+            page.copyImage(margin, cover_y, c, cover.width, cover.height);
+        } else {
+            page.fillRect(margin, cover_y, cover.width, cover.height, 0xd0);
+        }
+
+        const left: f32 = margin + cover.width + 24;
+        const avail: f32 = right - left - 110;
+        try drawClipped(fonts.title, page, left, y + 58, e.title, avail);
+        try drawClipped(fonts.small, page, left, y + 104, e.author, avail);
 
         var label: [8]u8 = undefined;
         const pct = std.fmt.bufPrint(&label, "{d}%", .{e.percent}) catch "";
         try fonts.small.draw(page, right - 90, y + 58, pct);
 
         const bar_y: u32 = @intCast(y + 124);
-        const bar_w = page.width - 2 * margin;
-        page.fillRect(margin, bar_y, bar_w, 2, 0xc0);
-        page.fillRect(margin, bar_y, bar_w * e.percent / 100, 6, 0x00);
+        const bar_x: u32 = @intFromFloat(left);
+        const bar_w = page.width - margin - bar_x;
+        page.fillRect(bar_x, bar_y, bar_w, 2, 0xc0);
+        page.fillRect(bar_x, bar_y, bar_w * e.percent / 100, 6, 0x00);
     }
 
     try fonts.title.draw(page, prev_left + 50, buttons_top + 90, "Previous");
