@@ -404,11 +404,15 @@ fn showNote(a: *App, s: *Session, target: u32) !void {
         .height = a.screen.height - note_top,
         .stride = stride,
     };
-    var note = [1]kfx.Paragraph{s.paragraphs[target]};
-    note[0].note = false;
-    note[0].links = &.{};
+    var note: [2]kfx.Paragraph = undefined;
+    const parts = kfx.noteLength(s.paragraphs, target);
+    for (s.paragraphs[target..][0..parts], note[0..parts]) |src, *dst| {
+        dst.* = src;
+        dst.note = false;
+        dst.links = &.{};
+    }
     const layout = text.Layout{ .margin_x = a.layout.margin_x, .margin_top = 50, .margin_bottom = 40, .indent = 0 };
-    _ = try text.renderPage(a.body, panel, &note, .{}, layout, null);
+    _ = try text.renderPage(a.body, panel, note[0..parts], .{}, layout, null);
     panel.fillRect(0, 0, panel.width, 4, 0x00);
     @memcpy(a.screen.pixels, a.overlay);
     try a.screen.waitComplete(try a.screen.updateRegion(0, note_top, a.screen.width, panel.height, page_waveform, .partial));

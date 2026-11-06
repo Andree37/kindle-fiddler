@@ -40,6 +40,14 @@ pub const Paragraph = struct {
 };
 
 const max_reference_bytes = 12;
+const max_label_bytes = 8;
+
+/// Paragraphs a note spans. Some books put the number in its own paragraph
+/// with the text in the next one.
+pub fn noteLength(paragraphs: []const Paragraph, target: usize) usize {
+    const label_only = paragraphs[target].text.len <= max_label_bytes;
+    return if (label_only and target + 1 < paragraphs.len) 2 else 1;
+}
 
 /// A short link inside longer text pointing forward is a note reference.
 /// That leaves out contents pages, where the link is the whole line, and
@@ -50,7 +58,7 @@ pub fn markNotes(paragraphs: []Paragraph) void {
             if (l.target <= i or l.target >= paragraphs.len) continue;
             const span = l.end - l.start;
             if (span > max_reference_bytes or span * 2 > p.text.len) continue;
-            paragraphs[l.target].note = true;
+            for (paragraphs[l.target..][0..noteLength(paragraphs, l.target)]) |*part| part.note = true;
         }
     }
 }
@@ -279,4 +287,17 @@ test "a contents line does not hide its chapter" {
     };
     markNotes(&paras);
     try std.testing.expect(!paras[1].note);
+}
+
+test "a number on its own takes the next paragraph with it" {
+    var paras = [_]Paragraph{
+        .{ .text = "body text with a reference in it", .style = 0, .links = &.{.{ .start = 10, .end = 11, .target = 1 }} },
+        .{ .text = "12", .style = 0 },
+        .{ .text = "the note text itself, which is much longer", .style = 0 },
+        .{ .text = "body continues here", .style = 0 },
+    };
+    markNotes(&paras);
+    try std.testing.expect(paras[1].note);
+    try std.testing.expect(paras[2].note);
+    try std.testing.expect(!paras[3].note);
 }
