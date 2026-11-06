@@ -866,6 +866,18 @@ const Library = struct {
     }
 };
 
+/// The catalog's downloading flag can stay set long after a download ended, so
+/// the file decides: a partial book fails to parse.
+fn isCompleteBook(path: [:0]const u8) bool {
+    if (path.len == 0) return false;
+    const data = file.map(path) catch return false;
+    defer file.unmap(data);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const book = kfx.parse(arena.allocator(), data) catch return false;
+    return book.paragraphs.len > 0;
+}
+
 fn loadLibrary(a: *App) !Library {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     errdefer arena.deinit();
@@ -874,6 +886,7 @@ fn loadLibrary(a: *App) !Library {
     const entries = try library.parse(alloc, data);
     var path_buf: [320]u8 = undefined;
     for (entries) |*e| {
+        if (e.availability == .downloading and isCompleteBook(e.path)) e.availability = .local;
         if (!e.isLocal()) continue;
         const saved = state.load(try state.pathFor(&path_buf, a.state_dir, e.path));
         if (state.preferKindle(saved, e.kindle_last)) continue;
