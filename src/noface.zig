@@ -883,6 +883,7 @@ fn loadLibrary(a: *App) !Library {
 
 /// Shows a book's actions. True means the library changed and should be reloaded.
 fn bookSheet(a: *App, e: *library.Entry, background: []const u8) !bool {
+    std.debug.print("sheet: {s}\n", .{e.title});
     var confirming = false;
     var list_buf: [3]book_actions.Option = undefined;
     while (true) {
@@ -935,6 +936,14 @@ fn bookSheet(a: *App, e: *library.Entry, background: []const u8) !bool {
     }
 }
 
+fn logPage(lib: *const Library, index: usize, count: usize) void {
+    const range = library.pageRange(index, count);
+    var i = range.first;
+    while (i < range.end) : (i += 1) {
+        std.debug.print("cell {d} {d} {s}\n", .{ index, i - range.first, lib.entries[lib.visible[i]].title });
+    }
+}
+
 fn runLibrary(a: *App) !void {
     var lib = try loadLibrary(a);
     defer lib.deinit();
@@ -958,6 +967,7 @@ fn runLibrary(a: *App) !void {
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, message, &a.quick);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
+        logPage(&lib, index, count);
         message = "";
 
         browse: while (true) {
@@ -1049,6 +1059,7 @@ fn runLibrary(a: *App) !void {
             }
             try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, notice, &a.quick);
             try a.present(buf, .gc16, .partial);
+            logPage(&lib, index, count);
         }
     }
 }

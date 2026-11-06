@@ -246,6 +246,12 @@ fn firstBook(page: usize) usize {
     return gridSize(true) + (page - 1) * gridSize(false);
 }
 
+/// Range of grid books on a page, for logging what's shown.
+pub fn pageRange(page: usize, books: usize) struct { first: usize, end: usize } {
+    const first = @min(firstBook(page), books);
+    return .{ .first = first, .end = @min(first + gridSize(page == 0), books) };
+}
+
 pub fn pageCount(books: usize) usize {
     if (books <= gridSize(true)) return 1;
     return 1 + (books - gridSize(true) + gridSize(false) - 1) / gridSize(false);
