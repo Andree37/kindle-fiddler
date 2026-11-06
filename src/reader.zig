@@ -107,12 +107,12 @@ const Reader = struct {
         return buf;
     }
 
-    fn show(r: *Reader, index: usize, touched_us: ?u64) !void {
+    fn show(r: *Reader, index: usize, touched_us: ?u64, force_clean: bool) !void {
         const buf = try r.ensure(index, index);
         @memcpy(r.screen.pixels, buf);
         r.current = index;
         r.turns += 1;
-        const clean = r.turns % clean_refresh_every == 0;
+        const clean = force_clean or r.turns % clean_refresh_every == 0;
         const marker = if (clean)
             try r.screen.update(.gc16, .full)
         else
@@ -133,7 +133,7 @@ const Reader = struct {
     fn turn(r: *Reader, delta: i32, touched_us: u64) !void {
         const target = @as(i64, @intCast(r.current)) + delta;
         if (target < 0 or target >= r.pages.len) return;
-        try r.show(@intCast(target), touched_us);
+        try r.show(@intCast(target), touched_us, false);
     }
 };
 
@@ -237,7 +237,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .slots = slots,
         .current = start,
     };
-    try reader.show(start, null);
+    try reader.show(start, null, true);
 
     var fds = [_]linux.pollfd{
         .{ .fd = touch, .events = linux.POLL.IN, .revents = 0 },
