@@ -1,11 +1,11 @@
 #!/bin/sh
-# Name: Fast Reader
+# Name: kindle-fiddler
 # Author: Andre Ribeiro
 # Opens the test book in the fast reader. Library screen comes later.
 
 # Detach from the library's launcher, which waits on this script and then fails.
 if [ "$1" != "--detached" ]; then
-    setsid sh /mnt/us/documents/fast-reader.sh --detached >> /mnt/us/kf-reader/launch.log 2>&1 < /dev/null &
+    setsid sh /mnt/us/documents/kindle-fiddler.sh --detached >> /mnt/us/kf-reader/launch.log 2>&1 < /dev/null &
     exit 0
 fi
 
