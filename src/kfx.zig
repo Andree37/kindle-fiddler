@@ -34,8 +34,6 @@ const Key = struct { id: u32, kind: u32 };
 
 const Parser = struct {
     alloc: std.mem.Allocator,
-    data: []const u8,
-    header_len: usize,
     index: std.AutoHashMapUnmanaged(Key, []const u8) = .empty,
     paragraphs: std.ArrayList(Paragraph) = .empty,
     missing: u32 = 0,
@@ -48,29 +46,45 @@ const Parser = struct {
         return ion.parse(raw[hdr..]) catch null;
     }
 
+    /// Resolves a text reference. False means it pointed at nothing usable.
+    fn addContent(p: *Parser, ref: ion.Value, style: u32) !bool {
+        if (ref.text()) |txt| {
+            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style });
+            return true;
+        }
+        const name = (ref.get(f_name) orelse return false).symbol() orelse return false;
+        const wanted = (ref.get(f_index) orelse return false).unsigned() orelse return false;
+        const content = p.entity(name, t_content) orelse return false;
+        var strings = (content.get(f_children) orelse return false).items();
+        var i: u64 = 0;
+        while (strings.next()) |s| : (i += 1) {
+            if (i != wanted) continue;
+            const txt = s.text() orelse return false;
+            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style });
+            return true;
+        }
+        return false;
+    }
+
     fn walk(p: *Parser, item: ion.Value, depth: u32) anyerror!void {
         if (depth > 32) return error.TooDeep;
+        if (item.text()) |txt| {
+            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = 0 });
+            return;
+        }
+        if (item.kind != .struct_) {
+            p.missing += 1;
+            return;
+        }
         const style = if (item.get(f_style)) |s| s.symbol() orelse 0 else 0;
 
         if (item.get(f_content_ref)) |ref| {
-            const name = ref.get(f_name) orelse return;
-            const wanted = (ref.get(f_index) orelse return).unsigned() orelse return;
-            const content = p.entity(name.symbol() orelse return, t_content) orelse {
-                p.missing += 1;
-                return;
-            };
-            var strings = (content.get(f_children) orelse return).items();
-            var i: u64 = 0;
-            while (strings.next()) |s| : (i += 1) {
-                if (i == wanted) {
-                    if (s.text()) |txt| try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style });
-                    break;
-                }
-            }
+            if (try p.addContent(ref, style) == false) p.missing += 1;
         }
         if (item.get(f_story)) |story| {
             // A story names itself in this same field, so only descend into its children.
-            if (p.entity(story.symbol() orelse return, t_story)) |s| {
+            const loaded = if (story.symbol()) |id| p.entity(id, t_story) else null;
+            if (loaded) |s| {
                 if (s.get(f_children)) |children| {
                     var it = children.items();
                     while (it.next()) |child| try p.walk(child, depth + 1);
@@ -102,7 +116,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
     const idx_len: usize = @intCast(idx_len64);
     const body_len = data.len - header_len;
 
-    var p = Parser{ .alloc = alloc, .data = data, .header_len = header_len };
+    var p = Parser{ .alloc = alloc };
     var e: usize = 0;
     while (e + 24 <= idx_len) : (e += 24) {
         const row = data[idx_off + e..][0..24];
