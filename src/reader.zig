@@ -13,6 +13,7 @@ const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
+const notes = @import("notes.zig");
 const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
@@ -265,6 +266,13 @@ const App = struct {
     quick: system.Quick = .{},
     layout: text.Layout,
 
+    /// Notes read smaller than the page, like a printed footnote.
+    fn noteFont(a: *App) !*text.Font {
+        if (a.body_fonts[0] == null) a.body_fonts[0] = try text.Font.init(a.alloc, a.regular, menu.sizes[0], 1.3);
+        a.body_fonts[0].?.line_height = 47;
+        return &a.body_fonts[0].?;
+    }
+
     /// Fonts are kept per size, so stepping through sizes doesn't reload them.
     fn applySettings(a: *App) !void {
         const slot = &a.body_fonts[a.settings.size];
@@ -298,6 +306,10 @@ const Session = struct {
     paragraphs: []const kfx.Paragraph,
     pages: []const text.Pos,
     current: usize,
+    note_parts: [kfx.max_note_parts]kfx.Paragraph = undefined,
+    note_len: usize = 0,
+    note_top: u32 = 0,
+    note_next: ?text.Pos = null,
 
     fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
         for (&s.app.slots) |*slot| {
@@ -400,35 +412,35 @@ fn closeMenu(a: *App, background: []const u8, in_book: bool) !void {
     try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height(in_book), page_waveform, .partial));
 }
 
-const note_top = 996;
-
-/// Shows a note in a panel over the bottom of the page.
-fn showNote(a: *App, s: *Session, target: u32) !void {
+/// Shows a note, or the next part of a long one.
+fn showNote(a: *App, s: *Session, start: text.Pos, fixed: ?u32) !void {
+    const font = try a.noteFont();
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
     const stride = a.screen.stride;
-    const panel = text.Page{
-        .buf = a.overlay[note_top * stride..],
-        .width = a.screen.width,
-        .height = a.screen.height - note_top,
-        .stride = stride,
-    };
-    var note: [2]kfx.Paragraph = undefined;
-    const parts = kfx.noteLength(s.paragraphs, target);
-    for (s.paragraphs[target..][0..parts], note[0..parts]) |src, *dst| {
+    const fitted = try notes.fit(font, s.note_parts[0..s.note_len], start, a.screen.width, stride, fixed);
+    const top = a.screen.height - fitted.height;
+    const panel = text.Page{ .buf = a.overlay[top * stride..], .width = a.screen.width, .height = fitted.height, .stride = stride };
+    try notes.render(font, a.ui, panel, s.note_parts[0..s.note_len], start, fitted.next != null);
+    @memcpy(a.screen.pixels, a.overlay);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, fitted.height, page_waveform, .partial));
+    s.note_top = top;
+    s.note_next = fitted.next;
+}
+
+fn openNote(a: *App, s: *Session, target: u32) !void {
+    s.note_len = kfx.noteLength(s.paragraphs, target);
+    for (s.paragraphs[target..][0..s.note_len], s.note_parts[0..s.note_len]) |src, *dst| {
         dst.* = src;
         dst.note = false;
+        dst.note_start = false;
         dst.links = &.{};
     }
-    const layout = text.Layout{ .margin_x = a.layout.margin_x, .margin_top = 50, .margin_bottom = 40, .indent = 0 };
-    _ = try text.renderPage(a.body, panel, note[0..parts], .{}, layout, null);
-    panel.fillRect(0, 0, panel.width, 4, 0x00);
-    @memcpy(a.screen.pixels, a.overlay);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, note_top, a.screen.width, panel.height, page_waveform, .partial));
+    try showNote(a, s, .{}, null);
 }
 
 fn closeNote(a: *App, s: *Session) !void {
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
-    try a.screen.waitComplete(try a.screen.updateRegion(0, note_top, a.screen.width, a.screen.height - note_top, page_waveform, .partial));
+    try a.screen.waitComplete(try a.screen.updateRegion(0, s.note_top, a.screen.width, a.screen.height - s.note_top, page_waveform, .partial));
 }
 
 /// Follows a finger along the brightness slider until it lifts.
@@ -522,8 +534,13 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
         switch (a.input.next()) {
             .tap => |t| {
                 if (note_open) {
-                    note_open = false;
-                    try closeNote(a, &session);
+                    const inside: bool = t.y >= session.note_top;
+                    if (inside and session.note_next != null) {
+                        try showNote(a, &session, session.note_next.?, a.screen.height - session.note_top);
+                    } else {
+                        note_open = false;
+                        try closeNote(a, &session);
+                    }
                     continue;
                 }
                 if (menu_open) {
@@ -573,7 +590,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                 }
                 if (session.referenceAt(t.x, t.y)) |target| {
                     note_open = true;
-                    try showNote(a, &session, target);
+                    try openNote(a, &session, target);
                     continue;
                 }
                 const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
@@ -774,7 +791,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .state_dir = state_dir,
         .settings_path = settings_path,
         .settings = menu.load(settings_path),
-        .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 },
+        .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };
     try app.applySettings();
     try runLibrary(&app, entries, ui);

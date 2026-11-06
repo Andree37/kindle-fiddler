@@ -292,9 +292,20 @@ pub const Layout = struct {
     margin_top: i32,
     margin_bottom: i32,
     indent: f32,
+    reference: ?*Font = null, // Smaller font for note references
 };
 
 const max_words = 96;
+
+const Link = @import("kfx.zig").Link;
+
+fn findReference(links: []const Link, paras: []const Paragraph, start: usize, len: usize) ?Link {
+    for (links) |link| {
+        if (link.end <= start or link.start >= start + len) continue;
+        if (link.target < paras.len and paras[link.target].note_start) return link;
+    }
+    return null;
+}
 
 /// Lay out one page and return where the next page starts.
 /// With `page` null this only measures, which is how the book gets paginated.
@@ -372,18 +383,33 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             }
             var x = @as(f32, @floatFromInt(l.margin_x)) + indent;
             for (words[0..n], widths[0..n]) |word, w| {
+                var shrink: f32 = 0; // A small mark takes less room than was measured
                 if (maybe_page) |p| {
-                    try font.draw(p, x, y, word);
                     const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
-                    for (links) |link| {
-                        if (link.end <= word_start or link.start >= word_start + word.len) continue;
-                        if (link.target >= paras.len or !paras[link.target].note) continue;
-                        const wi: i32 = @intFromFloat(w);
-                        p.fillRect(@intFromFloat(x), @intCast(y + 8), @intCast(wi), 3, 0x00);
-                        if (hits) |h| h.add(.{ .x = @intFromFloat(x), .y = y - font.ascent, .w = wi, .h = font.line_height, .target = link.target });
+                    const reference = findReference(links, paras, word_start, word.len);
+                    if (reference) |r| {
+                        // Raised and small, like a printed note mark.
+                        const small = l.reference orelse font;
+                        const a = @max(r.start, word_start) - word_start;
+                        const b = @min(r.end, word_start + word.len) - word_start;
+                        try font.draw(p, x, y, word[0..a]);
+                        const mark_x = x + try font.measure(word[0..a]);
+                        try small.draw(p, mark_x, y - @divTrunc(font.line_height, 3), word[a..b]);
+                        const mark_w = try small.measure(word[a..b]);
+                        try font.draw(p, mark_x + mark_w, y, word[b..]);
+                        shrink = try font.measure(word[a..b]) - mark_w;
+                        if (hits) |h| h.add(.{
+                            .x = @intFromFloat(mark_x),
+                            .y = y - font.ascent,
+                            .w = @intFromFloat(@max(mark_w, 1)),
+                            .h = font.line_height,
+                            .target = r.target,
+                        });
+                    } else {
+                        try font.draw(p, x, y, word);
                     }
                 }
-                x += w + gap;
+                x += w + gap - shrink;
             }
             y += font.line_height;
             i = j;
