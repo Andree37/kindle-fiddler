@@ -1,5 +1,5 @@
-//! Fast reader with its own library screen.
-//! Usage: reader <library.tsv> <body.ttf> <title.ttf> <ui.ttf> <ui-bold.ttf> <state-dir>
+//! noface: a fast reader with its own home screen.
+//! Usage: noface <library.tsv> <body.ttf> <title.ttf> <ui.ttf> <ui-bold.ttf> <state-dir>
 //!
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
 //! Tapping the top of a page, or dragging down from it, opens a bar with Library,

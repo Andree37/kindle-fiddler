@@ -1,11 +1,11 @@
 #!/bin/sh
-# Exports the book list and opens the reader. Started through device/kpm/launch.sh.
+# Exports the book list and opens noface. Started through device/kpm/launch.sh.
 # Lives outside documents so it stays out of the library.
 sleep 2 # Let KPM finish and the keyboard go away first
 echo "launch $(date)"
 killall jobman 2>/dev/null
 
-DIR=/mnt/us/kf-reader
+DIR=/mnt/us/noface
 cp /var/local/cc.db /tmp/kf-cc.db
 sqlite3 -separator "$(printf '\t')" /tmp/kf-cc.db \
     "select p_location, p_titles_0_nominal,
@@ -16,4 +16,4 @@ sqlite3 -separator "$(printf '\t')" /tmp/kf-cc.db \
      from Entries where p_location like '%.kfx'" > "$DIR/library.tsv"
 rm -f /tmp/kf-cc.db
 
-exec /bin/sh "$DIR/reader.sh"
+exec /bin/sh "$DIR/noface.sh"

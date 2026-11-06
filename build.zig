@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(exe);
     }
 
-    for ([_][]const u8{ "pagetest", "panelshot", "reader" }) |name| {
+    for ([_][]const u8{ "pagetest", "panelshot", "noface" }) |name| {
         const exe = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
