@@ -6,10 +6,13 @@ const lipc_get: [*:0]const u8 = "/usr/bin/lipc-get-prop";
 const lipc_set: [*:0]const u8 = "/usr/bin/lipc-set-prop";
 
 pub const max_brightness = 24;
+pub const max_warmth = 24;
 pub const brightness_step = 2;
 
 pub const Quick = struct {
     brightness: u32 = 0,
+    warmth: u32 = 0,
+    schedule: bool = false,
     airplane: bool = false,
     battery: u32 = 0,
     wifi_on: bool = false,
@@ -92,6 +95,8 @@ pub fn read() Quick {
         .wifi_on = connected,
         .wifi_bars = if (connected) signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf)) else 0,
         .brightness = get("com.lab126.powerd", "flIntensity") orelse 0,
+        .warmth = get("com.lab126.powerd", "currentAmberLevel") orelse 0,
+        .schedule = (get("com.lab126.powerd", "amberSchedEnable") orelse 0) == 1,
         .airplane = (get("com.lab126.cmd", "wirelessEnable") orelse 1) == 0,
         .battery = get("com.lab126.powerd", "battLevel") orelse 0,
     };
@@ -108,6 +113,16 @@ pub fn openSettings() void {
 
 pub fn setBrightness(level: u32) void {
     set("com.lab126.powerd", "flIntensity", level);
+}
+
+/// With the schedule on, its own level has to move too or it would snap back.
+pub fn setWarmth(level: u32, scheduled: bool) void {
+    set("com.lab126.powerd", "currentAmberLevel", level);
+    if (scheduled) set("com.lab126.powerd", "schedAmberLevel", level);
+}
+
+pub fn setSchedule(on: bool) void {
+    set("com.lab126.powerd", "amberSchedEnable", if (on) 1 else 0);
 }
 
 pub fn setAirplane(on: bool) void {

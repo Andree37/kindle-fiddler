@@ -589,13 +589,25 @@ fn closeNote(a: *App, s: *Session) !void {
     try a.screen.waitComplete(try a.screen.updateRegion(0, s.note_top, a.screen.width, a.screen.height - s.note_top, page_waveform, .partial));
 }
 
-/// Follows a finger along the brightness slider until it lifts.
-fn dragBrightness(a: *App, background: []const u8) !void {
+fn rowValue(a: *App, row: menu.Row) u32 {
+    return if (row.y == menu.warmth_row.y) a.quick.warmth else a.quick.brightness;
+}
+
+fn setRowValue(a: *App, row: menu.Row, level: u32) void {
+    if (row.y == menu.warmth_row.y) {
+        a.quick.warmth = level;
+        system.setWarmth(level, a.quick.schedule);
+    } else {
+        a.quick.brightness = level;
+        system.setBrightness(level);
+    }
+}
+
+/// Follows a finger along a panel slider until it lifts.
+fn dragRow(a: *App, background: []const u8, row: menu.Row) !void {
     a.input.beginDrag();
     const screen_page = a.page(a.screen.pixels);
     var marker: ?u32 = null;
-    var updates: u32 = 0;
-    const started = nowUs();
     while (true) {
         const action = a.input.next();
         switch (action) {
@@ -605,13 +617,11 @@ fn dragBrightness(a: *App, background: []const u8) !void {
                     try a.screen.waitComplete(m);
                     marker = null;
                 }
-                const level = menu.levelAt(a.input.latestDrag() orelse first);
-                if (level == a.quick.brightness) continue;
-                a.quick.brightness = level;
-                system.setBrightness(level);
-                try menu.drawSlider(a.ui, screen_page, &a.quick, true);
-                marker = try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .a2, .partial);
-                updates += 1;
+                const level = menu.levelAt(row, a.input.latestDrag() orelse first);
+                if (level == rowValue(a, row)) continue;
+                setRowValue(a, row, level);
+                try menu.drawSlider(a.ui, screen_page, row, level, true);
+                marker = try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .a2, .partial);
             },
             .drag_end => break,
             .tap, .pull => {},
@@ -622,21 +632,34 @@ fn dragBrightness(a: *App, background: []const u8) !void {
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
-    std.debug.print("drag: {d} updates in {d} ms\n", .{ updates, (nowUs() - started) / 1000 });
     try drawMenu(a, background);
-    try cleanBand(a, menu.slider_top, menu.slider_height);
+    try cleanBand(a, menu.bandTop(row), menu.band_height);
 }
 
-/// Applies a light or airplane change. False means the tap wasn't one of those.
+/// Runs a panel control. False means the tap wasn't on one.
+fn panelControl(a: *App, background: []const u8, choice: menu.Hit, x: i32) !bool {
+    if (!applyQuick(a, choice, x)) return false;
+    switch (choice) {
+        .slider => try dragRow(a, background, menu.brightness_row),
+        .warmth => try dragRow(a, background, menu.warmth_row),
+        else => try drawMenu(a, background),
+    }
+    return true;
+}
+
+/// Applies a light, warmth or airplane change. False means the tap wasn't one of those.
 fn applyQuick(a: *App, change: menu.Hit, x: i32) bool {
     switch (change) {
         .dimmer, .brighter => {
             a.quick.brightness = system.stepBrightness(a.quick.brightness, change == .brighter);
             system.setBrightness(a.quick.brightness);
         },
-        .slider => {
-            a.quick.brightness = menu.levelAt(x);
-            system.setBrightness(a.quick.brightness);
+        .slider => setRowValue(a, menu.brightness_row, menu.levelAt(menu.brightness_row, x)),
+        .cooler, .warmer => setRowValue(a, menu.warmth_row, system.stepBrightness(a.quick.warmth, change == .warmer)),
+        .warmth => setRowValue(a, menu.warmth_row, menu.levelAt(menu.warmth_row, x)),
+        .schedule => {
+            a.quick.schedule = !a.quick.schedule;
+            system.setSchedule(a.quick.schedule);
         },
         .airplane => {
             a.quick.airplane = !a.quick.airplane;
@@ -703,14 +726,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                 .panel => {
                     const choice = menu.hit(t.x, t.y);
                     const page = try session.ensure(session.current, session.current);
-                    if (applyQuick(a, choice, t.x)) {
-                        if (choice == .slider) {
-                            try dragBrightness(a, page);
-                        } else {
-                            try drawMenu(a, page);
-                        }
-                        continue;
-                    }
+                    if (try panelControl(a, page, choice, t.x)) continue;
                     switch (choice) {
                         .settings => {
                             system.openSettings();
@@ -794,14 +810,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
         switch (a.input.next()) {
             .tap => |t| {
                 const choice = menu.hit(t.x, t.y);
-                if (applyQuick(a, choice, t.x)) {
-                    if (choice == .slider) {
-                        try dragBrightness(a, background);
-                    } else {
-                        try drawMenu(a, background);
-                    }
-                    continue;
-                }
+                if (try panelControl(a, background, choice, t.x)) continue;
                 switch (choice) {
                     .settings => {
                         system.openSettings();
