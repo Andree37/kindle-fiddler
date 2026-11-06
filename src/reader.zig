@@ -4,6 +4,7 @@
 //! Hold the top-left corner for one second to quit. The power button quits too.
 const std = @import("std");
 const linux = std.os.linux;
+const cache = @import("cache.zig");
 const file = @import("file.zig");
 const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
@@ -85,14 +86,13 @@ const Reader = struct {
     }
 
     /// Get a rendered page, reusing a cached one when possible.
-    fn ensure(r: *Reader, index: usize, keep: usize) ![]const u8 {
+    fn ensure(r: *Reader, index: usize, center: usize) ![]const u8 {
         for (r.slots) |s| {
             if (s.page == @as(i64, @intCast(index))) return s.buf;
         }
-        var victim: usize = 0;
-        for (r.slots, 0..) |s, i| {
-            if (s.page != @as(i64, @intCast(keep))) victim = i;
-        }
+        var cached: [3]i64 = undefined;
+        for (r.slots, &cached) |s, *c| c.* = s.page;
+        const victim = cache.victim(cached, @intCast(center));
         const buf = r.slots[victim].buf;
         const page = r.geometry(buf);
         _ = try text.renderPage(r.font, page, r.book.paragraphs, r.pages[index], r.layout);
@@ -107,7 +107,7 @@ const Reader = struct {
     }
 
     fn show(r: *Reader, index: usize, touched_us: ?u64) !void {
-        const buf = try r.ensure(index, r.current);
+        const buf = try r.ensure(index, index);
         @memcpy(r.screen.pixels, buf);
         r.current = index;
         r.turns += 1;

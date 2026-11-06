@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests on the host");
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ion.zig"),
+            .root_source_file = b.path("src/tests.zig"),
             .target = b.graph.host,
         }),
     });
