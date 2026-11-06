@@ -201,6 +201,16 @@ const App = struct {
         return .{ .buf = buf, .width = a.screen.width, .height = a.screen.height, .stride = a.screen.stride };
     }
 
+    /// Inverts part of the screen at once, using the fastest waveform.
+    fn flash(a: *App, r: library.Rect) void {
+        var row = r.y;
+        while (row < r.y + r.h) : (row += 1) {
+            const start = row * a.screen.stride + r.x;
+            for (a.screen.pixels[start .. start + r.w]) |*p| p.* = ~p.*;
+        }
+        _ = a.screen.updateRegion(r.x, r.y, r.w, r.h, .du, .partial) catch {};
+    }
+
     fn present(a: *App, buf: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode) !void {
         @memcpy(a.screen.pixels, buf);
         try a.screen.waitComplete(try a.screen.update(wf, mode));
@@ -363,6 +373,7 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                         index -= 1;
                     },
                     .book => |i| {
+                        a.flash(library.rowRect(index, i, a.screen.width));
                         const outcome = readBook(a, &entries[visible[i]]) catch |err| blk: {
                             std.debug.print("could not open book: {s}\n", .{@errorName(err)});
                             message = "This book can't be opened here.";

@@ -97,10 +97,15 @@ pub const Screen = struct {
 
     /// Queue a whole-screen update and return its marker.
     pub fn update(s: *Screen, waveform: Waveform, mode: UpdateMode) !u32 {
+        return s.updateRegion(0, 0, s.width, s.height, waveform, mode);
+    }
+
+    /// Queue an update for part of the screen and return its marker.
+    pub fn updateRegion(s: *Screen, left: u32, top: u32, width: u32, height: u32, waveform: Waveform, mode: UpdateMode) !u32 {
         const marker = s.next_marker;
         s.next_marker += 1;
         var data = UpdateData{
-            .region = .{ .top = 0, .left = 0, .width = s.width, .height = s.height },
+            .region = .{ .top = top, .left = left, .width = width, .height = height },
             .waveform = @intFromEnum(waveform),
             .update_mode = @intFromEnum(mode),
             .marker = marker,

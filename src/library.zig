@@ -152,6 +152,14 @@ pub fn hit(x: i32, y: i32, width: i32, page: usize, entries: usize) Hit {
     return if (index < entries) .{ .book = index } else .none;
 }
 
+pub const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
+
+/// Screen area of a book row, for tap feedback.
+pub fn rowRect(page: usize, index: usize, width: u32) Rect {
+    const row: u32 = @intCast(index - page * rows_per_page);
+    return .{ .x = 0, .y = top + row * row_height, .w = width, .h = row_height };
+}
+
 fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
     const w = try font.measure(s);
     if (w <= avail) return font.draw(page, x, y, s);
