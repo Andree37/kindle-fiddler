@@ -87,7 +87,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (std.mem.eql(u8, mode, "toolbar")) {
         const sheet = argv.len > 2;
         @memset(buf, 0xe8);
-        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, sheet);
+        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, sheet, .{});
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
         write(buf);
         return;

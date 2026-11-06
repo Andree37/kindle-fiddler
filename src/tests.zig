@@ -7,6 +7,7 @@ test {
     _ = @import("library.zig");
     _ = @import("menu.zig");
     _ = @import("notes.zig");
+    _ = @import("slider.zig");
     _ = @import("state.zig");
     _ = @import("system.zig");
     _ = @import("text.zig");

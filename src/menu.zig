@@ -2,6 +2,7 @@
 const std = @import("std");
 const icons = @import("icons.zig");
 const library = @import("library.zig");
+const slider = @import("slider.zig");
 const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
@@ -28,12 +29,6 @@ pub const Settings = struct {
     }
 };
 
-/// Moves within 0..len, stopping at both ends.
-pub fn step(value: usize, delta: i32, len: usize) usize {
-    if (delta < 0) return value -| 1;
-    return @min(value + 1, len - 1);
-}
-
 pub const Hit = enum { none, close, dimmer, brighter, slider, airplane, settings };
 
 const Icon = enum { airplane, wifi, bluetooth, sync, gear };
@@ -47,11 +42,11 @@ const shortcuts = [_]Shortcut{
     .{ .icon = .gear, .hit = .settings, .x = 795, .y = 430 },
 };
 
+const brightness_slider = slider.Slider{ .left = slider_left, .right = slider_right, .y = slider_y };
+
 /// Brightness level for a tap at `x` on the slider.
 pub fn levelAt(x: i32) u32 {
-    const span = slider_right - slider_left;
-    const clamped = std.math.clamp(x, slider_left, slider_right);
-    return @intCast(@divTrunc((clamped - slider_left) * system.max_brightness + span / 2, span));
+    return slider.valueAt(brightness_slider, x, system.max_brightness);
 }
 
 pub fn hit(x: i32, y: i32) Hit {
@@ -80,16 +75,13 @@ pub const slider_height = 110;
 /// black and white for the fast waveform, which breaks up gray.
 pub fn drawSlider(fonts: library.Fonts, page: text.Page, quick: *const system.Quick, mono: bool) !void {
     page.fillRect(0, slider_top, page.width, slider_height, 0xff);
-    const knob_x: i32 = slider_left + @divTrunc(@as(i32, @intCast(@min(quick.brightness, system.max_brightness))) * (slider_right - slider_left), system.max_brightness);
+    const knob = slider.knobAt(brightness_slider, quick.brightness, system.max_brightness);
     var level: [8]u8 = undefined;
-    try centered(fonts.small, page, knob_x, 647, std.fmt.bufPrint(&level, "{d}", .{quick.brightness}) catch "");
+    try centered(fonts.small, page, @intCast(knob), 640, std.fmt.bufPrint(&level, "{d}", .{quick.brightness}) catch "");
     page.stroke(70, slider_y, 110, slider_y, 4);
     page.stroke(1160, slider_y, 1200, slider_y, 4);
     page.stroke(1180, slider_y - 20, 1180, slider_y + 20, 4);
-    page.fillRect(slider_left, slider_y - 2, slider_right - slider_left, 4, if (mono) 0x00 else 0xa0);
-    page.fillRect(slider_left, slider_y - 4, @intCast(knob_x - slider_left), 8, 0x00);
-    page.disc(knob_x, slider_y, 25, 0, 0x00);
-    page.disc(knob_x, slider_y, 21, 0, 0xff);
+    slider.draw(page, brightness_slider, knob);
     if (mono) page.threshold(slider_top, slider_height);
 }
 
@@ -166,12 +158,6 @@ test "slider maps position to level" {
     try std.testing.expectEqual(@as(u32, 24), levelAt(1110));
     try std.testing.expectEqual(@as(u32, 12), levelAt(635));
     try std.testing.expectEqual(@as(u32, 24), levelAt(1200));
-}
-
-test "steps stop at both ends" {
-    try std.testing.expectEqual(@as(usize, 0), step(0, -1, 6));
-    try std.testing.expectEqual(@as(usize, 5), step(5, 1, 6));
-    try std.testing.expectEqual(@as(usize, 3), step(2, 1, 6));
 }
 
 test "defaults match the original reader" {

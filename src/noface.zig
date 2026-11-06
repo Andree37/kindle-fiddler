@@ -453,7 +453,7 @@ fn closeMenu(a: *App, background: []const u8) !void {
 /// Draws the toolbar over the current page.
 fn drawToolbar(a: *App, s: *Session, title: []const u8, sheet: bool, whole_page: bool) !void {
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
-    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, sheet);
+    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, sheet, a.settings);
     @memcpy(a.screen.pixels, a.overlay);
     if (whole_page) {
         try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, a.screen.height, page_waveform, .partial));
@@ -507,6 +507,53 @@ fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32)
     if (marker) |m| try a.screen.waitComplete(m);
     s.current = target;
     try drawToolbar(a, s, title, sheet, true);
+    try cleanBand(a, toolbar.scrub_top, band);
+}
+
+/// Clears everything the fast waveform left behind in a band.
+fn cleanBand(a: *App, top: u32, height: u32) !void {
+    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, height, .gc16, .full));
+}
+
+/// Follows a finger along a text setting, and applies it when lifted.
+fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8, row: toolbar.Setting, first_x: i32) !void {
+    const is_size = row.hit == .text_size;
+    const steps = if (is_size) menu.sizes.len else menu.spacings.len;
+    var value = toolbar.stepAt(row, first_x, steps);
+    const started = if (is_size) a.settings.size else a.settings.spacing;
+    a.input.beginDrag();
+    const screen_page = a.page(a.screen.pixels);
+    try toolbar.drawSetting(a.ui, screen_page, row, value, steps, true);
+    var marker: ?u32 = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .drag => |first| {
+                if (marker) |m| {
+                    try a.screen.waitComplete(m);
+                    marker = null;
+                }
+                const next = toolbar.stepAt(row, a.input.latestDrag() orelse first, steps);
+                if (next == value) continue;
+                value = next;
+                try toolbar.drawSetting(a.ui, screen_page, row, value, steps, true);
+                marker = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
+            },
+            .drag_end => break,
+            .tap, .pull => {},
+            .power, .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+        }
+    }
+    if (marker) |m| try a.screen.waitComplete(m);
+    if (value != started) {
+        if (is_size) a.settings.size = value else a.settings.spacing = value;
+        try relayout(a, alloc, s);
+    }
+    try drawToolbar(a, s, title, true, true);
+    try cleanBand(a, row.top, toolbar.setting_height);
 }
 
 /// Shows a note, or the next part of a long one.
@@ -577,8 +624,7 @@ fn dragBrightness(a: *App, background: []const u8) !void {
     if (marker) |m| try a.screen.waitComplete(m);
     std.debug.print("drag: {d} updates in {d} ms\n", .{ updates, (nowUs() - started) / 1000 });
     try drawMenu(a, background);
-    // Clears what the fast waveform left behind, in that row only.
-    try a.screen.waitComplete(try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .gc16, .partial));
+    try cleanBand(a, menu.slider_top, menu.slider_height);
 }
 
 /// Applies a light or airplane change. False means the tap wasn't one of those.
@@ -699,19 +745,8 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                             try drawToolbar(a, &session, entry.title, sheet, true);
                         },
                         .scrub => try dragScrub(a, &session, entry.title, sheet, t.x),
-                        .smaller, .larger, .tighter, .looser => |change| {
-                            var next = a.settings;
-                            switch (change) {
-                                .smaller => next.size = menu.step(next.size, -1, menu.sizes.len),
-                                .larger => next.size = menu.step(next.size, 1, menu.sizes.len),
-                                .tighter => next.spacing = menu.step(next.spacing, -1, menu.spacings.len),
-                                else => next.spacing = menu.step(next.spacing, 1, menu.spacings.len),
-                            }
-                            if (std.meta.eql(next, a.settings)) continue;
-                            a.settings = next;
-                            try relayout(a, alloc, &session);
-                            try drawToolbar(a, &session, entry.title, sheet, true);
-                        },
+                        .text_size => try dragSetting(a, alloc, &session, entry.title, toolbar.settings[0], t.x),
+                        .spacing => try dragSetting(a, alloc, &session, entry.title, toolbar.settings[1], t.x),
                     }
                 },
                 .page => {

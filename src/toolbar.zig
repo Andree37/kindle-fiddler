@@ -3,22 +3,21 @@ const std = @import("std");
 const icons = @import("icons.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
+const slider = @import("slider.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
 
 pub const top_height = 228;
-pub const sheet_height = 420; // With the text sheet open
+pub const sheet_height = 540; // With the text sheet open
 pub const bottom_top = 1410;
 pub const scrub_top = 1500;
 const screen_height = 1696;
 const margin = 72;
 const status_row = 66;
 const tool_row = 156;
-const scrub_left = 110;
-const scrub_right = 1162;
-const scrub_y = 1610;
+const scrub = slider.Slider{ .left = 110, .right = 1162, .y = 1610 };
 
-pub const Hit = enum { close, stay, home, text, goto, bookmark, search, more, chapter_prev, chapter_next, scrub, smaller, larger, tighter, looser };
+pub const Hit = enum { close, stay, home, text, goto, bookmark, search, more, chapter_prev, chapter_next, scrub, text_size, spacing };
 
 const Tool = struct { hit: Hit, x: i32 };
 const tools = [_]Tool{
@@ -29,15 +28,22 @@ const tools = [_]Tool{
     .{ .hit = .more, .x = 1176 },
 };
 
-const Button = struct { hit: Hit, plus: bool, left: i32 };
-const sheet_buttons = [_]Button{
-    .{ .hit = .smaller, .plus = false, .left = 290 },
-    .{ .hit = .larger, .plus = true, .left = 430 },
-    .{ .hit = .tighter, .plus = false, .left = 880 },
-    .{ .hit = .looser, .plus = true, .left = 1020 },
+pub const Setting = struct { hit: Hit, label: []const u8, top: u32 };
+pub const settings = [_]Setting{
+    .{ .hit = .text_size, .label = "Text size", .top = 240 },
+    .{ .hit = .spacing, .label = "Line spacing", .top = 386 },
 };
-const button_width = 120;
-const sheet_row = 280;
+pub const setting_height = 146;
+const setting_slider_y = 92;
+
+fn settingSlider(s: Setting) slider.Slider {
+    return .{ .left = 110, .right = 1162, .y = s.top + setting_slider_y };
+}
+
+/// Step for a finger at `x` on a setting's slider.
+pub fn stepAt(s: Setting, x: i32, steps: usize) usize {
+    return slider.valueAt(settingSlider(s), x, @intCast(steps - 1));
+}
 
 pub fn hit(x: i32, y: i32, sheet: bool) Hit {
     if (y < status_row) return .stay;
@@ -50,10 +56,8 @@ pub fn hit(x: i32, y: i32, sheet: bool) Hit {
         return .stay;
     }
     if (sheet and y < sheet_height) {
-        if (y >= sheet_row and y < sheet_row + 100) {
-            for (sheet_buttons) |b| {
-                if (x >= b.left and x < b.left + button_width) return b.hit;
-            }
+        for (settings) |row| {
+            if (y >= row.top and y < row.top + setting_height) return row.hit;
         }
         return .stay;
     }
@@ -66,17 +70,8 @@ pub fn hit(x: i32, y: i32, sheet: bool) Hit {
 
 /// Page index for a finger at `x` on the scrubber.
 pub fn pageAt(x: i32, total: usize) usize {
-    const span = scrub_right - scrub_left;
-    const clamped = std.math.clamp(x, scrub_left, scrub_right);
-    const last: i64 = @intCast(total - 1);
-    return @intCast(@divTrunc((clamped - scrub_left) * last + span / 2, span));
-}
-
-fn knobX(page_index: usize, total: usize) i32 {
-    if (total <= 1) return scrub_left;
-    const span: i64 = scrub_right - scrub_left;
-    const at: i64 = @intCast(page_index);
-    return @intCast(scrub_left + @divTrunc(at * span, @as(i64, @intCast(total - 1))));
+    if (total <= 1) return 0;
+    return slider.valueAt(scrub, x, @intCast(total - 1));
 }
 
 /// Page where the chapter before or after the current one starts.
@@ -104,30 +99,28 @@ pub fn drawScrub(fonts: library.Fonts, page: text.Page, index: usize, total: usi
     const s = std.fmt.bufPrint(&label, "Page {d} of {d}", .{ index + 1, total }) catch "";
     const w = try fonts.small.measure(s);
     try fonts.small.draw(page, @as(f32, @floatFromInt(page.width)) / 2 - w / 2, scrub_top + 56, s);
-    const knob = knobX(index, total);
-    page.fillRect(scrub_left, scrub_y - 2, scrub_right - scrub_left, 4, if (mono) 0x00 else 0xa0);
-    page.fillRect(scrub_left, scrub_y - 4, @intCast(knob - scrub_left), 8, 0x00);
-    page.disc(knob, scrub_y, 25, 0, 0x00);
-    page.disc(knob, scrub_y, 21, 0, 0xff);
+    slider.draw(page, scrub, slider.knobAt(scrub, @intCast(index), @intCast(@max(total, 1) - 1)));
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }
 
-fn drawSheet(fonts: library.Fonts, page: text.Page) !void {
-    page.fillRect(0, top_height, page.width, sheet_height - top_height, 0xff);
-    page.fillRect(0, sheet_height - 4, page.width, 4, 0x00);
-    try fonts.small.draw(page, margin, sheet_row + 62, "Text size");
-    try fonts.small.draw(page, 640, sheet_row + 62, "Spacing");
-    for (sheet_buttons) |b| {
-        const left: u32 = @intCast(b.left);
-        page.fillRect(left, sheet_row, button_width, 100, 0xe8);
-        const cx: f32 = @floatFromInt(left + button_width / 2);
-        const cy: f32 = sheet_row + 50;
-        page.stroke(cx - 22, cy, cx + 22, cy, 5);
-        if (b.plus) page.stroke(cx, cy - 22, cx, cy + 22, 5);
-    }
+/// One setting row, redrawn alone while dragging.
+pub fn drawSetting(fonts: library.Fonts, page: text.Page, row: Setting, value: usize, steps: usize, mono: bool) !void {
+    page.fillRect(0, row.top, page.width, setting_height, 0xff);
+    try fonts.small.draw(page, margin, @intCast(row.top + 48), row.label);
+    const bar = settingSlider(row);
+    slider.drawTicks(page, bar, @intCast(steps - 1));
+    slider.draw(page, bar, slider.knobAt(bar, @intCast(value), @intCast(steps - 1)));
+    if (mono) page.threshold(row.top, setting_height);
 }
 
-pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const system.Quick, sheet: bool) !void {
+fn drawSheet(fonts: library.Fonts, page: text.Page, chosen: menu.Settings) !void {
+    page.fillRect(0, top_height, page.width, sheet_height - top_height, 0xff);
+    page.fillRect(0, sheet_height - 4, page.width, 4, 0x00);
+    try drawSetting(fonts, page, settings[0], chosen.size, menu.sizes.len, false);
+    try drawSetting(fonts, page, settings[1], chosen.spacing, menu.spacings.len, false);
+}
+
+pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const system.Quick, sheet: bool, chosen: menu.Settings) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, top_height, 0xff);
 
@@ -148,7 +141,7 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, index: u
     try library.drawClipped(fonts.caption, page, margin, tool_row + 54, title, w - 2 * margin);
     page.tint(margin, tool_row + 20, page.width - 2 * margin, 46, 0x50);
     page.fillRect(0, top_height - 4, page.width, 4, 0x00);
-    if (sheet) try drawSheet(fonts, page);
+    if (sheet) try drawSheet(fonts, page, chosen);
 
     page.fillRect(0, bottom_top, page.width, screen_height - bottom_top, 0xff);
     page.fillRect(0, bottom_top, page.width, 4, 0x00);
@@ -174,9 +167,9 @@ test "toolbar buttons map to actions" {
 
 test "text sheet takes taps only while open" {
     try std.testing.expectEqual(Hit.close, hit(350, 320, false));
-    try std.testing.expectEqual(Hit.smaller, hit(350, 320, true));
-    try std.testing.expectEqual(Hit.looser, hit(1100, 320, true));
-    try std.testing.expectEqual(Hit.stay, hit(700, 250, true));
+    try std.testing.expectEqual(Hit.text_size, hit(350, 320, true));
+    try std.testing.expectEqual(Hit.spacing, hit(1100, 470, true));
+    try std.testing.expectEqual(Hit.close, hit(700, 600, true));
 }
 
 test "scrubber maps position to page" {
