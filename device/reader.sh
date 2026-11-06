@@ -11,12 +11,16 @@ restore() {
     lipc-set-prop com.lab126.powerd preventScreenSaver "${prevent:-0}" 2>/dev/null
 }
 trap restore EXIT
-trap 'exit 1' INT TERM HUP
 
 lipc-set-prop com.lab126.powerd preventScreenSaver 1
 lipc-set-prop com.lab126.pillow disableEnablePillow disable
 killall -STOP awesome
 
 STATE="$DIR/state-$(basename "$1" | md5sum | cut -c1-16)"
-"$DIR/reader" "$1" "$FONT" "$STATE" >> "$DIR/reader.log" 2>&1
+# Background plus wait, so a signal reaches the reader instead of waiting on it.
+"$DIR/reader" "$1" "$FONT" "$STATE" >> "$DIR/reader.log" 2>&1 &
+pid=$!
+trap 'kill "$pid" 2>/dev/null' INT TERM HUP
+wait "$pid"
+wait "$pid"
 echo "exit code $?" >> "$DIR/reader.log"
