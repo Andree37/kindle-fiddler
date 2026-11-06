@@ -33,7 +33,7 @@ pub const Entry = struct {
 
     /// Started but not finished, which is what the hero leads with.
     pub fn inProgress(e: Entry) bool {
-        return !e.isRead() and e.percent > 0;
+        return !e.isRead() and e.percent > untouched_percent;
     }
 
     /// On this Kindle and complete, so it can be opened.
@@ -45,6 +45,7 @@ pub const Entry = struct {
 pub const Filter = enum { all, unread, read };
 
 const finished_percent = 99;
+const untouched_percent = 1; // Stock gives new books 1% without them being opened
 const read_state_finished = 2; // Kindle's own "finished" mark
 
 /// Converted filenames look like "Title -- Author -- Year -- junk".
@@ -647,4 +648,13 @@ test "three dots sit beside the title" {
     try std.testing.expectEqual(Hit{ .dots = 0 }, hit(300, 975, 0, 79));
     try std.testing.expectEqual(Hit{ .book = 0 }, hit(120, 975, 0, 79));
     try std.testing.expectEqual(Hit.hero_dots, hit(1180, 130, 0, 79));
+}
+
+test "a new book at one percent is not in progress" {
+    const fresh = Entry{ .path = "/a", .title = "New", .author = "", .percent = 1, .last = 9 };
+    const going = Entry{ .path = "/b", .title = "Going", .author = "", .percent = 2, .last = 1 };
+    try std.testing.expect(!fresh.inProgress());
+    try std.testing.expect(going.inProgress());
+    const rows = [_]Entry{ fresh, going };
+    try std.testing.expectEqual(@as(usize, 1), pickHero(&rows).?);
 }
