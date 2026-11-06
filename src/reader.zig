@@ -26,6 +26,7 @@ const eviocgabs_y: u32 = 0x80184540 + 0x36;
 const ev_key = 1;
 const ev_abs = 3;
 const abs_mt_slot = 0x2f;
+const abs_mt_touch_major = 0x30;
 const abs_mt_x = 0x35;
 const abs_mt_y = 0x36;
 const abs_mt_tracking = 0x39;
@@ -248,6 +249,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var slot: usize = 0;
     var xs = [_]i32{ 0, 0 };
     var ys = [_]i32{ 0, 0 };
+    var sizes = [_]i32{ 0, 0 };
     var pending_down: ?usize = null;
     var hold_slot: ?usize = null;
     var down_us: u64 = 0;
@@ -277,6 +279,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             last_input = nowUs();
             for (events[0 .. n / @sizeOf(InputEvent)]) |e| {
                 if (e.kind == ev_abs and e.code == abs_mt_slot) slot = @min(@as(usize, @intCast(@max(e.value, 0))), 1);
+                if (e.kind == ev_abs and e.code == abs_mt_touch_major) sizes[slot] = e.value;
                 if (e.kind == ev_abs and e.code == abs_mt_x) xs[slot] = e.value;
                 if (e.kind == ev_abs and e.code == abs_mt_y) ys[slot] = e.value;
                 if (e.kind == ev_abs and e.code == abs_mt_tracking) {
@@ -294,6 +297,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
                     pending_down = null;
                     const px = @divTrunc(xs[touched] * @as(i32, @intCast(screen.width)), x_max);
                     const py = @divTrunc(ys[touched] * @as(i32, @intCast(screen.height)), y_max);
+                    std.debug.print("touch slot {d} at {d},{d} size {d}\n", .{ touched, px, py, sizes[touched] });
                     if (px < 200 and py < 200) {
                         hold_started = nowUs();
                         hold_slot = touched;
