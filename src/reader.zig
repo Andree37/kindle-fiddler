@@ -84,6 +84,8 @@ fn axisMax(fd: i32, req: u32) i32 {
 const Action = union(enum) {
     tap: struct { x: i32, y: i32, us: u64 },
     pull,
+    drag: i32, // Finger x while a drag is being followed
+    drag_end,
     power,
     idle,
     stop,
@@ -111,8 +113,15 @@ const Input = struct {
     top_x: i32 = 0,
     top_y: i32 = 0,
     top_us: u64 = 0,
+    last_touched: usize = 0,
+    drag_slot: ?usize = null,
     last_input: u64 = 0,
     stashed: ?Action = null,
+
+    /// Follows the finger of the last tap until it lifts.
+    fn beginDrag(in: *Input) void {
+        in.drag_slot = in.last_touched;
+    }
 
     /// Sums page-turn taps already waiting, so fast tapping jumps instead of lagging.
     /// Anything else that turns up is kept for the next call to `next`.
@@ -190,6 +199,9 @@ const Input = struct {
                     if (e.value >= 0) {
                         in.pending = in.slot;
                         in.down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
+                    } else if (in.drag_slot == in.slot) {
+                        in.drag_slot = null;
+                        return .drag_end;
                     } else if (in.top_slot == in.slot) {
                         // Lifted without dragging, so it was a tap on the top row.
                         in.top_slot = null;
@@ -202,6 +214,10 @@ const Input = struct {
         }
         // Coordinates of a new touch arrive just before the SYN that ends its packet.
         if (e.kind != 0) return null;
+        if (in.drag_slot) |slot| {
+            in.pending = null;
+            return .{ .drag = @divTrunc(in.xs[slot] * in.width, in.x_max) };
+        }
         if (in.top_slot) |slot| {
             const y = @divTrunc(in.ys[slot] * in.height, in.y_max);
             if (touch_zones.isPull(in.top_y, y)) {
@@ -211,6 +227,7 @@ const Input = struct {
         }
         const touched = in.pending orelse return null;
         in.pending = null;
+        in.last_touched = touched;
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
         if (touch_zones.isGrip(px, py, in.width, in.height)) return null;
@@ -414,6 +431,32 @@ fn closeNote(a: *App, s: *Session) !void {
     try a.screen.waitComplete(try a.screen.updateRegion(0, note_top, a.screen.width, a.screen.height - note_top, page_waveform, .partial));
 }
 
+/// Follows a finger along the brightness slider until it lifts.
+fn dragBrightness(a: *App, background: []const u8, title: []const u8, in_book: bool) !void {
+    a.input.beginDrag();
+    const screen_page = a.page(a.screen.pixels);
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .drag => |x| {
+                const level = menu.levelAt(x);
+                if (level == a.quick.brightness) continue;
+                a.quick.brightness = level;
+                system.setBrightness(level);
+                try menu.drawSlider(a.ui, screen_page, &a.quick);
+                _ = try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .du, .partial);
+            },
+            .drag_end => break,
+            .tap, .pull => {},
+            .power, .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+        }
+    }
+    try drawMenu(a, background, title, in_book, false);
+}
+
 /// Applies a light or airplane change. False means the tap wasn't one of those.
 fn applyQuick(a: *App, change: menu.Hit, x: i32) bool {
     switch (change) {
@@ -486,7 +529,12 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                 if (menu_open) {
                     const choice = menu.hit(t.x, t.y, a.input.width, true);
                     if (applyQuick(a, choice, t.x)) {
-                        try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
+                        const page = try session.ensure(session.current, session.current);
+                        if (choice == .slider) {
+                            try dragBrightness(a, page, entry.title, true);
+                        } else {
+                            try drawMenu(a, page, entry.title, true, false);
+                        }
                         continue;
                     }
                     switch (choice) {
@@ -539,6 +587,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     since_save = 0;
                 }
             },
+            .drag, .drag_end => {},
             .pull => {
                 if (menu_open or note_open) continue;
                 menu_open = true;
@@ -559,7 +608,11 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
             .tap => |t| {
                 const choice = menu.hit(t.x, t.y, a.input.width, false);
                 if (applyQuick(a, choice, t.x)) {
-                    try drawMenu(a, background, "", false, false);
+                    if (choice == .slider) {
+                        try dragBrightness(a, background, "", false);
+                    } else {
+                        try drawMenu(a, background, "", false, false);
+                    }
                     continue;
                 }
                 switch (choice) {
@@ -575,7 +628,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                     else => {},
                 }
             },
-            .pull => {},
+            .pull, .drag, .drag_end => {},
             .power, .idle, .stop => return true,
         }
     }
@@ -639,6 +692,7 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                         break :browse;
                     },
                 },
+                .drag, .drag_end => continue,
                 .pull => {
                     if (try libraryMenu(a, buf)) return;
                     continue;
