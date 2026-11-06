@@ -7,6 +7,7 @@ const kfx = @import("kfx.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const notes = @import("notes.zig");
+const sheet = @import("sheet.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
 const toolbar = @import("toolbar.zig");
@@ -84,10 +85,26 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
+    if (std.mem.eql(u8, mode, "sheet")) {
+        const entries = try library.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        library.sort(entries, .recent);
+        const lead = library.pickHero(entries);
+        const visible = try alloc.alloc(usize, entries.len);
+        const count = library.select(entries, .all, lead, visible);
+        try library.render(alloc, fonts, page, entries, lead, visible[0..count], 0, .all, .recent, "", &quick);
+        var list: [3]sheet.Option = undefined;
+        const confirming = argv.len > 2;
+        const opts = sheet.options(&entries[visible[0]], confirming, &list);
+        try sheet.render(fonts, page, &entries[visible[0]], opts, confirming);
+        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
+        write(buf);
+        return;
+    }
+
     if (std.mem.eql(u8, mode, "toolbar")) {
-        const sheet = argv.len > 2;
+        const open_sheet = argv.len > 2;
         @memset(buf, 0xe8);
-        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, sheet, .{});
+        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, open_sheet, .{});
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
         write(buf);
         return;

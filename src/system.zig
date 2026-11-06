@@ -105,6 +105,53 @@ pub fn read() Quick {
     return q;
 }
 
+/// Catalog IDs go into a shell command, so only plain ones are accepted.
+pub fn safeId(id: []const u8) bool {
+    if (id.len == 0 or id.len > 64) return false;
+    for (id) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_' and c != '.') return false;
+    }
+    return true;
+}
+
+fn readNowAction(prop: []const u8, comptime fields: []const u8, args: anytype) void {
+    var buf: [320]u8 = undefined;
+    const command = std.fmt.bufPrintSentinel(
+        &buf,
+        "echo '{{ " ++ fields ++ " }}' | /usr/bin/lipc-hash-prop com.lab126.readnow {s}",
+        args ++ .{prop},
+        0,
+    ) catch return;
+    const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
+    var out: [64]u8 = undefined;
+    _ = run(&argv, &out);
+}
+
+/// Queues a cloud book for download.
+pub fn downloadBook(key: []const u8, kind: []const u8) void {
+    if (!safeId(key) or !safeId(kind)) return;
+    readNowAction("kppDownloadAction", "kppItems = \"{s},{s}\"", .{ key, kind });
+}
+
+/// Removes the local copy. Never sets kppFrom: "cloud" there revokes samples.
+pub fn removeDownload(key: []const u8, kind: []const u8) void {
+    if (!safeId(key) or !safeId(kind)) return;
+    readNowAction("kppDeleteItemAction", "kppCdeKey = \"{s}\", kppCdeType = \"{s}\"", .{ key, kind });
+}
+
+pub fn markRead(key: []const u8, kind: []const u8, read_it: bool) void {
+    if (!safeId(key) or !safeId(kind)) return;
+    const value = if (read_it) "actionRead" else "actionUnread";
+    readNowAction("kppMarkAsReadAction", "kppCdeKey = \"{s}\", kppCdeType = \"{s}\", kppMAR = \"{s}\"", .{ key, kind, value });
+}
+
+/// Rebuilds library.tsv from the catalog.
+pub fn exportLibrary() void {
+    const argv = [_:null]?[*:0]const u8{ "/bin/sh", "/mnt/us/noface/export.sh" };
+    var out: [16]u8 = undefined;
+    _ = run(&argv, &out);
+}
+
 pub fn openSettings() void {
     const argv = [_:null]?[*:0]const u8{ lipc_set, "com.lab126.appmgrd", "start", "app://com.lab126.booklet.settings" };
     var buf: [32]u8 = undefined;
@@ -145,6 +192,14 @@ test "signal maps to icon arcs" {
     try std.testing.expectEqual(@as(u32, 2), signalBars("3/5"));
     try std.testing.expectEqual(@as(u32, 1), signalBars("1/5"));
     try std.testing.expectEqual(@as(u32, 0), signalBars("none"));
+}
+
+test "ids that could break out of the shell command are refused" {
+    try std.testing.expect(safeId("FEDCBA9876543210FEDCBA9876543210"));
+    try std.testing.expect(safeId("PDOC"));
+    try std.testing.expect(!safeId(""));
+    try std.testing.expect(!safeId("a'; rm -rf /"));
+    try std.testing.expect(!safeId("a b"));
 }
 
 test "brightness stops at both ends" {

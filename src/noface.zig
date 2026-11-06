@@ -14,6 +14,7 @@ const kfx = @import("kfx.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const notes = @import("notes.zig");
+const book_actions = @import("sheet.zig");
 const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
@@ -23,6 +24,7 @@ const touch_zones = @import("touch.zig");
 const page_waveform: hwtcon.Waveform = .reagl;
 const idle_quit_ms = 30 * 60 * 1000;
 const save_every = 10;
+const download_poll_us = 5 * 1000 * 1000;
 
 const touch_device = "/dev/input/event1";
 const power_device = "/dev/input/event0";
@@ -95,6 +97,7 @@ const Action = union(enum) {
     pull,
     drag: i32, // Finger x while a drag is being followed
     drag_end,
+    tick,
     power,
     idle,
     stop,
@@ -124,6 +127,8 @@ const Input = struct {
     top_us: u64 = 0,
     last_touched: usize = 0,
     grips: bool = true, // Off while controls sit where a thumb usually rests
+    tick_us: u64 = 0, // When set, `next` returns .tick this often
+    last_tick: u64 = 0,
     drag_slot: ?usize = null,
     last_input: u64 = 0,
     stashed: ?Action = null,
@@ -198,6 +203,10 @@ const Input = struct {
                 if (in.handle(e)) |action| return action;
             }
             if (nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
+            if (in.tick_us != 0 and nowUs() - in.last_tick >= in.tick_us) {
+                in.last_tick = nowUs();
+                return .tick;
+            }
 
             var fds = [_]linux.pollfd{
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
@@ -293,6 +302,7 @@ const App = struct {
     slots: [3]Slot,
     overlay: []u8,
     state_dir: []const u8,
+    library_path: [*:0]const u8,
     settings_path: [*:0]const u8,
     settings: menu.Settings,
     quick: system.Quick = .{},
@@ -497,7 +507,7 @@ fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32)
                 marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .pull => {},
+            .tap, .pull, .tick => {},
             .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
@@ -540,7 +550,7 @@ fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8
                 marker = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .pull => {},
+            .tap, .pull, .tick => {},
             .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
@@ -624,7 +634,7 @@ fn dragRow(a: *App, background: []const u8, row: menu.Row) !void {
                 marker = try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .pull => {},
+            .tap, .pull, .tick => {},
             .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
@@ -790,7 +800,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     }
                 },
             },
-            .drag, .drag_end => {},
+            .drag, .drag_end, .tick => {},
             .pull => {
                 if (view != .page) continue;
                 view = .panel;
@@ -823,7 +833,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                     else => {},
                 }
             },
-            .pull, .drag, .drag_end => {},
+            .pull, .drag, .drag_end, .tick => {},
             .power, .idle, .stop => return true,
         }
     }
@@ -835,28 +845,124 @@ fn loggedHit(x: i32, y: i32, index: usize, count: usize) library.Hit {
     return h;
 }
 
-fn runLibrary(a: *App, entries: []library.Entry) !void {
-    const visible = try a.alloc.alloc(usize, entries.len);
+const Library = struct {
+    arena: std.heap.ArenaAllocator,
+    data: []const u8,
+    entries: []library.Entry,
+    visible: []usize,
+
+    fn deinit(l: *Library) void {
+        l.arena.deinit();
+        file.unmap(l.data);
+    }
+
+    fn anyDownloading(l: *const Library) bool {
+        for (l.entries) |e| {
+            if (e.availability == .downloading) return true;
+        }
+        return false;
+    }
+};
+
+fn loadLibrary(a: *App) !Library {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+    const data = try file.map(a.library_path);
+    const entries = try library.parse(alloc, data);
+    var path_buf: [320]u8 = undefined;
+    for (entries) |*e| {
+        if (!e.isLocal()) continue;
+        const saved = state.load(try state.pathFor(&path_buf, a.state_dir, e.path));
+        if (state.preferKindle(saved, e.kindle_last)) continue;
+        if (saved.percent) |p| e.percent = @min(p, 100);
+        e.last = @max(e.last, saved.opened);
+    }
+    return .{ .arena = arena, .data = data, .entries = entries, .visible = try alloc.alloc(usize, entries.len) };
+}
+
+/// Shows a book's actions. True means the library changed and should be reloaded.
+fn bookSheet(a: *App, e: *library.Entry, background: []const u8) !bool {
+    var confirming = false;
+    var list_buf: [3]book_actions.Option = undefined;
+    while (true) {
+        const list = book_actions.options(e, confirming, &list_buf);
+        @memcpy(a.overlay, background);
+        try book_actions.render(a.ui, a.page(a.overlay), e, list, confirming);
+        @memcpy(a.screen.pixels, a.overlay);
+        const area = book_actions.region();
+        const top = book_actions.top(list.len) - 8;
+        try a.screen.waitComplete(try a.screen.updateRegion(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16, page_waveform, .partial));
+
+        const chosen: ?book_actions.Option = while (true) {
+            switch (a.input.next()) {
+                .tap => |t| {
+                    const index = book_actions.hit(t.x, t.y, list.len) orelse break null;
+                    if (index < list.len) break list[index];
+                },
+                .power, .idle, .stop => {
+                    a.input.stashed = .power;
+                    break null;
+                },
+                else => {},
+            }
+        };
+        switch (chosen orelse .cancel) {
+            .cancel => {
+                @memcpy(a.screen.pixels, background);
+                try a.screen.waitComplete(try a.screen.updateRegion(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16, page_waveform, .partial));
+                return false;
+            },
+            .remove => confirming = true,
+            .confirm_remove => {
+                system.removeDownload(e.key, e.kind);
+                std.debug.print("removed download: {s}\n", .{e.title});
+                return true;
+            },
+            .download => {
+                system.downloadBook(e.key, e.kind);
+                std.debug.print("download requested: {s}\n", .{e.title});
+                return true;
+            },
+            .mark_read, .mark_unread => |choice| {
+                const done = choice == .mark_read;
+                system.markRead(e.key, e.kind, done);
+                e.finished = done;
+                if (!done and e.percent >= 99) e.percent = 0;
+                return true;
+            },
+        }
+    }
+}
+
+fn runLibrary(a: *App) !void {
+    var lib = try loadLibrary(a);
+    defer lib.deinit();
     var filter: library.Filter = .all;
     var order: library.Order = .recent;
     var message: []const u8 = "";
+    var index: usize = 0;
     const buf = a.slots[0].buf;
     a.slots[0].page = -1;
+    defer a.input.tick_us = 0;
 
     while (true) {
-        library.sort(entries, order);
-        var hero = library.pickHero(entries);
-        var count = library.select(entries, filter, hero, visible);
-        var index: usize = 0;
+        const alloc = lib.arena.allocator();
+        library.sort(lib.entries, order);
+        var hero = library.pickHero(lib.entries);
+        var count = library.select(lib.entries, filter, hero, lib.visible);
+        index = @min(index, library.pageCount(count) - 1);
         a.quick = system.read();
+        a.input.tick_us = if (lib.anyDownloading()) download_poll_us else 0;
         const r0 = nowUs();
-        try library.render(a.alloc, a.ui, a.page(buf), entries, hero, visible[0..count], index, filter, order, message, &a.quick);
+        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, message, &a.quick);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         message = "";
 
         browse: while (true) {
             var opening: ?*library.Entry = null;
+            var acting: ?*library.Entry = null;
             var notice: []const u8 = "";
             switch (a.input.next()) {
                 .tap => |t| switch (loggedHit(t.x, t.y, index, count)) {
@@ -867,14 +973,14 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                     },
                     .tab => |f| {
                         filter = f;
-                        count = library.select(entries, filter, hero, visible);
+                        count = library.select(lib.entries, filter, hero, lib.visible);
                         index = 0;
                     },
                     .sort => {
                         order = order.next();
-                        library.sort(entries, order);
-                        hero = library.pickHero(entries);
-                        count = library.select(entries, filter, hero, visible);
+                        library.sort(lib.entries, order);
+                        hero = library.pickHero(lib.entries);
+                        count = library.select(lib.entries, filter, hero, lib.visible);
                         index = 0;
                     },
                     .next => {
@@ -888,19 +994,29 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                     .hero => {
                         const h = hero orelse continue;
                         a.flash(library.heroRect(a.screen.width));
-                        opening = &entries[h];
+                        opening = &lib.entries[h];
                     },
+                    .hero_dots => acting = &lib.entries[hero orelse continue],
+                    .dots => |i| acting = &lib.entries[lib.visible[i]],
                     .book => |i| {
-                        const entry = &entries[visible[i]];
+                        const entry = &lib.entries[lib.visible[i]];
                         if (entry.isLocal()) {
                             a.flash(library.bookRect(i, index));
                             opening = entry;
                         } else if (entry.availability == .downloading) {
                             notice = "Still downloading. It will open once it's finished.";
                         } else {
-                            notice = "Not on this Kindle yet. Download it from All Settings > Kindle library.";
+                            notice = "Not on this Kindle yet. Use the three dots to download it.";
                         }
                     },
+                },
+                .tick => {
+                    system.exportLibrary();
+                    var fresh = loadLibrary(a) catch continue;
+                    lib.deinit();
+                    lib = fresh;
+                    fresh = undefined;
+                    break :browse;
                 },
                 .drag, .drag_end => continue,
                 .pull => {
@@ -910,6 +1026,7 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                 .power, .idle, .stop => return,
             }
             if (opening) |entry| {
+                a.input.tick_us = 0;
                 const outcome = readBook(a, entry) catch |err| blk: {
                     std.debug.print("could not open book: {s}\n", .{@errorName(err)});
                     message = "This book can't be opened here.";
@@ -919,7 +1036,18 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                 a.slots[0].page = -1;
                 break :browse;
             }
-            try library.render(a.alloc, a.ui, a.page(buf), entries, hero, visible[0..count], index, filter, order, notice, &a.quick);
+            if (acting) |entry| {
+                if (try bookSheet(a, entry, buf)) {
+                    system.exportLibrary();
+                    var fresh = loadLibrary(a) catch break :browse;
+                    lib.deinit();
+                    lib = fresh;
+                    fresh = undefined;
+                    break :browse;
+                }
+                continue;
+            }
+            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, notice, &a.quick);
             try a.present(buf, .gc16, .partial);
         }
     }
@@ -930,17 +1058,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (argv.len != 7) return error.Usage;
     const alloc = std.heap.page_allocator;
 
-    const list = try file.map(argv[1]);
-    const entries = try library.parse(alloc, list);
     const state_dir = std.mem.sliceTo(argv[6], 0);
-    var path_buf: [320]u8 = undefined;
-    for (entries) |*e| {
-        if (!e.isLocal()) continue;
-        const saved = state.load(try state.pathFor(&path_buf, state_dir, e.path));
-        if (state.preferKindle(saved, e.kindle_last)) continue;
-        if (saved.percent) |p| e.percent = @min(p, 100);
-        e.last = @max(e.last, saved.opened);
-    }
 
     const regular = try file.map(argv[2]);
     const book_bold = try file.map(argv[3]);
@@ -1001,11 +1119,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .slots = slots,
         .overlay = try alloc.alloc(u8, screen.pixels.len),
         .state_dir = state_dir,
+        .library_path = argv[1],
         .settings_path = settings_path,
         .settings = menu.load(settings_path),
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };
     try app.applySettings();
-    try runLibrary(&app, entries);
+    try runLibrary(&app);
     std.debug.print("quit\n", .{});
 }

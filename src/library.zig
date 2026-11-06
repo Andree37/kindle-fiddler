@@ -20,6 +20,8 @@ pub const Entry = struct {
     thumbnail: [:0]const u8 = "",
     added: u64 = 0,
     availability: Availability = .local,
+    key: []const u8 = "",
+    kind: []const u8 = "",
     cover: ?[]u8 = null,
     cover_tried: bool = false,
     hero: ?[]u8 = null,
@@ -100,6 +102,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             2 => .downloading,
             else => .local,
         };
+        const key = fields.next() orelse "";
+        const kind = fields.next() orelse "";
         if (path.len == 0 and availability == .local) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
@@ -114,6 +118,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
             .added = added,
             .availability = availability,
+            .key = key,
+            .kind = kind,
         });
     }
     return out.toOwnedSlice(alloc);
@@ -228,7 +234,7 @@ pub const Fonts = struct {
     cover: *text.Font,
 };
 
-pub const Hit = union(enum) { none, hero, book: usize, prev, next, sort, menu, tab: Filter };
+pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, tab: Filter };
 
 fn gridSize(hero: bool) usize {
     return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
@@ -257,7 +263,10 @@ fn gridTop(hero: bool) i32 {
 pub fn hit(x: i32, y: i32, page: usize, books: usize) Hit {
     const hero = page == 0;
     if (y < status_height) return if (x < 220) .menu else .none;
-    if (hero and y >= hero_top and y < hero_bottom) return .hero;
+    if (hero and y >= hero_top and y < hero_bottom) {
+        if (x >= 1100 and y < hero_top + 90) return .hero_dots;
+        return .hero;
+    }
 
     const tabs_top = tabsTop(hero);
     if (y >= tabs_top and y < tabs_top + tabs_height) {
@@ -278,7 +287,11 @@ pub fn hit(x: i32, y: i32, page: usize, books: usize) Hit {
     const row: usize = @intCast(@divTrunc(y - top, row_height));
     if (column >= columns or row >= gridSize(hero) / columns) return .none;
     const index = firstBook(page) + row * columns + column;
-    return if (index < books) .{ .book = index } else .none;
+    if (index >= books) return .none;
+    const inside_x = @mod(x - margin, cell_step);
+    const inside_y = @mod(y - top, row_height);
+    if (inside_y >= cover.height and inside_x >= cover.width - 90) return .{ .dots = index };
+    return .{ .book = index };
 }
 
 pub const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
@@ -383,7 +396,8 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) 
     const left: f32 = @floatFromInt(left_px);
     const avail: f32 = @floatFromInt(page.width - left_px - margin);
     try fonts.caption.draw(page, left, hero_top + 34, "Continue reading");
-    page.tint(left_px, hero_top + 8, @intFromFloat(avail), 36, 0x60);
+    icons.dots(page, @floatFromInt(page.width - margin - 8), hero_top + 24);
+    page.tint(left_px, hero_top + 8, @intFromFloat(avail - 40), 36, 0x60);
 
     const used = try drawWrapped(fonts.hero, page, left, hero_top + 104, 66, e.title, avail, 3);
     const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
@@ -401,16 +415,20 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) 
 fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
     try drawCover(alloc, fonts, page, e, x, y);
     const bar_y = y + cover.height + 8;
+    const dots_x: f32 = @floatFromInt(x + cover.width - 8);
+    const dots_y: f32 = @floatFromInt(bar_y + 26);
+    icons.dots(page, dots_x, dots_y);
+    const title_width: f32 = cover.width - 34;
     if (!e.isLocal()) {
         page.tint(x, y, cover.width, cover.height, 0xa0);
         icons.cloud(page, @floatFromInt(x + cover.width - 38), @floatFromInt(y + cover.height - 38));
         const label = if (e.availability == .downloading) "Downloading" else e.title;
-        _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, label, cover.width, 1);
+        _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, label, title_width, 1);
         return;
     }
     if (e.inProgress()) progressBar(page, x, bar_y, cover.width, e.percent);
     if (e.isRead()) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
-    _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, cover.width, 1);
+    _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
 }
 
 fn drawStatus(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
@@ -617,4 +635,10 @@ test "cloud books sort after local ones" {
     try std.testing.expectEqualStrings("Zed", rows[0].title);
     sort(&rows, .title);
     try std.testing.expectEqualStrings("Zed", rows[0].title);
+}
+
+test "three dots sit beside the title" {
+    try std.testing.expectEqual(Hit{ .dots = 0 }, hit(300, 975, 0, 79));
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(120, 975, 0, 79));
+    try std.testing.expectEqual(Hit.hero_dots, hit(1180, 130, 0, 79));
 }
