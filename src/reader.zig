@@ -2,7 +2,8 @@
 //! Usage: reader <library.tsv> <regular.ttf> <bold.ttf> <state-dir>
 //!
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
-//! Tapping the top of the page opens a bar with Library, Kindle and text settings.
+//! Tapping the top of a page, or dragging down from it, opens a bar with Library,
+//! Kindle and settings. Dragging down from the top of the library opens Menu.
 //! "Kindle" or the power button returns to the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
@@ -83,6 +84,7 @@ fn axisMax(fd: i32, req: u32) i32 {
 
 const Action = union(enum) {
     tap: struct { x: i32, y: i32, us: u64 },
+    pull,
     power,
     idle,
     stop,
@@ -106,6 +108,10 @@ const Input = struct {
     ys: [2]i32 = .{ 0, 0 },
     pending: ?usize = null,
     down_us: u64 = 0,
+    top_slot: ?usize = null,
+    top_x: i32 = 0,
+    top_y: i32 = 0,
+    top_us: u64 = 0,
     last_input: u64 = 0,
 
     fn next(in: *Input) Action {
@@ -151,6 +157,10 @@ const Input = struct {
                     if (e.value >= 0) {
                         in.pending = in.slot;
                         in.down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
+                    } else if (in.top_slot == in.slot) {
+                        // Lifted without dragging, so it was a tap on the top row.
+                        in.top_slot = null;
+                        return .{ .tap = .{ .x = in.top_x, .y = in.top_y, .us = in.top_us } };
                     }
                 },
                 else => {},
@@ -159,11 +169,25 @@ const Input = struct {
         }
         // Coordinates of a new touch arrive just before the SYN that ends its packet.
         if (e.kind != 0) return null;
+        if (in.top_slot) |slot| {
+            const y = @divTrunc(in.ys[slot] * in.height, in.y_max);
+            if (touch_zones.isPull(in.top_y, y)) {
+                in.top_slot = null;
+                return .pull;
+            }
+        }
         const touched = in.pending orelse return null;
         in.pending = null;
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
         if (touch_zones.isGrip(px, py, in.width, in.height)) return null;
+        if (py < touch_zones.top_zone) {
+            in.top_slot = touched;
+            in.top_x = px;
+            in.top_y = py;
+            in.top_us = in.down_us;
+            return null;
+        }
         return .{ .tap = .{ .x = px, .y = py, .us = in.down_us } };
     }
 };
@@ -405,7 +429,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     }
                     continue;
                 }
-                if (t.y < menu.tap_zone) {
+                if (t.y < touch_zones.top_zone) {
                     menu_open = true;
                     a.quick = system.read();
                     try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
@@ -420,6 +444,12 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     saveProgress(entry, state_path, &session);
                     since_save = 0;
                 }
+            },
+            .pull => {
+                if (menu_open) continue;
+                menu_open = true;
+                a.quick = system.read();
+                try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
             },
             .power, .idle, .stop => return .quit,
         }
@@ -447,6 +477,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                     else => {},
                 }
             },
+            .pull => {},
             .power, .idle, .stop => return true,
         }
     }
@@ -509,6 +540,10 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                         a.slots[0].page = -1;
                         break :browse;
                     },
+                },
+                .pull => {
+                    if (try libraryMenu(a, buf)) return;
+                    continue;
                 },
                 .power, .idle, .stop => return,
             }

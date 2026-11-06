@@ -5,7 +5,6 @@ const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
 
-pub const tap_zone = 150; // Top of the page, which opens the bar
 const first_row = 160;
 const quick_row = 312;
 const text_row = 464;
