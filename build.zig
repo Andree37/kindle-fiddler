@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a7 },
     });
 
-    for ([_][]const u8{ "latency", "kfxstat" }) |name| {
+    for ([_][]const u8{ "latency", "kfxstat", "touchsim", "fbcap" }) |name| {
         const exe = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
