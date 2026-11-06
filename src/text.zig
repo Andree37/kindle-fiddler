@@ -122,6 +122,14 @@ pub const Page = struct {
     height: u32,
     stride: u32,
 
+    pub fn fillRect(p: Page, x: u32, y: u32, w: u32, h: u32, value: u8) void {
+        var row = y;
+        while (row < @min(y + h, p.height)) : (row += 1) {
+            const start = row * p.stride + x;
+            @memset(p.buf[start .. start + @min(w, p.width - x)], value);
+        }
+    }
+
     fn blit(p: Page, g: Glyph, x: i32, y: i32) void {
         const src = g.pixels orelse return;
         var row: i32 = 0;

@@ -12,3 +12,7 @@ pub fn map(path: [*:0]const u8) ![]const u8 {
     if (addr > std.math.maxInt(usize) - 4096) return error.MmapFailed;
     return @as([*]const u8, @ptrFromInt(addr))[0..size];
 }
+
+pub fn unmap(data: []const u8) void {
+    _ = linux.munmap(data.ptr, data.len);
+}
