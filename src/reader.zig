@@ -25,6 +25,7 @@ const eviocgabs_y: u32 = 0x80184540 + 0x36;
 
 const ev_key = 1;
 const ev_abs = 3;
+const abs_mt_slot = 0x2f;
 const abs_mt_x = 0x35;
 const abs_mt_y = 0x36;
 const abs_mt_tracking = 0x39;
@@ -242,9 +243,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .{ .fd = touch, .events = linux.POLL.IN, .revents = 0 },
         .{ .fd = power, .events = linux.POLL.IN, .revents = 0 },
     };
-    var x: i32 = 0;
-    var y: i32 = 0;
-    var finger_down = false;
+    // The panel reports two touch slots. Only the first finger down counts.
+    var slot: usize = 0;
+    var xs = [_]i32{ 0, 0 };
+    var ys = [_]i32{ 0, 0 };
+    var primary: ?usize = null;
     var pending_down = false;
     var down_us: u64 = 0;
     var hold_started: ?u64 = null;
@@ -272,23 +275,26 @@ pub fn main(init: std.process.Init.Minimal) !void {
         if (!failed(n) and n >= @sizeOf(InputEvent)) {
             last_input = nowUs();
             for (events[0 .. n / @sizeOf(InputEvent)]) |e| {
-                if (e.kind == ev_abs and e.code == abs_mt_x) x = e.value;
-                if (e.kind == ev_abs and e.code == abs_mt_y) y = e.value;
+                if (e.kind == ev_abs and e.code == abs_mt_slot) slot = @min(@as(usize, @intCast(@max(e.value, 0))), 1);
+                if (e.kind == ev_abs and e.code == abs_mt_x) xs[slot] = e.value;
+                if (e.kind == ev_abs and e.code == abs_mt_y) ys[slot] = e.value;
                 if (e.kind == ev_abs and e.code == abs_mt_tracking) {
-                    if (e.value >= 0 and !finger_down) {
-                        finger_down = true;
-                        pending_down = true;
-                        down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
-                    } else if (e.value < 0) {
-                        finger_down = false;
+                    if (e.value >= 0) {
+                        if (primary == null) {
+                            primary = slot;
+                            pending_down = true;
+                            down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
+                        }
+                    } else if (primary == slot) {
+                        primary = null;
                         hold_started = null;
                     }
                 }
                 // Coordinates of a new touch arrive just before the SYN that ends its packet.
-                if (e.kind == 0 and pending_down) {
+                if (e.kind == 0 and pending_down and primary != null) {
                     pending_down = false;
-                    const px = @divTrunc(x * @as(i32, @intCast(screen.width)), x_max);
-                    const py = @divTrunc(y * @as(i32, @intCast(screen.height)), y_max);
+                    const px = @divTrunc(xs[primary.?] * @as(i32, @intCast(screen.width)), x_max);
+                    const py = @divTrunc(ys[primary.?] * @as(i32, @intCast(screen.height)), y_max);
                     if (px < 200 and py < 200) {
                         hold_started = nowUs();
                     } else {
