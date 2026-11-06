@@ -85,6 +85,23 @@ pub const Font = struct {
         return width;
     }
 
+    /// Bytes of `word` that fit in `avail`, always at least one character.
+    pub fn fit(f: *Font, word: []const u8, avail: f32) !usize {
+        var width: f32 = 0;
+        var prev: ?Glyph = null;
+        var last: usize = 0;
+        var it = (std.unicode.Utf8View.init(word) catch return word.len).iterator();
+        while (it.nextCodepoint()) |cp| {
+            const g = try f.glyph(cp);
+            if (prev) |p| width += f.kern(p, g);
+            width += g.advance;
+            if (width > avail and last > 0) return last;
+            last = it.i;
+            prev = g;
+        }
+        return last;
+    }
+
     pub fn draw(f: *Font, page: Page, x_start: f32, baseline: i32, word: []const u8) !void {
         var x = x_start;
         var prev: ?Glyph = null;
@@ -170,6 +187,15 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 while (end < text.len and text[end] != ' ' and text[end] != '\n') end += 1;
                 const word = text[j..end];
                 const w = try font.measure(word);
+                if (n == 0 and w > avail) {
+                    // Wider than a whole line, as with a URL or unspaced CJK: split it.
+                    const part = word[0..try font.fit(word, avail)];
+                    words[0] = part;
+                    widths[0] = try font.measure(part);
+                    n = 1;
+                    j += part.len;
+                    break;
+                }
                 const gap: f32 = if (n == 0) 0 else space;
                 if (n > 0 and used + gap + w > avail) break;
                 words[n] = word;
