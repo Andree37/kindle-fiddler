@@ -9,13 +9,13 @@ const file = @import("file.zig");
 const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
 const text = @import("text.zig");
+const touch_zones = @import("touch.zig");
 
 const page_waveform: hwtcon.Waveform = .reagl;
 const clean_refresh_every = 20;
 const idle_quit_ms = 30 * 60 * 1000;
 const corner_hold_ms = 1000;
 const save_every = 10;
-const grip_strip_px = 120; // Bottom edge, where a holding thumb rests
 
 const touch_device = "/dev/input/event1";
 const power_device = "/dev/input/event0";
@@ -299,7 +299,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
                     const px = @divTrunc(xs[touched] * @as(i32, @intCast(screen.width)), x_max);
                     const py = @divTrunc(ys[touched] * @as(i32, @intCast(screen.height)), y_max);
                     std.debug.print("touch slot {d} at {d},{d} size {d}\n", .{ touched, px, py, sizes[touched] });
-                    if (py >= @as(i32, @intCast(screen.height)) - grip_strip_px) {
+                    if (touch_zones.isGrip(px, py, @intCast(screen.width), @intCast(screen.height))) {
                         // Resting thumb, not a tap.
                     } else if (px < 200 and py < 200) {
                         hold_started = nowUs();
