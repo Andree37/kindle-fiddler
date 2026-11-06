@@ -48,7 +48,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var quick = system.read();
 
     if (std.mem.eql(u8, mode, "library")) {
-        const entries = try library.parse(alloc, try file.map("/mnt/us/kf-reader/library.tsv"));
+        const entries = try library.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
         library.sort(entries, .recent);
         const visible = try alloc.alloc(usize, entries.len);
         const filter: library.Filter = if (argv.len > 3) .read else .all;
