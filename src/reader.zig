@@ -13,6 +13,7 @@ const kfx = @import("kfx.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const state = @import("state.zig");
+const system = @import("system.zig");
 const text = @import("text.zig");
 const touch_zones = @import("touch.zig");
 
@@ -183,6 +184,7 @@ const App = struct {
     state_dir: []const u8,
     settings_path: [*:0]const u8,
     settings: menu.Settings,
+    quick: system.Quick = .{},
     layout: text.Layout,
 
     /// Fonts are kept per size, so stepping through sizes doesn't reload them.
@@ -300,17 +302,34 @@ fn pageContaining(pages: []const text.Pos, para: usize, byte: usize) usize {
     return found;
 }
 
-fn drawMenu(a: *App, s: *Session, title: []const u8, whole_page: bool) !void {
-    @memcpy(a.overlay, try s.ensure(s.current, s.current));
-    try menu.render(a.ui, a.page(a.overlay), title);
+/// Draws the bar over `background` and shows it.
+fn drawMenu(a: *App, background: []const u8, title: []const u8, in_book: bool, whole_page: bool) !void {
+    @memcpy(a.overlay, background);
+    try menu.render(a.ui, a.page(a.overlay), title, in_book, a.quick);
     @memcpy(a.screen.pixels, a.overlay);
-    const h: u32 = if (whole_page) a.screen.height else menu.height;
+    const h: u32 = if (whole_page) a.screen.height else menu.height(in_book);
     try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, h, page_waveform, .partial));
 }
 
-fn closeMenu(a: *App, s: *Session) !void {
-    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
-    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height, page_waveform, .partial));
+fn closeMenu(a: *App, background: []const u8, in_book: bool) !void {
+    @memcpy(a.screen.pixels, background);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height(in_book), page_waveform, .partial));
+}
+
+/// Applies a light or airplane change. False means the tap wasn't one of those.
+fn applyQuick(a: *App, change: menu.Hit) bool {
+    switch (change) {
+        .dimmer, .brighter => {
+            a.quick.brightness = system.stepBrightness(a.quick.brightness, change == .brighter);
+            system.setBrightness(a.quick.brightness);
+        },
+        .airplane => {
+            a.quick.airplane = !a.quick.airplane;
+            system.setAirplane(a.quick.airplane);
+        },
+        else => return false,
+    }
+    return true;
 }
 
 /// Re-lays out the book after a text setting changed, keeping the reading position.
@@ -354,13 +373,18 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
         switch (a.input.next()) {
             .tap => |t| {
                 if (menu_open) {
-                    switch (menu.hit(t.x, t.y, a.input.width)) {
-                        .none => {},
+                    const choice = menu.hit(t.x, t.y, a.input.width, true);
+                    if (applyQuick(a, choice)) {
+                        try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
+                        continue;
+                    }
+                    switch (choice) {
+                        .none, .dimmer, .brighter, .airplane => {},
                         .library => return .library,
                         .kindle => return .quit,
                         .close => {
                             menu_open = false;
-                            try closeMenu(a, &session);
+                            try closeMenu(a, try session.ensure(session.current, session.current), true);
                         },
                         .smaller, .larger, .tighter, .looser => |change| {
                             var next = a.settings;
@@ -373,14 +397,15 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                             if (std.meta.eql(next, a.settings)) continue;
                             a.settings = next;
                             try relayout(a, alloc, &session);
-                            try drawMenu(a, &session, entry.title, true);
+                            try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, true);
                         },
                     }
                     continue;
                 }
                 if (t.y < menu.tap_zone) {
                     menu_open = true;
-                    try drawMenu(a, &session, entry.title, false);
+                    a.quick = system.read();
+                    try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
                     continue;
                 }
                 const delta: i32 = if (t.x < @divTrunc(a.input.width, 3)) -1 else 1;
@@ -394,6 +419,32 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                 }
             },
             .power, .idle, .stop => return .quit,
+        }
+    }
+}
+
+/// The bar over the library. Returns true to quit to the stock UI.
+fn libraryMenu(a: *App, background: []const u8) !bool {
+    a.quick = system.read();
+    try drawMenu(a, background, "", false, false);
+    while (true) {
+        switch (a.input.next()) {
+            .tap => |t| {
+                const choice = menu.hit(t.x, t.y, a.input.width, false);
+                if (applyQuick(a, choice)) {
+                    try drawMenu(a, background, "", false, false);
+                    continue;
+                }
+                switch (choice) {
+                    .kindle => return true,
+                    .close, .library => {
+                        try closeMenu(a, background, false);
+                        return false;
+                    },
+                    else => {},
+                }
+            },
+            .power, .idle, .stop => return true,
         }
     }
 }
@@ -421,6 +472,10 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                 .tap => |t| switch (library.hit(t.x, t.y, a.input.width, index, count)) {
                     .none => continue,
                     .exit => return,
+                    .menu => {
+                        if (try libraryMenu(a, buf)) return;
+                        continue;
+                    },
                     .tab => |f| {
                         filter = f;
                         count = library.select(entries, filter, visible);

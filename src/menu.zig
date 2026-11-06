@@ -2,11 +2,18 @@
 const std = @import("std");
 const library = @import("library.zig");
 const state = @import("state.zig");
+const system = @import("system.zig");
 const text = @import("text.zig");
 
 pub const tap_zone = 150; // Top of the page, which opens the bar
-pub const height = 312;
 const first_row = 160;
+const quick_row = 312;
+const text_row = 464;
+
+/// The text row only applies inside a book.
+pub fn height(in_book: bool) u32 {
+    return if (in_book) text_row else quick_row;
+}
 
 pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
 pub const spacings = [_]f32{ 1.2, 1.35, 1.5, 1.7 };
@@ -30,46 +37,80 @@ pub fn step(value: usize, delta: i32, len: usize) usize {
     return @min(value + 1, len - 1);
 }
 
-pub const Hit = enum { none, close, library, kindle, smaller, larger, tighter, looser };
+pub const Hit = enum { none, close, library, kindle, smaller, larger, tighter, looser, dimmer, brighter, airplane };
 
 const Button = struct { hit: Hit, label: []const u8, left: i32, right: i32 };
-const buttons = [_]Button{
+const quick_buttons = [_]Button{
+    .{ .hit = .dimmer, .label = "-", .left = 300, .right = 420 },
+    .{ .hit = .brighter, .label = "+", .left = 440, .right = 560 },
+};
+const text_buttons = [_]Button{
     .{ .hit = .smaller, .label = "-", .left = 300, .right = 420 },
     .{ .hit = .larger, .label = "+", .left = 440, .right = 560 },
     .{ .hit = .tighter, .label = "-", .left = 880, .right = 1000 },
     .{ .hit = .looser, .label = "+", .left = 1020, .right = 1140 },
 };
+const airplane_left = 880;
+const airplane_right = 1140;
 
-pub fn hit(x: i32, y: i32, width: i32) Hit {
-    if (y >= height) return .close;
-    if (y < first_row) {
-        if (x < 300) return .library;
-        if (x >= width - 300) return .kindle;
-        return .none;
-    }
-    for (buttons) |b| {
+fn pick(list: []const Button, x: i32) Hit {
+    for (list) |b| {
         if (x >= b.left and x < b.right) return b.hit;
     }
     return .none;
 }
 
-pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8) !void {
-    page.fillRect(0, 0, page.width, height, 0xff);
-    page.fillRect(0, first_row, page.width, 2, 0x80);
-    page.fillRect(0, height - 4, page.width, 4, 0x00);
+pub fn hit(x: i32, y: i32, width: i32, in_book: bool) Hit {
+    if (y >= height(in_book)) return .close;
+    if (y < first_row) {
+        if (x < 300) return .library;
+        if (x >= width - 300) return .kindle;
+        return .none;
+    }
+    if (y < quick_row) {
+        if (x >= airplane_left and x < airplane_right) return .airplane;
+        return pick(&quick_buttons, x);
+    }
+    return pick(&text_buttons, x);
+}
 
-    try fonts.title.draw(page, 60, 100, "< Library");
+fn drawButtons(fonts: library.Fonts, page: text.Page, list: []const Button, y: u32) !void {
+    for (list) |b| {
+        const left: u32 = @intCast(b.left);
+        const right: u32 = @intCast(b.right);
+        page.fillRect(left, y, right - left, 100, 0xe0);
+        try fonts.title.draw(page, @floatFromInt(left + 48), @intCast(y + 64), b.label);
+    }
+}
+
+pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book: bool, quick: system.Quick) !void {
+    const h = height(in_book);
+    page.fillRect(0, 0, page.width, h, 0xff);
+    page.fillRect(0, first_row, page.width, 2, 0x80);
+    page.fillRect(0, h - 4, page.width, 4, 0x00);
+
+    try fonts.title.draw(page, 60, 100, if (in_book) "< Library" else "< Back");
     try library.drawClipped(fonts.small, page, 320, 100, title, 620);
     try fonts.title.draw(page, @as(f32, @floatFromInt(page.width)) - 200, 100, "Kindle");
 
-    try fonts.small.draw(page, 60, 250, "Text size");
-    try fonts.small.draw(page, 640, 250, "Spacing");
-    for (buttons) |b| {
-        const left: u32 = @intCast(b.left);
-        const right: u32 = @intCast(b.right);
-        page.fillRect(left, 190, right - left, 100, 0xe0);
-        try fonts.title.draw(page, @floatFromInt(left + 48), 254, b.label);
+    var label: [24]u8 = undefined;
+    const light = std.fmt.bufPrint(&label, "Light {d}", .{quick.brightness}) catch "Light";
+    try fonts.small.draw(page, 60, 250, light);
+    try fonts.small.draw(page, 640, 250, "Airplane mode");
+    try drawButtons(fonts, page, &quick_buttons, 190);
+    page.fillRect(airplane_left, 190, airplane_right - airplane_left, 100, if (quick.airplane) 0x00 else 0xe0);
+    const state_label = if (quick.airplane) "On" else "Off";
+    if (quick.airplane) {
+        page.fillRect(airplane_left, 190, airplane_right - airplane_left, 100, 0xe0);
+        page.fillRect(airplane_left, 190, 12, 100, 0x00);
     }
+    try fonts.title.draw(page, airplane_left + 90, 254, state_label);
+
+    if (!in_book) return;
+    page.fillRect(0, quick_row, page.width, 2, 0x80);
+    try fonts.small.draw(page, 60, 402, "Text size");
+    try fonts.small.draw(page, 640, 402, "Spacing");
+    try drawButtons(fonts, page, &text_buttons, 342);
 }
 
 /// Settings share the state file format: size, then spacing.
@@ -83,14 +124,22 @@ pub fn save(path: [*:0]const u8, s: Settings) void {
 }
 
 test "bar buttons map to actions" {
-    try std.testing.expectEqual(Hit.library, hit(100, 80, 1272));
-    try std.testing.expectEqual(Hit.kindle, hit(1100, 80, 1272));
-    try std.testing.expectEqual(Hit.none, hit(600, 80, 1272));
-    try std.testing.expectEqual(Hit.smaller, hit(350, 240, 1272));
-    try std.testing.expectEqual(Hit.larger, hit(500, 240, 1272));
-    try std.testing.expectEqual(Hit.tighter, hit(900, 240, 1272));
-    try std.testing.expectEqual(Hit.looser, hit(1100, 240, 1272));
-    try std.testing.expectEqual(Hit.close, hit(600, 800, 1272));
+    try std.testing.expectEqual(Hit.library, hit(100, 80, 1272, true));
+    try std.testing.expectEqual(Hit.kindle, hit(1100, 80, 1272, true));
+    try std.testing.expectEqual(Hit.none, hit(600, 80, 1272, true));
+    try std.testing.expectEqual(Hit.dimmer, hit(350, 240, 1272, true));
+    try std.testing.expectEqual(Hit.brighter, hit(500, 240, 1272, true));
+    try std.testing.expectEqual(Hit.airplane, hit(1000, 240, 1272, true));
+    try std.testing.expectEqual(Hit.smaller, hit(350, 390, 1272, true));
+    try std.testing.expectEqual(Hit.larger, hit(500, 390, 1272, true));
+    try std.testing.expectEqual(Hit.tighter, hit(900, 390, 1272, true));
+    try std.testing.expectEqual(Hit.looser, hit(1100, 390, 1272, true));
+    try std.testing.expectEqual(Hit.close, hit(600, 800, 1272, true));
+}
+
+test "text row is absent in the library" {
+    try std.testing.expectEqual(Hit.close, hit(350, 390, 1272, false));
+    try std.testing.expectEqual(Hit.dimmer, hit(350, 240, 1272, false));
 }
 
 test "steps stop at both ends" {

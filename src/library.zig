@@ -152,7 +152,7 @@ const next_left = 752;
 const button_width = 220;
 const exit_width = 300;
 
-// Tabs start past the top-left corner, which is held to leave a book.
+// Tabs sit between the Menu and Kindle labels.
 const Tab = struct { filter: Filter, label: []const u8, left: i32, right: i32 };
 const tabs = [_]Tab{
     .{ .filter = .all, .label = "All", .left = 210, .right = 330 },
@@ -163,7 +163,7 @@ const tabs = [_]Tab{
 
 pub const Fonts = struct { title: *text.Font, small: *text.Font };
 
-pub const Hit = union(enum) { none, book: usize, prev, next, sort, exit, tab: Filter };
+pub const Hit = union(enum) { none, book: usize, prev, next, sort, exit, menu, tab: Filter };
 
 pub fn pageCount(entries: usize) usize {
     return @max((entries + rows_per_page - 1) / rows_per_page, 1);
@@ -173,6 +173,7 @@ pub fn pageCount(entries: usize) usize {
 pub fn hit(x: i32, y: i32, width: i32, page: usize, entries: usize) Hit {
     if (y < top) {
         if (x >= width - exit_width) return .exit;
+        if (x < tabs[0].left) return .menu;
         for (tabs) |t| {
             if (x >= t.left and x < t.right) return .{ .tab = t.filter };
         }
@@ -219,6 +220,7 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: 
         try font.draw(page, @floatFromInt(left), 100, t.label);
         if (t.filter == filter) page.fillRect(left, 116, @intFromFloat(try font.measure(t.label)), 6, 0x00);
     }
+    try fonts.small.draw(page, margin, 100, "Menu");
     try fonts.small.draw(page, right - 150, 100, "Kindle");
     page.fillRect(margin, top - 12, page.width - 2 * margin, 3, 0x00);
 
@@ -294,7 +296,7 @@ test "taps map to rows, buttons and exit" {
     try std.testing.expectEqual(Hit.prev, hit(350, 1500, 1272, 0, 79));
     try std.testing.expectEqual(Hit.next, hit(800, 1500, 1272, 0, 79));
     try std.testing.expectEqual(Hit.exit, hit(1100, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit.none, hit(100, 80, 1272, 0, 79));
+    try std.testing.expectEqual(Hit.menu, hit(100, 80, 1272, 0, 79));
 }
 
 test "tapping past the last book does nothing" {
@@ -331,8 +333,8 @@ test "select keeps only matching books" {
     try std.testing.expectEqual(@as(usize, 2), out[0]);
 }
 
-test "tabs stay out of the top-left hold corner" {
-    try std.testing.expectEqual(Hit.none, hit(150, 80, 1272, 0, 79));
+test "tabs sit between menu and kindle" {
+    try std.testing.expectEqual(Hit.menu, hit(150, 80, 1272, 0, 79));
     try std.testing.expectEqual(Hit{ .tab = .all }, hit(250, 80, 1272, 0, 79));
     try std.testing.expectEqual(Hit{ .tab = .unread }, hit(400, 80, 1272, 0, 79));
     try std.testing.expectEqual(Hit{ .tab = .reading }, hit(600, 80, 1272, 0, 79));
