@@ -36,17 +36,32 @@ pub const Paragraph = struct {
     text: []const u8,
     style: u32,
     links: []const Link = &.{},
-    note: bool = false, // Reached through a reference, so hidden from the flow
+    section: u32 = 0,
+    note: bool = false, // Part of a note, so hidden from the flow
+    note_start: bool = false, // First paragraph of a note: what references point at
 };
 
 const max_reference_bytes = 12;
 const max_label_bytes = 8;
 
-/// Paragraphs a note spans. Some books put the number in its own paragraph
-/// with the text in the next one.
+const max_note_gap = 3;
+pub const max_note_parts = 8;
+
+/// Paragraphs a note spans, starting at its target.
 pub fn noteLength(paragraphs: []const Paragraph, target: usize) usize {
-    const label_only = paragraphs[target].text.len <= max_label_bytes;
-    return if (label_only and target + 1 < paragraphs.len) 2 else 1;
+    var n: usize = 1;
+    while (n < max_note_parts and target + n < paragraphs.len) : (n += 1) {
+        const p = paragraphs[target + n];
+        if (!p.note or p.note_start) break;
+    }
+    return n;
+}
+
+fn hasNoteReference(p: Paragraph, paragraphs: []const Paragraph) bool {
+    for (p.links) |l| {
+        if (l.target < paragraphs.len and paragraphs[l.target].note_start) return true;
+    }
+    return false;
 }
 
 /// A short link inside longer text pointing forward is a note reference.
@@ -58,8 +73,31 @@ pub fn markNotes(paragraphs: []Paragraph) void {
             if (l.target <= i or l.target >= paragraphs.len) continue;
             const span = l.end - l.start;
             if (span > max_reference_bytes or span * 2 > p.text.len) continue;
-            for (paragraphs[l.target..][0..noteLength(paragraphs, l.target)]) |*part| part.note = true;
+            paragraphs[l.target].note = true;
+            paragraphs[l.target].note_start = true;
         }
+    }
+
+    // Some books put the number in its own paragraph, with the text in the next.
+    for (paragraphs, 0..) |p, i| {
+        if (p.note_start and p.text.len <= max_label_bytes and i + 1 < paragraphs.len) paragraphs[i + 1].note = true;
+    }
+
+    // Short gaps between two notes of a section are the rest of the first note,
+    // unless a gap paragraph itself references a note, which makes it body text.
+    var previous: ?usize = null;
+    for (paragraphs, 0..) |p, i| {
+        if (!p.note_start) continue;
+        defer previous = i;
+        const from = previous orelse continue;
+        if (paragraphs[from].section != p.section or i - from - 1 > max_note_gap) continue;
+        const gap = paragraphs[from + 1 .. i];
+        var is_body = false;
+        for (gap) |g| {
+            if (hasNoteReference(g, paragraphs)) is_body = true;
+        }
+        if (is_body) continue;
+        for (gap) |*g| g.note = true;
     }
 }
 
@@ -90,6 +128,7 @@ const Parser = struct {
     missing: u32 = 0,
     positions: std.AutoHashMapUnmanaged(u64, u32) = .empty, // Element ID to paragraph
     raw_links: std.ArrayList(RawLink) = .empty,
+    section: u32 = 0,
 
     fn collectLinks(p: *Parser, item: ion.Value, para: u32, text: []const u8) !void {
         const events = item.get(f_style_events) orelse return;
@@ -172,6 +211,7 @@ const Parser = struct {
         if (item.get(f_content_ref)) |ref| {
             if (try p.addContent(ref, style)) {
                 const para: u32 = @intCast(p.paragraphs.items.len - 1);
+                p.paragraphs.items[para].section = p.section;
                 try p.collectLinks(item, para, p.paragraphs.items[para].text);
             } else p.missing += 1;
         }
@@ -235,6 +275,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
             continue;
         };
         count += 1;
+        p.section = count;
         var templates = (section.get(f_section_item) orelse continue).items();
         // Later templates are conditional alternatives of the first.
         if (templates.next()) |first| try p.walk(first, 0);
@@ -300,4 +341,30 @@ test "a number on its own takes the next paragraph with it" {
     try std.testing.expect(paras[1].note);
     try std.testing.expect(paras[2].note);
     try std.testing.expect(!paras[3].note);
+}
+
+test "paragraphs between notes stay with their note" {
+    var paras = [_]Paragraph{
+        .{ .text = "body text with a reference and another one", .style = 0, .links = &.{ .{ .start = 5, .end = 6, .target = 1 }, .{ .start = 9, .end = 10, .target = 3 } } },
+        .{ .text = "first note", .style = 0, .section = 1 },
+        .{ .text = "second paragraph of the first note", .style = 0, .section = 1 },
+        .{ .text = "second note", .style = 0, .section = 1 },
+        .{ .text = "next chapter", .style = 0, .section = 2 },
+    };
+    markNotes(&paras);
+    try std.testing.expect(paras[2].note);
+    try std.testing.expectEqual(@as(usize, 2), noteLength(&paras, 1));
+    try std.testing.expectEqual(@as(usize, 1), noteLength(&paras, 3));
+    try std.testing.expect(!paras[4].note);
+}
+
+test "inline notes do not swallow body text with references" {
+    var paras = [_]Paragraph{
+        .{ .text = "body text with a reference in it", .style = 0, .links = &.{.{ .start = 5, .end = 6, .target = 1 }} },
+        .{ .text = "inline note", .style = 0 },
+        .{ .text = "more body text with its own reference", .style = 0, .links = &.{.{ .start = 5, .end = 6, .target = 3 }} },
+        .{ .text = "another inline note", .style = 0 },
+    };
+    markNotes(&paras);
+    try std.testing.expect(!paras[2].note);
 }
