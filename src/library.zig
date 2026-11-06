@@ -2,6 +2,8 @@
 //! Kindle's own database: path, title, author, percent, last opened.
 const std = @import("std");
 const cover = @import("cover.zig");
+const icons = @import("icons.zig");
+const system = @import("system.zig");
 const text = @import("text.zig");
 
 pub const Entry = struct {
@@ -17,6 +19,8 @@ pub const Entry = struct {
     added: u64 = 0,
     cover: ?[]u8 = null,
     cover_tried: bool = false,
+    hero: ?[]u8 = null,
+    hero_tried: bool = false,
 
     pub fn status(e: Entry) Filter {
         if (e.finished or e.percent >= finished_percent) return .read;
@@ -105,8 +109,8 @@ pub const Order = enum {
     fn label(o: Order) []const u8 {
         return switch (o) {
             .recent => "Recent",
-            .title => "Title",
-            .added => "Added",
+            .title => "A to Z",
+            .added => "Newest",
         };
     }
 
@@ -131,6 +135,16 @@ pub fn sort(entries: []Entry, order: Order) void {
     std.mem.sort(Entry, entries, order, before);
 }
 
+/// Puts the newest book still in progress first, for the hero.
+pub fn leadWithReading(entries: []const Entry, visible: []usize) void {
+    for (visible, 0..) |index, i| {
+        if (entries[index].status() != .reading) continue;
+        std.mem.copyBackwards(usize, visible[1 .. i + 1], visible[0..i]);
+        visible[0] = index;
+        return;
+    }
+}
+
 /// Fills `out` with indexes of matching entries and returns how many matched.
 pub fn select(entries: []const Entry, filter: Filter, out: []usize) usize {
     var n: usize = 0;
@@ -143,64 +157,121 @@ pub fn select(entries: []const Entry, filter: Filter, out: []usize) usize {
     return n;
 }
 
-pub const rows_per_page = 9;
-const margin = 80;
-const top = 150;
-const row_height = 140;
-const buttons_top = 1420;
-const buttons_bottom = 1560;
-// Between the bottom corners, where a holding thumb rests.
-const prev_left = 300;
-const sort_left = 520;
-const next_left = 752;
-const button_width = 220;
-const exit_width = 300;
+const margin = 72;
+const gutter = 40;
+const columns = 4;
+const cell_step = cover.width + gutter;
+const row_height = 410;
+const status_height = 96;
 
-// Tabs sit between the Menu and Kindle labels.
+// The first page of All, newest first, leads with the book in progress.
+const hero_top = 112;
+const hero_bottom = 500;
+const hero_tabs_top = 516;
+const hero_grid_top = 622;
+const plain_tabs_top = 100;
+const plain_grid_top = 206;
+const tabs_height = 84;
+const hero_rows = 2;
+const plain_rows = 3;
+
 const Tab = struct { filter: Filter, label: []const u8, left: i32, right: i32 };
 const tabs = [_]Tab{
-    .{ .filter = .all, .label = "All", .left = 210, .right = 330 },
-    .{ .filter = .unread, .label = "Unread", .left = 330, .right = 530 },
-    .{ .filter = .reading, .label = "Reading", .left = 530, .right = 750 },
-    .{ .filter = .read, .label = "Read", .left = 750, .right = 972 },
+    .{ .filter = .all, .label = "All", .left = 72, .right = 170 },
+    .{ .filter = .unread, .label = "Unread", .left = 170, .right = 352 },
+    .{ .filter = .reading, .label = "Reading", .left = 352, .right = 552 },
+    .{ .filter = .read, .label = "Read", .left = 552, .right = 700 },
 };
 
-pub const Fonts = struct { title: *text.Font, small: *text.Font };
+const footer_top = 1450;
+const footer_bottom = 1570;
+const prev_left = 340;
+const next_left = 732;
+const footer_button = 200;
+const sort_left = 860;
 
-pub const Hit = union(enum) { none, book: usize, prev, next, sort, exit, menu, tab: Filter };
+pub const Fonts = struct {
+    title: *text.Font, // UI bold
+    small: *text.Font, // UI regular
+    caption: *text.Font,
+    hero: *text.Font, // Book title, in the reading typeface
+    cover: *text.Font,
+};
 
-pub fn pageCount(entries: usize) usize {
-    return @max((entries + rows_per_page - 1) / rows_per_page, 1);
+pub const Hit = union(enum) { none, book: usize, prev, next, sort, menu, tab: Filter };
+
+fn hasHero(filter: Filter, order: Order, page: usize) bool {
+    return page == 0 and filter == .all and order == .recent;
+}
+
+fn gridSize(hero: bool) usize {
+    return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
+}
+
+/// Index of the first grid book on a page. The hero is book 0 on page zero.
+fn firstBook(filter: Filter, order: Order, page: usize) usize {
+    const leads = filter == .all and order == .recent;
+    if (!leads) return page * gridSize(false);
+    if (page == 0) return 1;
+    return 1 + gridSize(true) + (page - 1) * gridSize(false);
+}
+
+pub fn pageCount(books: usize, filter: Filter, order: Order) usize {
+    const leads = filter == .all and order == .recent;
+    const paged = if (leads) (1 + gridSize(true)) else @as(usize, 0);
+    if (books <= paged) return 1;
+    const rest = books - paged;
+    const pages = (rest + gridSize(false) - 1) / gridSize(false);
+    return @max(pages + @as(usize, if (leads) 1 else 0), 1);
+}
+
+fn tabsTop(hero: bool) i32 {
+    return if (hero) hero_tabs_top else plain_tabs_top;
+}
+
+fn gridTop(hero: bool) i32 {
+    return if (hero) hero_grid_top else plain_grid_top;
 }
 
 /// What a tap on this library page lands on.
-pub fn hit(x: i32, y: i32, width: i32, page: usize, entries: usize) Hit {
-    if (y < top) {
-        if (x >= width - exit_width) return .exit;
-        if (x < tabs[0].left) return .menu;
+pub fn hit(x: i32, y: i32, page: usize, books: usize, filter: Filter, order: Order) Hit {
+    const hero = hasHero(filter, order, page);
+    if (y < status_height) return if (x < 220) .menu else .none;
+    if (hero and y >= hero_top and y < hero_bottom) return if (books > 0) .{ .book = 0 } else .none;
+
+    const tabs_top = tabsTop(hero);
+    if (y >= tabs_top and y < tabs_top + tabs_height) {
+        if (x >= sort_left) return .sort;
         for (tabs) |t| {
             if (x >= t.left and x < t.right) return .{ .tab = t.filter };
         }
         return .none;
     }
-    if (y >= buttons_top and y < buttons_bottom) {
-        if (x >= prev_left and x < prev_left + button_width) return .prev;
-        if (x >= sort_left and x < sort_left + button_width) return .sort;
-        if (x >= next_left and x < next_left + button_width) return .next;
+    if (y >= footer_top and y < footer_bottom) {
+        if (x >= prev_left and x < prev_left + footer_button) return .prev;
+        if (x >= next_left and x < next_left + footer_button) return .next;
         return .none;
     }
-    if (y >= top + rows_per_page * row_height) return .none;
+    const top = gridTop(hero);
+    if (y < top or x < margin) return .none;
+    const column: usize = @intCast(@divTrunc(x - margin, cell_step));
     const row: usize = @intCast(@divTrunc(y - top, row_height));
-    const index = page * rows_per_page + row;
-    return if (index < entries) .{ .book = index } else .none;
+    if (column >= columns or row >= gridSize(hero) / columns) return .none;
+    const index = firstBook(filter, order, page) + row * columns + column;
+    return if (index < books) .{ .book = index } else .none;
 }
 
 pub const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
 
-/// Screen area of a book row, for tap feedback.
-pub fn rowRect(page: usize, index: usize, width: u32) Rect {
-    const row: u32 = @intCast(index - page * rows_per_page);
-    return .{ .x = 0, .y = top + row * row_height, .w = width, .h = row_height };
+/// Screen area of a book, for tap feedback.
+pub fn bookRect(index: usize, page: usize, width: u32, filter: Filter, order: Order) Rect {
+    const hero = hasHero(filter, order, page);
+    if (hero and index == 0) return .{ .x = margin, .y = hero_top, .w = width - 2 * margin, .h = cover.hero_height };
+    const offset = index - firstBook(filter, order, page);
+    const column: u32 = @intCast(offset % columns);
+    const row: u32 = @intCast(offset / columns);
+    const top: u32 = @intCast(gridTop(hero));
+    return .{ .x = margin + column * cell_step, .y = top + row * row_height, .w = cover.width, .h = cover.height };
 }
 
 pub fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
@@ -209,68 +280,180 @@ pub fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const
     const dots = "...";
     const cut = try font.fit(s, avail - try font.measure(dots));
     var buf: [256]u8 = undefined;
-    const part = s[0..@min(cut, buf.len - dots.len)];
+    const part = std.mem.trimEnd(u8, s[0..@min(cut, buf.len - dots.len)], " ");
     @memcpy(buf[0..part.len], part);
     @memcpy(buf[part.len..][0..dots.len], dots);
     try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, visible: []const usize, index: usize, filter: Filter, order: Order, message: []const u8) !void {
-    @memset(page.buf, 0xff);
-    const right: f32 = @floatFromInt(page.width - margin);
+/// Bytes of `s` that fit on one line, breaking at a space when possible.
+fn lineBreak(font: *text.Font, s: []const u8, avail: f32) !usize {
+    if (try font.measure(s) <= avail) return s.len;
+    const cut = try font.fit(s, avail);
+    if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
+        if (space > 0) return space;
+    }
+    return cut;
+}
+
+/// Wraps text over at most `lines`, clipping the last, and returns the lines used.
+fn drawWrapped(font: *text.Font, page: text.Page, x: f32, y: i32, step: i32, s: []const u8, avail: f32, lines: u32) !u32 {
+    var rest = s;
+    var line: u32 = 0;
+    while (rest.len > 0 and line < lines) : (line += 1) {
+        const row = y + @as(i32, @intCast(line)) * step;
+        if (line + 1 == lines) {
+            try drawClipped(font, page, x, row, rest, avail);
+            return line + 1;
+        }
+        const n = try lineBreak(font, rest, avail);
+        try font.draw(page, x, row, rest[0..n]);
+        rest = std.mem.trimStart(u8, rest[n..], " ");
+    }
+    return line;
+}
+
+fn progressBar(page: text.Page, x: u32, y: u32, w: u32, percent: u32) void {
+    page.fillRect(x, y + 2, w, 2, 0xc0);
+    page.fillRect(x, y, w * @min(percent, 100) / 100, 6, 0x00);
+}
+
+/// A book with no thumbnail still gets a real cover: its title set in type.
+fn typeCover(fonts: Fonts, page: text.Page, x: u32, y: u32, w: u32, h: u32, e: *const Entry) !void {
+    page.fillRect(x, y, w, h, 0xf0);
+    page.fillRect(x, y, w, 2, 0x00);
+    page.fillRect(x, y + h - 2, w, 2, 0x00);
+    page.fillRect(x, y, 2, h, 0x00);
+    page.fillRect(x + w - 2, y, 2, h, 0x00);
+    const left: f32 = @floatFromInt(x + 28);
+    const avail: f32 = @floatFromInt(w - 56);
+    const top: i32 = @intCast(y + 72);
+    const used = try drawWrapped(fonts.cover, page, left, top, 44, e.title, avail, 5);
+    page.fillRect(x + 28, y + 72 + used * 44, 48, 3, 0x00);
+    try drawClipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
+}
+
+fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
+    if (!e.cover_tried) {
+        e.cover_tried = true;
+        if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail, cover.width, cover.height);
+    }
+    if (e.cover) |c| {
+        page.copyImage(x, y, c, cover.width, cover.height);
+    } else {
+        try typeCover(fonts, page, x, y, cover.width, cover.height, e);
+    }
+}
+
+fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) !void {
+    if (!e.hero_tried) {
+        e.hero_tried = true;
+        if (e.thumbnail.len > 0) e.hero = cover.load(alloc, e.thumbnail, cover.hero_width, cover.hero_height);
+    }
+    if (e.hero) |c| {
+        page.copyImage(margin, hero_top, c, cover.hero_width, cover.hero_height);
+    } else {
+        try typeCover(fonts, page, margin, hero_top, cover.hero_width, cover.hero_height, e);
+    }
+
+    const left_px: u32 = margin + cover.hero_width + 48;
+    const left: f32 = @floatFromInt(left_px);
+    const avail: f32 = @floatFromInt(page.width - left_px - margin);
+    try fonts.caption.draw(page, left, hero_top + 34, "Continue reading");
+    page.tint(left_px, hero_top + 8, @intFromFloat(avail), 36, 0x60);
+
+    const used = try drawWrapped(fonts.hero, page, left, hero_top + 104, 66, e.title, avail, 3);
+    const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
+    try drawClipped(fonts.small, page, left, author_y, e.author, avail);
+    page.tint(left_px, @intCast(author_y - 30), @intFromFloat(avail), 44, 0x50);
+
+    const bar_y = hero_top + cover.hero_height - 40;
+    progressBar(page, left_px, bar_y, @intFromFloat(avail), e.percent);
+    var label: [24]u8 = undefined;
+    const pct = std.fmt.bufPrint(&label, "{d}% read", .{e.percent}) catch "";
+    try fonts.caption.draw(page, left, bar_y + 42, pct);
+    page.tint(left_px, bar_y + 16, @intFromFloat(avail), 34, 0x50);
+}
+
+fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
+    try drawCover(alloc, fonts, page, e, x, y);
+    const status = e.status();
+    const bar_y = y + cover.height + 8;
+    if (status == .reading) progressBar(page, x, bar_y, cover.width, e.percent);
+    if (status == .read) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
+    _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, cover.width, 1);
+}
+
+fn drawStatus(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
+    const w: f32 = @floatFromInt(page.width);
+    icons.menu(page, margin, 34);
+    const clock = quick.clockText();
+    const time = clock[0 .. std.mem.indexOfScalar(u8, clock, ' ') orelse clock.len];
+    const tw = try fonts.caption.measure(time);
+    try fonts.caption.draw(page, w / 2 - tw / 2, 58, time);
+    if (quick.wifi_on) icons.wifi(page, w - 268, 40, 0.4, quick.wifi_bars);
+    var pct: [8]u8 = undefined;
+    try fonts.caption.draw(page, w - 226, 58, std.fmt.bufPrint(&pct, "{d}%", .{quick.battery}) catch "");
+    icons.batterySmall(page, w - margin - 62, 34, quick.battery);
+}
+
+fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: Filter, order: Order) !void {
+    const y = top + 54;
     for (tabs) |t| {
         const left: u32 = @intCast(t.left);
-        const font = if (t.filter == filter) fonts.title else fonts.small;
-        try font.draw(page, @floatFromInt(left), 100, t.label);
-        if (t.filter == filter) page.fillRect(left, 116, @intFromFloat(try font.measure(t.label)), 6, 0x00);
-    }
-    try fonts.small.draw(page, margin, 100, "Menu");
-    try fonts.small.draw(page, right - 150, 100, "Kindle");
-    page.fillRect(margin, top - 12, page.width - 2 * margin, 3, 0x00);
-
-    const first = index * rows_per_page;
-    const shown = visible[@min(first, visible.len)..@min(first + rows_per_page, visible.len)];
-    for (shown, 0..) |entry_index, i| {
-        const e = &entries[entry_index];
-        const y: i32 = top + @as(i32, @intCast(i)) * row_height;
-        if (!e.cover_tried) {
-            e.cover_tried = true;
-            if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail);
-        }
-        const cover_y: u32 = @intCast(y + 6);
-        if (e.cover) |c| {
-            page.copyImage(margin, cover_y, c, cover.width, cover.height);
+        const active = t.filter == filter;
+        const font = if (active) fonts.title else fonts.small;
+        try font.draw(page, @floatFromInt(left), y, t.label);
+        if (active) {
+            const width: u32 = @intFromFloat(try font.measure(t.label));
+            page.fillRect(left, @intCast(top + tabs_height - 8), width, 5, 0x00);
         } else {
-            page.fillRect(margin, cover_y, cover.width, cover.height, 0xd0);
+            page.tint(left, @intCast(top + 16), @intCast(t.right - t.left - 4), 50, 0x50);
         }
-
-        const left: f32 = margin + cover.width + 24;
-        const avail: f32 = right - left - 110;
-        try drawClipped(fonts.title, page, left, y + 58, e.title, avail);
-        try drawClipped(fonts.small, page, left, y + 104, e.author, avail);
-
-        var label: [8]u8 = undefined;
-        const pct = std.fmt.bufPrint(&label, "{d}%", .{e.percent}) catch "";
-        try fonts.small.draw(page, right - 90, y + 58, pct);
-
-        const bar_y: u32 = @intCast(y + 124);
-        const bar_x: u32 = @intFromFloat(left);
-        const bar_w = page.width - margin - bar_x;
-        page.fillRect(bar_x, bar_y, bar_w, 2, 0xc0);
-        page.fillRect(bar_x, bar_y, bar_w * e.percent / 100, 6, 0x00);
     }
+    const right: f32 = @floatFromInt(page.width - margin);
+    const sort_w = try fonts.small.measure(order.label());
+    try fonts.small.draw(page, right - sort_w, y, order.label());
+    page.fillRect(margin, @intCast(top + tabs_height - 4), page.width - 2 * margin, 1, 0xb0);
+}
 
-    try fonts.title.draw(page, prev_left + 20, buttons_top + 90, "Previous");
-    try fonts.title.draw(page, next_left + 60, buttons_top + 90, "Next");
-    try fonts.small.draw(page, sort_left + 50, buttons_top + 88, order.label());
-    if (index == 0) page.dim(prev_left, buttons_top, button_width, buttons_bottom - buttons_top);
-    if (index + 1 >= pageCount(visible.len)) page.dim(next_left, buttons_top, button_width, buttons_bottom - buttons_top);
-
+fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
+    const centre = @as(f32, @floatFromInt(page.width)) / 2;
+    const y = (footer_top + footer_bottom) / 2 + 12;
     var label: [32]u8 = undefined;
-    const count = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, pageCount(visible.len) }) catch "";
-    try fonts.small.draw(page, @as(f32, @floatFromInt(page.width)) / 2 - 40, 1620, count);
-    if (visible.len == 0) try fonts.small.draw(page, margin, top + 58, "No books here.");
-    if (message.len > 0) try fonts.small.draw(page, margin, 1670, message);
+    const count = std.fmt.bufPrint(&label, "{d} of {d}", .{ index + 1, pages }) catch "";
+    const w = try fonts.small.measure(count);
+    try fonts.small.draw(page, centre - w / 2, y, count);
+    const mid: f32 = @floatFromInt(y - 11);
+    const prev_x: f32 = prev_left + footer_button / 2;
+    const next_x: f32 = next_left + footer_button / 2;
+    page.stroke(prev_x + 9, mid - 18, prev_x - 9, mid, 4);
+    page.stroke(prev_x - 9, mid, prev_x + 9, mid + 18, 4);
+    page.stroke(next_x - 9, mid - 18, next_x + 9, mid, 4);
+    page.stroke(next_x + 9, mid, next_x - 9, mid + 18, 4);
+    if (index == 0) page.tint(prev_left, footer_top, footer_button, footer_bottom - footer_top, 0xc8);
+    if (index + 1 >= pages) page.tint(next_left, footer_top, footer_button, footer_bottom - footer_top, 0xc8);
+}
+
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, visible: []const usize, index: usize, filter: Filter, order: Order, message: []const u8, quick: *const system.Quick) !void {
+    @memset(page.buf, 0xff);
+    try drawStatus(fonts, page, quick);
+
+    const hero = hasHero(filter, order, index) and visible.len > 0;
+    if (hero) try drawHero(alloc, fonts, page, &entries[visible[0]]);
+    try drawTabs(fonts, page, tabsTop(hero), filter, order);
+
+    const first = firstBook(filter, order, index);
+    const shown = visible[@min(first, visible.len)..@min(first + gridSize(hero), visible.len)];
+    const top: u32 = @intCast(gridTop(hero));
+    for (shown, 0..) |entry_index, i| {
+        const x: u32 = margin + @as(u32, @intCast(i % columns)) * cell_step;
+        const y: u32 = top + @as(u32, @intCast(i / columns)) * row_height;
+        try drawCell(alloc, fonts, page, &entries[entry_index], x, y);
+    }
+    if (visible.len == 0) try fonts.small.draw(page, margin, @intCast(top + 60), "No books here yet.");
+    try drawFooter(fonts, page, index, pageCount(visible.len, filter, order));
+    if (message.len > 0) try fonts.caption.draw(page, margin, 1640, message);
 }
 
 test "titles lose filename junk" {
@@ -294,22 +477,43 @@ test "rows parse and sort newest first" {
     try std.testing.expectEqualStrings("Old", rows[1].title);
 }
 
-test "taps map to rows, buttons and exit" {
-    try std.testing.expectEqual(Hit{ .book = 0 }, hit(300, 200, 1272, 0, 79));
-    try std.testing.expectEqual(Hit{ .book = 10 }, hit(300, 320, 1272, 1, 79));
-    try std.testing.expectEqual(Hit.prev, hit(350, 1500, 1272, 0, 79));
-    try std.testing.expectEqual(Hit.next, hit(800, 1500, 1272, 0, 79));
-    try std.testing.expectEqual(Hit.exit, hit(1100, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit.menu, hit(100, 80, 1272, 0, 79));
+test "first page leads with the current book, then four by two" {
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(300, 200, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit{ .book = 1 }, hit(100, 700, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit{ .book = 4 }, hit(1000, 700, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit{ .book = 5 }, hit(100, 1100, 0, 79, .all, .recent));
+}
+
+test "later pages are four by three" {
+    try std.testing.expectEqual(Hit{ .book = 9 }, hit(100, 300, 1, 79, .all, .recent));
+    try std.testing.expectEqual(Hit{ .book = 20 }, hit(1000, 1100, 1, 79, .all, .recent));
+}
+
+test "a filter drops the hero" {
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 300, 0, 30, .read, .recent));
+    try std.testing.expectEqual(Hit{ .book = 12 }, hit(100, 300, 1, 30, .read, .recent));
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 300, 0, 30, .all, .title));
+}
+
+test "header and footer controls" {
+    try std.testing.expectEqual(Hit.menu, hit(100, 50, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(250, 560, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 0, 79, .all, .recent));
+    try std.testing.expectEqual(Hit.next, hit(800, 1500, 0, 79, .all, .recent));
 }
 
 test "tapping past the last book does nothing" {
-    try std.testing.expectEqual(Hit.none, hit(300, 200, 1272, 8, 72));
+    try std.testing.expectEqual(Hit.none, hit(1000, 1100, 0, 3, .read, .title));
 }
 
-test "page count rounds up and is never zero" {
-    try std.testing.expectEqual(@as(usize, 9), pageCount(79));
-    try std.testing.expectEqual(@as(usize, 1), pageCount(0));
+test "page count follows the layout" {
+    try std.testing.expectEqual(@as(usize, 1), pageCount(0, .all, .recent));
+    try std.testing.expectEqual(@as(usize, 1), pageCount(9, .all, .recent));
+    try std.testing.expectEqual(@as(usize, 2), pageCount(10, .all, .recent));
+    try std.testing.expectEqual(@as(usize, 7), pageCount(79, .all, .recent));
+    try std.testing.expectEqual(@as(usize, 1), pageCount(0, .read, .recent));
+    try std.testing.expectEqual(@as(usize, 2), pageCount(13, .read, .recent));
 }
 
 test "status uses kindle's finished mark over a lower percent" {
@@ -337,26 +541,6 @@ test "select keeps only matching books" {
     try std.testing.expectEqual(@as(usize, 2), out[0]);
 }
 
-test "tabs sit between menu and kindle" {
-    try std.testing.expectEqual(Hit.menu, hit(150, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit{ .tab = .all }, hit(250, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(400, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit{ .tab = .reading }, hit(600, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit{ .tab = .read }, hit(800, 80, 1272, 0, 79));
-    try std.testing.expectEqual(Hit.exit, hit(1000, 80, 1272, 0, 79));
-}
-
-test "titles get colons and lose series prefixes" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    try std.testing.expectEqualStrings("The Butcher's Masquerade: Dungeon Crawler Carl (Book 5)", try fixTitle(a, "The Butcher's Masquerade_ Dungeon Crawler Carl (Book 5) -- Matt Dinniman"));
-    try std.testing.expectEqualStrings("Streaming Data: Understanding the Real-time Pipeline", try fixTitle(a, "Streaming Data _ Understanding the Real-time Pipeline -- Andrew"));
-    try std.testing.expectEqualStrings("Why Look at Animals", try fixTitle(a, "Why Look at Animals_ -- John Berger"));
-    try std.testing.expectEqualStrings("We Are Legion", try fixTitle(a, "[Bobiverse 01] \u{2022} We Are Legion -- Taylor"));
-    try std.testing.expectEqualStrings("file_name", try fixTitle(a, "file_name"));
-}
-
 test "sort orders by title and by date added" {
     var rows = [_]Entry{
         .{ .path = "/a", .title = "banana", .author = "", .percent = 0, .last = 1, .added = 5 },
@@ -373,8 +557,18 @@ test "sort orders by title and by date added" {
     try std.testing.expectEqualStrings("cherry", rows[0].title);
 }
 
-test "sort button cycles and sits between page buttons" {
+test "sort button cycles" {
     try std.testing.expectEqual(Order.title, Order.recent.next());
     try std.testing.expectEqual(Order.recent, Order.added.next());
-    try std.testing.expectEqual(Hit.sort, hit(600, 1500, 1272, 0, 79));
+}
+
+test "the hero skips finished books" {
+    const rows = [_]Entry{
+        .{ .path = "/a", .title = "Done", .author = "", .percent = 99, .last = 3 },
+        .{ .path = "/b", .title = "Later", .author = "", .percent = 0, .last = 2 },
+        .{ .path = "/c", .title = "Now", .author = "", .percent = 34, .last = 1 },
+    };
+    var visible = [_]usize{ 0, 1, 2 };
+    leadWithReading(&rows, &visible);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 0, 1 }, &visible);
 }

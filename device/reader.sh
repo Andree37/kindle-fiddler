@@ -16,7 +16,7 @@ lipc-set-prop com.lab126.pillow disableEnablePillow disable
 killall -STOP awesome
 
 # Background plus wait, so a signal reaches the reader instead of waiting on it.
-"$DIR/reader" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$DIR" >> "$DIR/reader.log" 2>&1 &
+"$DIR/reader" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$FONTS/Amazon-Ember-Regular.ttf" "$FONTS/Amazon-Ember-Bold.ttf" "$DIR" >> "$DIR/reader.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null' INT TERM HUP
 wait "$pid"

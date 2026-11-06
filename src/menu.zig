@@ -51,15 +51,16 @@ const text_buttons = [_]Button{
     .{ .hit = .looser, .label = "+", .left = 1020, .right = 1140 },
 };
 
-const Icon = enum { airplane, wifi, bluetooth, sync, gear };
+const Icon = enum { airplane, wifi, bluetooth, sync, gear, home };
 const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
 const icon_radius = 52;
 const shortcuts = [_]Shortcut{
     .{ .icon = .airplane, .hit = .airplane, .x = 318, .y = 240 },
     .{ .icon = .wifi, .hit = .settings, .x = 636, .y = 240 }, // Networks live in stock settings
     .{ .icon = .bluetooth, .hit = .none, .x = 954, .y = 240 }, // Not wired up yet
-    .{ .icon = .sync, .hit = .none, .x = 477, .y = 430 }, // Not wired up yet
-    .{ .icon = .gear, .hit = .settings, .x = 795, .y = 430 },
+    .{ .icon = .sync, .hit = .none, .x = 318, .y = 430 }, // Not wired up yet
+    .{ .icon = .gear, .hit = .settings, .x = 636, .y = 430 },
+    .{ .icon = .home, .hit = .kindle, .x = 954, .y = 430 },
 };
 
 /// Brightness level for a tap at `x` on the slider.
@@ -69,13 +70,11 @@ pub fn levelAt(x: i32) u32 {
     return @intCast(@divTrunc((clamped - slider_left) * system.max_brightness + span / 2, span));
 }
 
-pub fn hit(x: i32, y: i32, width: i32, in_book: bool) Hit {
+pub fn hit(x: i32, y: i32, in_book: bool) Hit {
     if (y >= height(in_book)) return .close;
     if (y >= panel_height) {
         if (y < toolbar_bottom) {
-            if (x < 300) return .library;
-            if (x >= width - 300) return .kindle;
-            return .none;
+            return if (x < 300) .library else .none;
         }
         for (text_buttons) |b| {
             if (x >= b.left and x < b.right) return b.hit;
@@ -129,6 +128,7 @@ fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
         .bluetooth => icons.bluetooth(page, x, y),
         .sync => icons.sync(page, x, y),
         .gear => icons.gear(page, x, y),
+        .home => icons.home(page, x, y),
     }
 }
 
@@ -139,6 +139,7 @@ fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
         .bluetooth => "Off",
         .sync => "Sync",
         .gear => "All Settings",
+        .home => "Kindle Home",
     };
 }
 
@@ -169,7 +170,6 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book:
     page.fillRect(0, panel_height - 2, page.width, 2, 0x80);
     try fonts.title.draw(page, 60, 860, "< Library");
     try library.drawClipped(fonts.small, page, 320, 860, title, 620);
-    try fonts.title.draw(page, w - 200, 860, "Kindle");
     page.fillRect(0, toolbar_bottom, page.width, 2, 0x80);
     try fonts.small.draw(page, 60, 990, "Text size");
     try fonts.small.draw(page, 640, 990, "Spacing");
@@ -193,24 +193,24 @@ pub fn save(path: [*:0]const u8, s: Settings) void {
 }
 
 test "panel maps taps like the stock layout" {
-    try std.testing.expectEqual(Hit.airplane, hit(318, 240, 1272, false));
-    try std.testing.expectEqual(Hit.settings, hit(636, 240, 1272, false)); // Wi-Fi
-    try std.testing.expectEqual(Hit.none, hit(954, 240, 1272, false)); // Bluetooth
-    try std.testing.expectEqual(Hit.none, hit(477, 430, 1272, false)); // Sync
-    try std.testing.expectEqual(Hit.settings, hit(795, 430, 1272, false));
-    try std.testing.expectEqual(Hit.dimmer, hit(90, 680, 1272, false));
-    try std.testing.expectEqual(Hit.brighter, hit(1180, 680, 1272, false));
-    try std.testing.expectEqual(Hit.slider, hit(600, 680, 1272, false));
-    try std.testing.expectEqual(Hit.close, hit(636, 760, 1272, false));
-    try std.testing.expectEqual(Hit.close, hit(600, 1000, 1272, false));
+    try std.testing.expectEqual(Hit.airplane, hit(318, 240, false));
+    try std.testing.expectEqual(Hit.settings, hit(636, 240, false)); // Wi-Fi
+    try std.testing.expectEqual(Hit.none, hit(954, 240, false)); // Bluetooth
+    try std.testing.expectEqual(Hit.none, hit(318, 430, false)); // Sync
+    try std.testing.expectEqual(Hit.settings, hit(636, 430, false));
+    try std.testing.expectEqual(Hit.kindle, hit(954, 430, false));
+    try std.testing.expectEqual(Hit.dimmer, hit(90, 680, false));
+    try std.testing.expectEqual(Hit.brighter, hit(1180, 680, false));
+    try std.testing.expectEqual(Hit.slider, hit(600, 680, false));
+    try std.testing.expectEqual(Hit.close, hit(636, 760, false));
+    try std.testing.expectEqual(Hit.close, hit(600, 1000, false));
 }
 
 test "book rows sit under the panel" {
-    try std.testing.expectEqual(Hit.library, hit(100, 840, 1272, true));
-    try std.testing.expectEqual(Hit.kindle, hit(1100, 840, 1272, true));
-    try std.testing.expectEqual(Hit.smaller, hit(350, 970, 1272, true));
-    try std.testing.expectEqual(Hit.looser, hit(1100, 970, 1272, true));
-    try std.testing.expectEqual(Hit.close, hit(600, 1200, 1272, true));
+    try std.testing.expectEqual(Hit.library, hit(100, 840, true));
+    try std.testing.expectEqual(Hit.smaller, hit(350, 970, true));
+    try std.testing.expectEqual(Hit.looser, hit(1100, 970, true));
+    try std.testing.expectEqual(Hit.close, hit(600, 1200, true));
 }
 
 test "slider maps position to level" {

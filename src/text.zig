@@ -10,6 +10,10 @@ extern fn ft_hmetrics(f: *anyopaque, g: c_int, adv: *c_int, lsb: *c_int) void;
 extern fn ft_kern(f: *anyopaque, a: c_int, b: c_int) c_int;
 extern fn ft_bitmap(f: *anyopaque, scale: f32, g: c_int, w: *c_int, h: *c_int, xo: *c_int, yo: *c_int) ?[*]u8;
 
+fn isCombining(cp: u32) bool {
+    return cp >= 0x300 and cp <= 0x36f;
+}
+
 const Glyph = struct {
     index: c_int,
     advance: f32,
@@ -77,6 +81,7 @@ pub const Font = struct {
         var prev: ?Glyph = null;
         var it = (std.unicode.Utf8View.init(word) catch return 0).iterator();
         while (it.nextCodepoint()) |cp| {
+            if (isCombining(cp)) continue;
             const g = try f.glyph(cp);
             if (prev) |p| width += f.kern(p, g);
             width += g.advance;
@@ -92,6 +97,10 @@ pub const Font = struct {
         var last: usize = 0;
         var it = (std.unicode.Utf8View.init(word) catch return word.len).iterator();
         while (it.nextCodepoint()) |cp| {
+            if (isCombining(cp)) {
+                last = it.i;
+                continue;
+            }
             const g = try f.glyph(cp);
             if (prev) |p| width += f.kern(p, g);
             width += g.advance;
@@ -106,10 +115,19 @@ pub const Font = struct {
         var x = x_start;
         var prev: ?Glyph = null;
         var it = (std.unicode.Utf8View.init(word) catch return).iterator();
+        var base_x = x;
         while (it.nextCodepoint()) |cp| {
             const g = try f.glyph(cp);
+            if (isCombining(cp)) {
+                // Centred over the letter it belongs to.
+                const letter = if (prev) |p| p.advance else 0;
+                const mark = @as(f32, @floatFromInt(g.width));
+                page.blit(g, @as(i32, @intFromFloat(base_x + (letter - mark) / 2)), baseline + g.y_off);
+                continue;
+            }
             if (prev) |p| x += f.kern(p, g);
             page.blit(g, @as(i32, @intFromFloat(x)) + g.x_off, baseline + g.y_off);
+            base_x = x;
             x += g.advance;
             prev = g;
         }
@@ -210,6 +228,31 @@ pub const Page = struct {
                     if (inside) hits += 1;
                 }
                 p.darken(x, y, @as(f32, @floatFromInt(hits)) / 4);
+            }
+        }
+    }
+
+    /// White tick for the finished badge.
+    pub fn fillPolyWhiteCheck(p: Page, cx: f32, cy: f32) void {
+        const pts = [_][4]f32{ .{ -11, 1, -3, 9 }, .{ -3, 9, 12, -8 } };
+        for (pts) |l| {
+            var t: f32 = 0;
+            while (t <= 1) : (t += 0.02) {
+                const x = cx + l[0] + (l[2] - l[0]) * t;
+                const y = cy + l[1] + (l[3] - l[1]) * t;
+                p.disc(@intFromFloat(x), @intFromFloat(y), 2, 0, 0xff);
+            }
+        }
+    }
+
+    /// Lifts black toward `floor`, for secondary text and lines.
+    pub fn tint(p: Page, x: u32, y: u32, w: u32, h: u32, floor: u8) void {
+        var row = y;
+        while (row < @min(y + h, p.height)) : (row += 1) {
+            const start = row * p.stride + x;
+            for (p.buf[start .. start + @min(w, p.width - x)]) |*px| {
+                const span: u32 = 255 - @as(u32, floor);
+                px.* = @intCast(@as(u32, floor) + @as(u32, px.*) * span / 255);
             }
         }
     }

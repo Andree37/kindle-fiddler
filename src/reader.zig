@@ -1,5 +1,5 @@
 //! Fast reader with its own library screen.
-//! Usage: reader <library.tsv> <regular.ttf> <bold.ttf> <state-dir>
+//! Usage: reader <library.tsv> <body.ttf> <title.ttf> <ui.ttf> <ui-bold.ttf> <state-dir>
 //!
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
 //! Tapping the top of a page, or dragging down from it, opens a bar with Library,
@@ -588,7 +588,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     continue;
                 }
                 if (menu_open) {
-                    const choice = menu.hit(t.x, t.y, a.input.width, true);
+                    const choice = menu.hit(t.x, t.y, true);
                     if (applyQuick(a, choice, t.x)) {
                         const page = try session.ensure(session.current, session.current);
                         if (choice == .slider) {
@@ -667,7 +667,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
     while (true) {
         switch (a.input.next()) {
             .tap => |t| {
-                const choice = menu.hit(t.x, t.y, a.input.width, false);
+                const choice = menu.hit(t.x, t.y, false);
                 if (applyQuick(a, choice, t.x)) {
                     if (choice == .slider) {
                         try dragBrightness(a, background, "", false);
@@ -695,7 +695,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
     }
 }
 
-fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
+fn runLibrary(a: *App, entries: []library.Entry) !void {
     const visible = try a.alloc.alloc(usize, entries.len);
     var filter: library.Filter = .all;
     var order: library.Order = .recent;
@@ -706,18 +706,19 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
     while (true) {
         library.sort(entries, order);
         var count = library.select(entries, filter, visible);
+        if (filter == .all and order == .recent) library.leadWithReading(entries, visible[0..count]);
         var index: usize = 0;
+        a.quick = system.read();
         const r0 = nowUs();
-        try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, order, message);
+        try library.render(a.alloc, a.ui, a.page(buf), entries, visible[0..count], index, filter, order, message, &a.quick);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         message = "";
 
         browse: while (true) {
             switch (a.input.next()) {
-                .tap => |t| switch (library.hit(t.x, t.y, a.input.width, index, count)) {
+                .tap => |t| switch (library.hit(t.x, t.y, index, count, filter, order)) {
                     .none => continue,
-                    .exit => return,
                     .menu => {
                         if (try libraryMenu(a, buf)) return;
                         continue;
@@ -725,16 +726,18 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                     .tab => |f| {
                         filter = f;
                         count = library.select(entries, filter, visible);
+                        if (filter == .all and order == .recent) library.leadWithReading(entries, visible[0..count]);
                         index = 0;
                     },
                     .sort => {
                         order = order.next();
                         library.sort(entries, order);
                         count = library.select(entries, filter, visible);
+                        if (filter == .all and order == .recent) library.leadWithReading(entries, visible[0..count]);
                         index = 0;
                     },
                     .next => {
-                        if (index + 1 >= library.pageCount(count)) continue;
+                        if (index + 1 >= library.pageCount(count, filter, order)) continue;
                         index += 1;
                     },
                     .prev => {
@@ -742,7 +745,7 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                         index -= 1;
                     },
                     .book => |i| {
-                        a.flash(library.rowRect(index, i, a.screen.width));
+                        a.flash(library.bookRect(i, index, a.screen.width, filter, order));
                         const outcome = readBook(a, &entries[visible[i]]) catch |err| blk: {
                             std.debug.print("could not open book: {s}\n", .{@errorName(err)});
                             message = "This book can't be opened here.";
@@ -760,20 +763,20 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                 },
                 .power, .idle, .stop => return,
             }
-            try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, order, "");
-            try a.present(buf, page_waveform, .partial);
+            try library.render(a.alloc, a.ui, a.page(buf), entries, visible[0..count], index, filter, order, "", &a.quick);
+            try a.present(buf, .gc16, .partial);
         }
     }
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
-    if (argv.len != 5) return error.Usage;
+    if (argv.len != 7) return error.Usage;
     const alloc = std.heap.page_allocator;
 
     const list = try file.map(argv[1]);
     const entries = try library.parse(alloc, list);
-    const state_dir = std.mem.sliceTo(argv[4], 0);
+    const state_dir = std.mem.sliceTo(argv[6], 0);
     var path_buf: [320]u8 = undefined;
     for (entries) |*e| {
         const saved = state.load(try state.pathFor(&path_buf, state_dir, e.path));
@@ -783,12 +786,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     const regular = try file.map(argv[2]);
-    const bold = try file.map(argv[3]);
+    const book_bold = try file.map(argv[3]);
+    const ui_regular = try file.map(argv[4]);
+    const ui_bold = try file.map(argv[5]);
     var screen = try hwtcon.Screen.open();
     var fallback_body = try text.Font.init(alloc, regular, 46, 1.35);
     var footer = try text.Font.init(alloc, regular, 28, 1.2);
-    var title = try text.Font.init(alloc, bold, 40, 1.2);
-    var small = try text.Font.init(alloc, regular, 30, 1.2);
+    var title = try text.Font.init(alloc, ui_bold, 34, 1.2);
+    var small = try text.Font.init(alloc, ui_regular, 34, 1.2);
+    var caption = try text.Font.init(alloc, ui_regular, 26, 1.2);
+    var hero = try text.Font.init(alloc, book_bold, 56, 1.2);
+    var cover_type = try text.Font.init(alloc, book_bold, 36, 1.2);
 
     var slots: [3]Slot = undefined;
     for (&slots) |*s| s.* = .{ .buf = try alloc.alloc(u8, screen.pixels.len) };
@@ -820,7 +828,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     var settings_buf: [320]u8 = undefined;
     const settings_path = try std.fmt.bufPrintSentinel(&settings_buf, "{s}/settings", .{state_dir}, 0);
-    const ui = library.Fonts{ .title = &title, .small = &small };
+    const ui = library.Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
 
     var app = App{
         .alloc = alloc,
@@ -838,6 +846,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };
     try app.applySettings();
-    try runLibrary(&app, entries, ui);
+    try runLibrary(&app, entries);
     std.debug.print("quit\n", .{});
 }

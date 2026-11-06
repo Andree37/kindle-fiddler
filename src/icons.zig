@@ -113,6 +113,42 @@ pub fn battery(page: text.Page, x: f32, y: f32, percent: u32) void {
     if (fill > 0) page.fillRect(@intFromFloat(x + 5), @intFromFloat(y + 5), fill, h - 10, 0x00);
 }
 
+pub fn home(page: text.Page, cx: f32, cy: f32) void {
+    const p = Pen{ .page = page, .cx = cx, .cy = cy };
+    p.line(-32, 2, 0, -26, 4);
+    p.line(0, -26, 32, 2, 4);
+    p.line(-22, -6, -22, 28, 4);
+    p.line(22, -6, 22, 28, 4);
+    p.line(-22, 28, 22, 28, 4);
+    p.line(-7, 28, -7, 8, 4);
+    p.line(7, 28, 7, 8, 4);
+    p.line(-7, 8, 7, 8, 4);
+}
+
+pub fn menu(page: text.Page, x: f32, y: f32) void {
+    page.stroke(x, y, x + 44, y, 4);
+    page.stroke(x, y + 14, x + 44, y + 14, 4);
+    page.stroke(x, y + 28, x + 44, y + 28, 4);
+}
+
+pub fn check(page: text.Page, cx: f32, cy: f32) void {
+    page.disc(@intFromFloat(cx), @intFromFloat(cy), 25, 0, 0xff);
+    page.disc(@intFromFloat(cx), @intFromFloat(cy), 22, 0, 0x00);
+    page.fillPolyWhiteCheck(cx, cy);
+}
+
+pub fn batterySmall(page: text.Page, x: f32, y: f32, percent: u32) void {
+    const w = 54;
+    const h = 26;
+    page.stroke(x, y, x + w, y, 2);
+    page.stroke(x, y + h, x + w, y + h, 2);
+    page.stroke(x, y, x, y + h, 2);
+    page.stroke(x + w, y, x + w, y + h, 2);
+    page.stroke(x + w + 5, y + 8, x + w + 5, y + h - 8, 4);
+    const fill = batteryFill(w - 8, percent);
+    if (fill > 0) page.fillRect(@intFromFloat(x + 4), @intFromFloat(y + 4), fill, h - 8, 0x00);
+}
+
 pub fn chevron(page: text.Page, cx: f32, cy: f32) void {
     page.stroke(cx - 42, cy + 13, cx, cy - 7, 4);
     page.stroke(cx, cy - 7, cx + 42, cy + 13, 4);

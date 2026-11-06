@@ -5,8 +5,10 @@ const file = @import("file.zig");
 extern fn img_gray(data: [*]const u8, len: c_int, w: *c_int, h: *c_int) ?[*]u8;
 extern fn img_free(p: [*]u8) void;
 
-pub const width = 94;
-pub const height = 125;
+pub const width = 252;
+pub const height = 333;
+pub const hero_width = 270;
+pub const hero_height = 357;
 
 /// Box filter: each output pixel averages the source pixels it covers.
 pub fn scale(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: usize) void {
@@ -25,8 +27,8 @@ pub fn scale(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: us
     }
 }
 
-/// Returns a `width` by `height` grayscale cover, or null if it can't be read.
-pub fn load(alloc: std.mem.Allocator, path: [*:0]const u8) ?[]u8 {
+/// Returns a grayscale cover at the given size, or null if it can't be read.
+pub fn load(alloc: std.mem.Allocator, path: [*:0]const u8, dw: usize, dh: usize) ?[]u8 {
     const data = file.map(path) catch return null;
     defer file.unmap(data);
     var w: c_int = 0;
@@ -36,8 +38,8 @@ pub fn load(alloc: std.mem.Allocator, path: [*:0]const u8) ?[]u8 {
     if (w <= 0 or h <= 0) return null;
     const sw: usize = @intCast(w);
     const sh: usize = @intCast(h);
-    const out = alloc.alloc(u8, width * height) catch return null;
-    scale(pixels[0 .. sw * sh], sw, sh, out, width, height);
+    const out = alloc.alloc(u8, dw * dh) catch return null;
+    scale(pixels[0 .. sw * sh], sw, sh, out, dw, dh);
     return out;
 }
 

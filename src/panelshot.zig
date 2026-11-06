@@ -1,5 +1,5 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
-//! Usage: panelshot <regular.ttf> <bold.ttf> [notes]
+//! Usage: panelshot [panel | notes | library [page [read]]]
 const std = @import("std");
 const linux = std.os.linux;
 const file = @import("file.zig");
@@ -27,18 +27,41 @@ const sample_note = note_line ++ note_line ++ note_line;
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
     const alloc = std.heap.page_allocator;
-    const regular = try file.map(argv[1]);
-    var title = try text.Font.init(alloc, try file.map(argv[2]), 40, 1.2);
-    var small = try text.Font.init(alloc, regular, 30, 1.2);
+    const dir = "/usr/java/lib/fonts/";
+    const regular = try file.map(dir ++ "Bookerly-Regular.ttf");
+    const book_bold = try file.map(dir ++ "Bookerly-Bold.ttf");
+    const ui_regular = try file.map(dir ++ "Amazon-Ember-Regular.ttf");
+    const ui_bold = try file.map(dir ++ "Amazon-Ember-Bold.ttf");
+    var title = try text.Font.init(alloc, ui_bold, 34, 1.2);
+    var small = try text.Font.init(alloc, ui_regular, 34, 1.2);
+    var caption = try text.Font.init(alloc, ui_regular, 26, 1.2);
+    var hero = try text.Font.init(alloc, book_bold, 56, 1.2);
+    var cover_type = try text.Font.init(alloc, book_bold, 36, 1.2);
+    const fonts = library.Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
     const w = 1272;
     const h = 1696;
     const buf = try alloc.alloc(u8, w * h);
     @memset(buf, 0xff);
     const page = text.Page{ .buf = buf, .width = w, .height = h, .stride = w };
-    const fonts = library.Fonts{ .title = &title, .small = &small };
     var head_buf: [32]u8 = undefined;
+    const mode = if (argv.len > 1) std.mem.sliceTo(argv[1], 0) else "panel";
+    var quick = system.read();
 
-    if (argv.len > 3) {
+    if (std.mem.eql(u8, mode, "library")) {
+        const entries = try library.parse(alloc, try file.map("/mnt/us/kf-reader/library.tsv"));
+        library.sort(entries, .recent);
+        const visible = try alloc.alloc(usize, entries.len);
+        const filter: library.Filter = if (argv.len > 3) .read else .all;
+        const count = library.select(entries, filter, visible);
+        if (filter == .all) library.leadWithReading(entries, visible[0..count]);
+        const index: usize = if (argv.len > 2) try std.fmt.parseInt(usize, std.mem.sliceTo(argv[2], 0), 10) else 0;
+        try library.render(alloc, fonts, page, entries, visible[0..count], index, filter, .recent, "", &quick);
+        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
+        write(buf);
+        return;
+    }
+
+    if (std.mem.eql(u8, mode, "notes")) {
         var body = try text.Font.init(alloc, regular, 46, 1.35);
         var note_font = try text.Font.init(alloc, regular, 36, 1.3);
         var mark = try text.Font.init(alloc, regular, 28, 1.2);
@@ -60,7 +83,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    var quick = system.read();
     quick.brightness = 11;
     try menu.render(fonts, page, "A sample book title", true, &quick);
     write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, menu.height(true) }));
