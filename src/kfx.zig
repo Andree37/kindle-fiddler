@@ -64,6 +64,17 @@ fn hasNoteReference(p: Paragraph, paragraphs: []const Paragraph) bool {
     return false;
 }
 
+/// Note marks are numbers or symbols. A word in a link is an ordinary cross-reference.
+pub fn isMark(s: []const u8) bool {
+    var letters: usize = 0;
+    var it = (std.unicode.Utf8View.init(s) catch return false).iterator();
+    while (it.nextCodepoint()) |cp| {
+        const latin = cp >= 0xc0 and cp <= 0x24f;
+        if (latin or (cp < 0x80 and std.ascii.isAlphabetic(@intCast(cp)))) letters += 1;
+    }
+    return letters <= 1;
+}
+
 /// A short link inside longer text pointing forward is a note reference.
 /// That leaves out contents pages, where the link is the whole line, and
 /// back-links inside notes, which point backward.
@@ -73,6 +84,7 @@ pub fn markNotes(paragraphs: []Paragraph) void {
             if (l.target <= i or l.target >= paragraphs.len) continue;
             const span = l.end - l.start;
             if (span > max_reference_bytes or span * 2 > p.text.len) continue;
+            if (!isMark(p.text[l.start..l.end])) continue;
             paragraphs[l.target].note = true;
             paragraphs[l.target].note_start = true;
         }
@@ -367,4 +379,23 @@ test "inline notes do not swallow body text with references" {
     };
     markNotes(&paras);
     try std.testing.expect(!paras[2].note);
+}
+
+test "marks are numbers and symbols, not words" {
+    try std.testing.expect(isMark("12"));
+    try std.testing.expect(isMark("[3]"));
+    try std.testing.expect(isMark("*"));
+    try std.testing.expect(isMark("\u{2020}"));
+    try std.testing.expect(isMark("a"));
+    try std.testing.expect(!isMark("Taleb"));
+    try std.testing.expect(!isMark("\u{e9}t\u{e9}"));
+}
+
+test "a linked word does not hide its target" {
+    var paras = [_]Paragraph{
+        .{ .text = "as argued by Popper in the earlier chapter", .style = 0, .links = &.{.{ .start = 13, .end = 19, .target = 1 }} },
+        .{ .text = "a heading that must stay visible", .style = 0 },
+    };
+    markNotes(&paras);
+    try std.testing.expect(!paras[1].note);
 }

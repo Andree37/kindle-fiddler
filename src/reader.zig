@@ -382,6 +382,12 @@ const Session = struct {
                 index + 1, queued -| t, (done -| t) / 1000, if (clean) " (clean)" else "",
             });
         }
+        for (&a.slots) |*slot| {
+            if (slot.page != @as(i64, @intCast(index))) continue;
+            for (slot.hits.items[0..slot.hits.len]) |h| {
+                std.debug.print("ref page {d} at {d},{d} size {d}x{d} target {d}\n", .{ index + 1, h.x, h.y, h.w, h.h, h.target });
+            }
+        }
         // Prepare both neighbours now, so the next turn is only a copy.
         if (index + 1 < s.pages.len) _ = try s.ensure(index + 1, index);
         if (index > 0) _ = try s.ensure(index - 1, index);
@@ -448,6 +454,7 @@ fn showNote(a: *App, s: *Session, start: text.Pos, fixed: ?u32) !void {
     try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, fitted.height, page_waveform, .partial));
     s.note_top = top;
     s.note_next = fitted.next;
+    std.debug.print("note parts {d} panel {d} more {}\n", .{ s.note_len, fitted.height, fitted.next != null });
 }
 
 fn openNote(a: *App, s: *Session, target: u32) !void {
@@ -462,6 +469,7 @@ fn openNote(a: *App, s: *Session, target: u32) !void {
 }
 
 fn closeNote(a: *App, s: *Session) !void {
+    std.debug.print("note closed\n", .{});
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
     try a.screen.waitComplete(try a.screen.updateRegion(0, s.note_top, a.screen.width, a.screen.height - s.note_top, page_waveform, .partial));
 }
@@ -547,7 +555,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
 
     const pages = try paginate(a, alloc, book.paragraphs);
     if (pages.len == 0) return error.EmptyBook;
-    std.debug.print("{d} pages, open {d} ms\n", .{ pages.len, (nowUs() - t0) / 1000 });
+    std.debug.print("open {s}: {d} pages in {d} ms\n", .{ entry.title, pages.len, (nowUs() - t0) / 1000 });
 
     var path_buf: [320]u8 = undefined;
     const state_path = try state.pathFor(&path_buf, a.state_dir, entry.path);
