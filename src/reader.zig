@@ -342,16 +342,17 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
 fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
     const visible = try a.alloc.alloc(usize, entries.len);
     var filter: library.Filter = .all;
+    var order: library.Order = .recent;
     var message: []const u8 = "";
     const buf = a.slots[0].buf;
     a.slots[0].page = -1;
 
     while (true) {
-        library.sort(entries);
+        library.sort(entries, order);
         var count = library.select(entries, filter, visible);
         var index: usize = 0;
         const r0 = nowUs();
-        try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, message);
+        try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, order, message);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         message = "";
@@ -363,6 +364,12 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                     .exit => return,
                     .tab => |f| {
                         filter = f;
+                        count = library.select(entries, filter, visible);
+                        index = 0;
+                    },
+                    .sort => {
+                        order = order.next();
+                        library.sort(entries, order);
                         count = library.select(entries, filter, visible);
                         index = 0;
                     },
@@ -389,7 +396,7 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                 .hold => continue,
                 .power, .idle, .stop => return,
             }
-            try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, "");
+            try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, order, "");
             try a.present(buf, page_waveform, .partial);
         }
     }

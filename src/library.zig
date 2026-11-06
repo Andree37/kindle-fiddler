@@ -12,6 +12,7 @@ pub const Entry = struct {
     last: u64,
     finished: bool = false,
     thumbnail: [:0]const u8 = "",
+    added: u64 = 0,
     cover: ?[]u8 = null,
     cover_tried: bool = false,
 
@@ -75,6 +76,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
         const last = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
         const read_state = std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0;
         const thumbnail = fields.next() orelse "";
+        const added = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
         if (path.len == 0) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
@@ -85,17 +87,44 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             // Taken here, before our own progress replaces the percent.
             .finished = read_state == read_state_finished or percent >= finished_percent,
             .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
+            .added = added,
         });
     }
     return out.toOwnedSlice(alloc);
 }
 
-fn newerFirst(_: void, a: Entry, b: Entry) bool {
-    return a.last > b.last;
+pub const Order = enum {
+    recent,
+    title,
+    added,
+
+    fn label(o: Order) []const u8 {
+        return switch (o) {
+            .recent => "Recent",
+            .title => "Title",
+            .added => "Added",
+        };
+    }
+
+    pub fn next(o: Order) Order {
+        return switch (o) {
+            .recent => .title,
+            .title => .added,
+            .added => .recent,
+        };
+    }
+};
+
+fn before(order: Order, a: Entry, b: Entry) bool {
+    return switch (order) {
+        .recent => a.last > b.last,
+        .added => a.added > b.added,
+        .title => std.ascii.lessThanIgnoreCase(a.title, b.title),
+    };
 }
 
-pub fn sort(entries: []Entry) void {
-    std.mem.sort(Entry, entries, {}, newerFirst);
+pub fn sort(entries: []Entry, order: Order) void {
+    std.mem.sort(Entry, entries, order, before);
 }
 
 /// Fills `out` with indexes of matching entries and returns how many matched.
@@ -134,7 +163,7 @@ const tabs = [_]Tab{
 
 pub const Fonts = struct { title: *text.Font, small: *text.Font };
 
-pub const Hit = union(enum) { none, book: usize, prev, next, exit, tab: Filter };
+pub const Hit = union(enum) { none, book: usize, prev, next, sort, exit, tab: Filter };
 
 pub fn pageCount(entries: usize) usize {
     return @max((entries + rows_per_page - 1) / rows_per_page, 1);
@@ -151,6 +180,7 @@ pub fn hit(x: i32, y: i32, width: i32, page: usize, entries: usize) Hit {
     }
     if (y >= buttons_top and y < buttons_bottom) {
         if (x >= prev_left and x < prev_left + button_width) return .prev;
+        if (x >= sort_left and x < sort_left + button_width) return .sort;
         if (x >= next_left and x < next_left + button_width) return .next;
         return .none;
     }
@@ -180,7 +210,7 @@ fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8,
     try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, visible: []const usize, index: usize, filter: Filter, message: []const u8) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, visible: []const usize, index: usize, filter: Filter, order: Order, message: []const u8) !void {
     @memset(page.buf, 0xff);
     const right: f32 = @floatFromInt(page.width - margin);
     for (tabs) |t| {
@@ -226,6 +256,7 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: 
 
     try fonts.title.draw(page, prev_left + 20, buttons_top + 90, "Previous");
     try fonts.title.draw(page, next_left + 60, buttons_top + 90, "Next");
+    try fonts.small.draw(page, sort_left + 50, buttons_top + 88, order.label());
     if (index == 0) page.dim(prev_left, buttons_top, button_width, buttons_bottom - buttons_top);
     if (index + 1 >= pageCount(visible.len)) page.dim(next_left, buttons_top, button_width, buttons_bottom - buttons_top);
 
@@ -250,7 +281,7 @@ test "rows parse and sort newest first" {
     defer arena.deinit();
     const data = "/a.kfx\tOld -- x\tA\t12.7\t100\n/b.kfx\tNew\tB\t\t200\n\n";
     const rows = try parse(arena.allocator(), data);
-    sort(rows);
+    sort(rows, .recent);
     try std.testing.expectEqual(@as(usize, 2), rows.len);
     try std.testing.expectEqualStrings("New", rows[0].title);
     try std.testing.expectEqual(@as(u32, 12), rows[1].percent);
@@ -318,4 +349,26 @@ test "titles get colons and lose series prefixes" {
     try std.testing.expectEqualStrings("Why Look at Animals", try fixTitle(a, "Why Look at Animals_ -- John Berger"));
     try std.testing.expectEqualStrings("We Are Legion", try fixTitle(a, "[Bobiverse 01] \u{2022} We Are Legion -- Taylor"));
     try std.testing.expectEqualStrings("file_name", try fixTitle(a, "file_name"));
+}
+
+test "sort orders by title and by date added" {
+    var rows = [_]Entry{
+        .{ .path = "/a", .title = "banana", .author = "", .percent = 0, .last = 1, .added = 5 },
+        .{ .path = "/b", .title = "Apple", .author = "", .percent = 0, .last = 2, .added = 9 },
+        .{ .path = "/c", .title = "cherry", .author = "", .percent = 0, .last = 3, .added = 1 },
+    };
+    sort(&rows, .title);
+    try std.testing.expectEqualStrings("Apple", rows[0].title);
+    try std.testing.expectEqualStrings("cherry", rows[2].title);
+    sort(&rows, .added);
+    try std.testing.expectEqualStrings("Apple", rows[0].title);
+    try std.testing.expectEqualStrings("cherry", rows[2].title);
+    sort(&rows, .recent);
+    try std.testing.expectEqualStrings("cherry", rows[0].title);
+}
+
+test "sort button cycles and sits between page buttons" {
+    try std.testing.expectEqual(Order.title, Order.recent.next());
+    try std.testing.expectEqual(Order.recent, Order.added.next());
+    try std.testing.expectEqual(Hit.sort, hit(600, 1500, 1272, 0, 79));
 }

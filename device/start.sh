@@ -11,7 +11,8 @@ sqlite3 -separator "$(printf '\t')" /tmp/kf-cc.db \
     "select p_location, p_titles_0_nominal,
             coalesce(json_extract(j_credits, '\$[0].name.display'), ''),
             coalesce(p_percentFinished, 0), coalesce(p_lastAccess, 0),
-            coalesce(p_readState, 0), coalesce(p_thumbnail, '')
+            coalesce(p_readState, 0), coalesce(p_thumbnail, ''),
+            coalesce(p_modificationTime, 0)
      from Entries where p_location like '%.kfx'" > "$DIR/library.tsv"
 rm -f /tmp/kf-cc.db
 
