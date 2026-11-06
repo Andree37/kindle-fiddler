@@ -20,6 +20,7 @@ const touch_zones = @import("touch.zig");
 
 const page_waveform: hwtcon.Waveform = .reagl;
 const clean_refresh_every = 20;
+const clean_refresh_pause_us = 1_000_000; // Never flash while pages are being flicked
 const idle_quit_ms = 30 * 60 * 1000;
 const save_every = 10;
 
@@ -113,10 +114,44 @@ const Input = struct {
     top_y: i32 = 0,
     top_us: u64 = 0,
     last_input: u64 = 0,
+    stashed: ?Action = null,
+
+    /// Sums page-turn taps already waiting, so fast tapping jumps instead of lagging.
+    /// Anything else that turns up is kept for the next call to `next`.
+    fn takeTurns(in: *Input) i32 {
+        var delta: i32 = 0;
+        while (in.stashed == null) {
+            while (in.event_next >= in.event_count) {
+                const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
+                if (failed(n) or n < @sizeOf(InputEvent)) return delta;
+                in.event_count = n / @sizeOf(InputEvent);
+                in.event_next = 0;
+                in.last_input = nowUs();
+            }
+            const e = in.events[in.event_next];
+            in.event_next += 1;
+            const action = in.handle(e) orelse continue;
+            switch (action) {
+                .tap => |t| {
+                    if (t.y < touch_zones.top_zone) {
+                        in.stashed = action;
+                    } else {
+                        delta += turnDirection(t.x, in.width);
+                    }
+                },
+                else => in.stashed = action,
+            }
+        }
+        return delta;
+    }
 
     fn next(in: *Input) Action {
         while (true) {
             if (stop_requested.load(.acquire)) return .stop;
+            if (in.stashed) |action| {
+                in.stashed = null;
+                return action;
+            }
             while (in.event_next < in.event_count) {
                 const e = in.events[in.event_next];
                 in.event_next += 1;
@@ -192,6 +227,10 @@ const Input = struct {
     }
 };
 
+fn turnDirection(x: i32, width: i32) i32 {
+    return if (x < @divTrunc(width, 3)) -1 else 1;
+}
+
 const Slot = struct { page: i64 = -1, buf: []u8 };
 
 const App = struct {
@@ -244,7 +283,8 @@ const Session = struct {
     paragraphs: []const kfx.Paragraph,
     pages: []const text.Pos,
     current: usize,
-    turns: u32 = 0,
+    since_clean: u32 = 0,
+    last_turn_us: u64 = 0,
 
     /// Get a rendered page, reusing a cached one when possible.
     fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
@@ -273,8 +313,12 @@ const Session = struct {
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);
         s.current = index;
-        s.turns += 1;
-        const clean = force_clean or s.turns % clean_refresh_every == 0;
+        s.since_clean += 1;
+        const now = nowUs();
+        const paused = now -| s.last_turn_us >= clean_refresh_pause_us;
+        s.last_turn_us = now;
+        const clean = force_clean or (s.since_clean >= clean_refresh_every and paused);
+        if (clean) s.since_clean = 0;
         const marker = if (clean)
             try a.screen.update(.gc16, .full)
         else
@@ -435,9 +479,10 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
                     continue;
                 }
-                const delta: i32 = if (t.x < @divTrunc(a.input.width, 3)) -1 else 1;
-                const target = @as(i64, @intCast(session.current)) + delta;
-                if (target < 0 or target >= session.pages.len) continue;
+                const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
+                const last: i64 = @intCast(session.pages.len - 1);
+                const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
+                if (target == session.current) continue;
                 try session.show(@intCast(target), t.us, false);
                 since_save += 1;
                 if (since_save >= save_every) {
