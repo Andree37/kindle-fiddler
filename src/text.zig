@@ -139,6 +139,22 @@ pub const Page = struct {
         }
     }
 
+    /// Filled disc, or a ring when `inner` is above zero.
+    pub fn disc(p: Page, cx: i32, cy: i32, outer: i32, inner: i32, value: u8) void {
+        var y = -outer;
+        while (y <= outer) : (y += 1) {
+            var x = -outer;
+            while (x <= outer) : (x += 1) {
+                const d = x * x + y * y;
+                if (d > outer * outer or d < inner * inner) continue;
+                const px = cx + x;
+                const py = cy + y;
+                if (px < 0 or py < 0 or px >= p.width or py >= p.height) continue;
+                p.buf[@as(usize, @intCast(py)) * p.stride + @as(usize, @intCast(px))] = value;
+            }
+        }
+    }
+
     pub fn copyImage(p: Page, x: u32, y: u32, src: []const u8, w: u32, h: u32) void {
         var row: u32 = 0;
         while (row < h) : (row += 1) {

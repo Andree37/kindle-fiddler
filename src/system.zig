@@ -8,7 +8,17 @@ const lipc_set: [*:0]const u8 = "/usr/bin/lipc-set-prop";
 pub const max_brightness = 24;
 pub const brightness_step = 2;
 
-pub const Quick = struct { brightness: u32 = 0, airplane: bool = false };
+pub const Quick = struct {
+    brightness: u32 = 0,
+    airplane: bool = false,
+    battery: u32 = 0,
+    clock: [40]u8 = undefined,
+    clock_len: usize = 0,
+
+    pub fn clockText(q: *const Quick) []const u8 {
+        return q.clock[0..q.clock_len];
+    }
+};
 
 fn failed(rc: usize) bool {
     return rc > std.math.maxInt(usize) - 4096;
@@ -61,10 +71,20 @@ fn set(service: [*:0]const u8, prop: [*:0]const u8, value: u32) void {
 }
 
 pub fn read() Quick {
-    return .{
+    var q = Quick{
         .brightness = get("com.lab126.powerd", "flIntensity") orelse 0,
         .airplane = (get("com.lab126.cmd", "wirelessEnable") orelse 1) == 0,
+        .battery = get("com.lab126.powerd", "battLevel") orelse 0,
     };
+    const argv = [_:null]?[*:0]const u8{ "/bin/date", "+%H:%M - %d %b %Y" };
+    if (run(&argv, &q.clock)) |n| q.clock_len = std.mem.trimEnd(u8, q.clock[0..n], "\n").len;
+    return q;
+}
+
+pub fn openSettings() void {
+    const argv = [_:null]?[*:0]const u8{ lipc_set, "com.lab126.appmgrd", "start", "app://com.lab126.booklet.settings" };
+    var buf: [32]u8 = undefined;
+    _ = run(&argv, &buf);
 }
 
 pub fn setBrightness(level: u32) void {

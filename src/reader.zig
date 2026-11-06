@@ -373,7 +373,7 @@ fn pageContaining(pages: []const text.Pos, para: usize, byte: usize) usize {
 /// Draws the bar over `background` and shows it.
 fn drawMenu(a: *App, background: []const u8, title: []const u8, in_book: bool, whole_page: bool) !void {
     @memcpy(a.overlay, background);
-    try menu.render(a.ui, a.page(a.overlay), title, in_book, a.quick);
+    try menu.render(a.ui, a.page(a.overlay), title, in_book, &a.quick);
     @memcpy(a.screen.pixels, a.overlay);
     const h: u32 = if (whole_page) a.screen.height else menu.height(in_book);
     try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, h, page_waveform, .partial));
@@ -385,10 +385,14 @@ fn closeMenu(a: *App, background: []const u8, in_book: bool) !void {
 }
 
 /// Applies a light or airplane change. False means the tap wasn't one of those.
-fn applyQuick(a: *App, change: menu.Hit) bool {
+fn applyQuick(a: *App, change: menu.Hit, x: i32) bool {
     switch (change) {
         .dimmer, .brighter => {
             a.quick.brightness = system.stepBrightness(a.quick.brightness, change == .brighter);
+            system.setBrightness(a.quick.brightness);
+        },
+        .slider => {
+            a.quick.brightness = menu.levelAt(x);
             system.setBrightness(a.quick.brightness);
         },
         .airplane => {
@@ -445,12 +449,16 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
             .tap => |t| {
                 if (menu_open) {
                     const choice = menu.hit(t.x, t.y, a.input.width, true);
-                    if (applyQuick(a, choice)) {
+                    if (applyQuick(a, choice, t.x)) {
                         try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
                         continue;
                     }
                     switch (choice) {
-                        .none, .dimmer, .brighter, .airplane => {},
+                        .none, .dimmer, .brighter, .slider, .airplane => {},
+                        .settings => {
+                            system.openSettings();
+                            return .quit;
+                        },
                         .library => return .library,
                         .kindle => return .quit,
                         .close => {
@@ -509,12 +517,16 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
         switch (a.input.next()) {
             .tap => |t| {
                 const choice = menu.hit(t.x, t.y, a.input.width, false);
-                if (applyQuick(a, choice)) {
+                if (applyQuick(a, choice, t.x)) {
                     try drawMenu(a, background, "", false, false);
                     continue;
                 }
                 switch (choice) {
                     .kindle => return true,
+                    .settings => {
+                        system.openSettings();
+                        return true;
+                    },
                     .close, .library => {
                         try closeMenu(a, background, false);
                         return false;
