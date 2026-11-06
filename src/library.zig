@@ -142,6 +142,8 @@ pub const Order = enum {
 };
 
 fn before(order: Order, a: Entry, b: Entry) bool {
+    // Books on this Kindle always come first: cloud ones can't be opened yet.
+    if (a.isLocal() != b.isLocal()) return a.isLocal();
     return switch (order) {
         .recent => a.last > b.last,
         .added => a.added > b.added,
@@ -604,4 +606,15 @@ test "cloud books list without a path and never lead" {
     try std.testing.expectEqual(Availability.cloud, rows[0].availability);
     try std.testing.expectEqual(Availability.downloading, rows[2].availability);
     try std.testing.expectEqual(@as(usize, 1), pickHero(rows).?);
+}
+
+test "cloud books sort after local ones" {
+    var rows = [_]Entry{
+        .{ .path = "", .title = "A cloud book", .author = "", .percent = 0, .last = 9, .availability = .cloud },
+        .{ .path = "/b", .title = "Zed", .author = "", .percent = 0, .last = 1 },
+    };
+    sort(&rows, .recent);
+    try std.testing.expectEqualStrings("Zed", rows[0].title);
+    sort(&rows, .title);
+    try std.testing.expectEqualStrings("Zed", rows[0].title);
 }
