@@ -89,14 +89,18 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
     const header_len = std.mem.readInt(u32, data[6..10], .little);
     const info_off = std.mem.readInt(u32, data[10..14], .little);
     const info_len = std.mem.readInt(u32, data[14..18], .little);
-    if (info_off + info_len > data.len) return error.Truncated;
+    if (info_off > data.len or info_len > data.len - info_off) return error.Truncated;
 
     const info = try ion.parse(data[info_off..][0..info_len]);
     if ((info.get(f_compression) orelse return error.BadHeader).int != 0) return error.Compressed;
     if ((info.get(f_drm) orelse return error.BadHeader).int != 0) return error.Encrypted;
-    const idx_off: usize = @intCast((info.get(f_index_offset) orelse return error.BadHeader).int);
-    const idx_len: usize = @intCast((info.get(f_index_length) orelse return error.BadHeader).int);
-    if (idx_off + idx_len > data.len) return error.Truncated;
+    const idx_off64 = (info.get(f_index_offset) orelse return error.BadHeader).int;
+    const idx_len64 = (info.get(f_index_length) orelse return error.BadHeader).int;
+    if (idx_off64 > data.len or idx_len64 > data.len - idx_off64) return error.Truncated;
+    if (header_len > data.len) return error.Truncated;
+    const idx_off: usize = @intCast(idx_off64);
+    const idx_len: usize = @intCast(idx_len64);
+    const body_len = data.len - header_len;
 
     var p = Parser{ .alloc = alloc, .data = data, .header_len = header_len };
     var e: usize = 0;
@@ -104,10 +108,11 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
         const row = data[idx_off + e..][0..24];
         const id = std.mem.readInt(u32, row[0..4], .little);
         const kind = std.mem.readInt(u32, row[4..8], .little);
-        const off: usize = @intCast(std.mem.readInt(u64, row[8..16], .little));
-        const len: usize = @intCast(std.mem.readInt(u64, row[16..24], .little));
-        if (header_len + off + len > data.len) return error.Truncated;
-        try p.index.put(alloc, .{ .id = id, .kind = kind }, data[header_len + off..][0..len]);
+        const off64 = std.mem.readInt(u64, row[8..16], .little);
+        const len64 = std.mem.readInt(u64, row[16..24], .little);
+        if (off64 > body_len or len64 > body_len - off64) return error.Truncated;
+        const off: usize = @intCast(off64);
+        try p.index.put(alloc, .{ .id = id, .kind = kind }, data[header_len + off..][0..@intCast(len64)]);
     }
 
     const doc = findDocument(&p) orelse return error.NoReadingOrder;
@@ -138,4 +143,12 @@ fn findDocument(p: *Parser) ?ion.Value {
         }
     }
     return null;
+}
+
+test "offsets that would wrap are rejected" {
+    var d = std.mem.zeroes([18]u8);
+    @memcpy(d[0..4], "CONT");
+    std.mem.writeInt(u32, d[10..14], 0xFFFFFFF0, .little);
+    std.mem.writeInt(u32, d[14..18], 0x20, .little);
+    try std.testing.expectError(error.Truncated, parse(std.testing.allocator, &d));
 }

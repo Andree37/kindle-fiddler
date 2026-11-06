@@ -75,7 +75,7 @@ pub fn decode(d: []const u8, pos: *usize) anyerror!Value {
         if (t == 1) return .{ .kind = .bool_, .int = @intFromBool(len == 1) };
         if (len == 15) return .{ .kind = .null_ };
         if (len == 14 or (t == 13 and len == 1)) len = try readVarUint(d, pos);
-        if (pos.* + len > d.len) return error.Truncated;
+        if (len > d.len - pos.*) return error.Truncated;
         const body = d[pos.*..][0..@intCast(len)];
         pos.* += @intCast(len);
 
