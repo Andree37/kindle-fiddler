@@ -25,6 +25,7 @@ const page_waveform: hwtcon.Waveform = .reagl;
 const idle_quit_ms = 30 * 60 * 1000;
 const save_every = 10;
 const download_poll_us = 5 * 1000 * 1000;
+const download_watch_us = 3 * 60 * 1000 * 1000;
 
 const touch_device = "/dev/input/event1";
 const power_device = "/dev/input/event0";
@@ -856,11 +857,12 @@ const Library = struct {
         file.unmap(l.data);
     }
 
-    fn anyDownloading(l: *const Library) bool {
+    fn localCount(l: *const Library) usize {
+        var n: usize = 0;
         for (l.entries) |e| {
-            if (e.availability == .downloading) return true;
+            if (e.isLocal()) n += 1;
         }
-        return false;
+        return n;
     }
 };
 
@@ -953,6 +955,9 @@ fn runLibrary(a: *App) !void {
     var index: usize = 0;
     const buf = a.slots[0].buf;
     a.slots[0].page = -1;
+    // Set only for a download started here. Catalog flags can stay stuck, so
+    // they must never drive this, and checking must never touch the screen.
+    var watch_until: u64 = 0;
     defer a.input.tick_us = 0;
 
     while (true) {
@@ -962,7 +967,7 @@ fn runLibrary(a: *App) !void {
         var count = library.select(lib.entries, filter, hero, lib.visible);
         index = @min(index, library.pageCount(count) - 1);
         a.quick = system.read();
-        a.input.tick_us = if (lib.anyDownloading()) download_poll_us else 0;
+        a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, message, &a.quick);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
@@ -1021,11 +1026,19 @@ fn runLibrary(a: *App) !void {
                     },
                 },
                 .tick => {
+                    if (nowUs() >= watch_until) {
+                        a.input.tick_us = 0;
+                        continue;
+                    }
                     system.exportLibrary();
                     var fresh = loadLibrary(a) catch continue;
+                    if (fresh.localCount() == lib.localCount()) {
+                        fresh.deinit();
+                        continue;
+                    }
                     lib.deinit();
                     lib = fresh;
-                    fresh = undefined;
+                    watch_until = 0;
                     break :browse;
                 },
                 .drag, .drag_end => continue,
@@ -1047,7 +1060,9 @@ fn runLibrary(a: *App) !void {
                 break :browse;
             }
             if (acting) |entry| {
+                const was_cloud = entry.availability == .cloud;
                 if (try bookSheet(a, entry, buf)) {
+                    if (was_cloud) watch_until = nowUs() + download_watch_us;
                     system.exportLibrary();
                     var fresh = loadLibrary(a) catch break :browse;
                     lib.deinit();
