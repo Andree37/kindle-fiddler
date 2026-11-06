@@ -198,7 +198,7 @@ pub fn rowRect(page: usize, index: usize, width: u32) Rect {
     return .{ .x = 0, .y = top + row * row_height, .w = width, .h = row_height };
 }
 
-fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
+pub fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
     const w = try font.measure(s);
     if (w <= avail) return font.draw(page, x, y, s);
     const dots = "...";

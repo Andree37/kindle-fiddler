@@ -4,6 +4,7 @@ test {
     _ = @import("ion.zig");
     _ = @import("kfx.zig");
     _ = @import("library.zig");
+    _ = @import("menu.zig");
     _ = @import("state.zig");
     _ = @import("touch.zig");
 }

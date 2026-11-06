@@ -2,8 +2,8 @@
 //! Usage: reader <library.tsv> <regular.ttf> <bold.ttf> <state-dir>
 //!
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
-//! Hold the top-left corner for one second to return to the library.
-//! In the library, "Kindle" or the power button returns to the stock UI.
+//! Tapping the top of the page opens a bar with Library, Kindle and text settings.
+//! "Kindle" or the power button returns to the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
 const cache = @import("cache.zig");
@@ -11,6 +11,7 @@ const file = @import("file.zig");
 const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
 const library = @import("library.zig");
+const menu = @import("menu.zig");
 const state = @import("state.zig");
 const text = @import("text.zig");
 const touch_zones = @import("touch.zig");
@@ -18,7 +19,6 @@ const touch_zones = @import("touch.zig");
 const page_waveform: hwtcon.Waveform = .reagl;
 const clean_refresh_every = 20;
 const idle_quit_ms = 30 * 60 * 1000;
-const corner_hold_ms = 1000;
 const save_every = 10;
 
 const touch_device = "/dev/input/event1";
@@ -82,13 +82,12 @@ fn axisMax(fd: i32, req: u32) i32 {
 
 const Action = union(enum) {
     tap: struct { x: i32, y: i32, us: u64 },
-    hold,
     power,
     idle,
     stop,
 };
 
-/// Turns raw touch events into taps and the corner hold.
+/// Turns raw touch events into taps.
 /// The panel reports two slots. Every new finger counts, so a resting thumb
 /// can't block taps from another finger.
 const Input = struct {
@@ -106,8 +105,6 @@ const Input = struct {
     ys: [2]i32 = .{ 0, 0 },
     pending: ?usize = null,
     down_us: u64 = 0,
-    hold_slot: ?usize = null,
-    hold_started: ?u64 = null,
     last_input: u64 = 0,
 
     fn next(in: *Input) Action {
@@ -118,20 +115,13 @@ const Input = struct {
                 in.event_next += 1;
                 if (in.handle(e)) |action| return action;
             }
-            if (in.hold_started) |t| {
-                if (nowUs() - t >= corner_hold_ms * 1000) {
-                    in.hold_started = null;
-                    in.hold_slot = null;
-                    return .hold;
-                }
-            }
             if (nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
 
             var fds = [_]linux.pollfd{
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = in.power, .events = linux.POLL.IN, .revents = 0 },
             };
-            _ = linux.poll(&fds, fds.len, if (in.hold_started != null) 50 else 1000);
+            _ = linux.poll(&fds, fds.len, 1000);
 
             var power_events: [16]InputEvent = undefined;
             const power_n = linux.read(in.power, @ptrCast(&power_events), @sizeOf(@TypeOf(power_events)));
@@ -160,9 +150,6 @@ const Input = struct {
                     if (e.value >= 0) {
                         in.pending = in.slot;
                         in.down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
-                    } else if (in.hold_slot == in.slot) {
-                        in.hold_slot = null;
-                        in.hold_started = null;
                     }
                 },
                 else => {},
@@ -176,11 +163,6 @@ const Input = struct {
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
         if (touch_zones.isGrip(px, py, in.width, in.height)) return null;
-        if (px < 200 and py < 200) {
-            in.hold_started = nowUs();
-            in.hold_slot = touched;
-            return null;
-        }
         return .{ .tap = .{ .x = px, .y = py, .us = in.down_us } };
     }
 };
@@ -192,10 +174,24 @@ const App = struct {
     screen: *hwtcon.Screen,
     input: *Input,
     body: *text.Font,
+    body_fonts: [menu.sizes.len]?text.Font = @splat(null),
+    regular: []const u8,
     footer: *text.Font,
+    ui: library.Fonts,
     slots: [3]Slot,
+    overlay: []u8,
     state_dir: []const u8,
+    settings_path: [*:0]const u8,
+    settings: menu.Settings,
     layout: text.Layout,
+
+    /// Fonts are kept per size, so stepping through sizes doesn't reload them.
+    fn applySettings(a: *App) !void {
+        const slot = &a.body_fonts[a.settings.size];
+        if (slot.* == null) slot.* = try text.Font.init(a.alloc, a.regular, a.settings.px(), 1);
+        slot.*.?.line_height = a.settings.lineHeight();
+        a.body = &slot.*.?;
+    }
 
     fn page(a: *App, buf: []u8) text.Page {
         return .{ .buf = buf, .width = a.screen.width, .height = a.screen.height, .stride = a.screen.stride };
@@ -282,6 +278,51 @@ fn saveProgress(entry: *library.Entry, path: [*:0]const u8, s: *const Session) v
     entry.last = now;
 }
 
+/// Lays out the whole book so going backwards is exact.
+fn paginate(a: *App, alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph) ![]const text.Pos {
+    const geometry = a.page(&.{});
+    var pages: std.ArrayList(text.Pos) = .empty;
+    var pos = text.Pos{};
+    while (pos.para < paragraphs.len) {
+        try pages.append(alloc, pos);
+        const next = try text.layoutPage(a.body, null, geometry, paragraphs, pos, a.layout);
+        if (next.para == pos.para and next.byte == pos.byte) break;
+        pos = next;
+    }
+    return pages.items;
+}
+
+fn pageContaining(pages: []const text.Pos, para: usize, byte: usize) usize {
+    var found: usize = 0;
+    for (pages, 0..) |p, i| {
+        if (p.para < para or (p.para == para and p.byte <= byte)) found = i;
+    }
+    return found;
+}
+
+fn drawMenu(a: *App, s: *Session, title: []const u8, whole_page: bool) !void {
+    @memcpy(a.overlay, try s.ensure(s.current, s.current));
+    try menu.render(a.ui, a.page(a.overlay), title);
+    @memcpy(a.screen.pixels, a.overlay);
+    const h: u32 = if (whole_page) a.screen.height else menu.height;
+    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, h, page_waveform, .partial));
+}
+
+fn closeMenu(a: *App, s: *Session) !void {
+    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
+    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height, page_waveform, .partial));
+}
+
+/// Re-lays out the book after a text setting changed, keeping the reading position.
+fn relayout(a: *App, alloc: std.mem.Allocator, s: *Session) !void {
+    const pos = s.pages[s.current];
+    menu.save(a.settings_path, a.settings);
+    try a.applySettings();
+    for (&a.slots) |*slot| slot.page = -1;
+    s.pages = try paginate(a, alloc, s.paragraphs);
+    s.current = pageContaining(s.pages, pos.para, pos.byte);
+}
+
 fn readBook(a: *App, entry: *library.Entry) !Outcome {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -292,37 +333,56 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     defer file.unmap(data);
     const book = try kfx.parse(alloc, data);
 
-    // Paginate the whole book so going backwards is exact.
-    const geometry = a.page(&.{});
-    var pages: std.ArrayList(text.Pos) = .empty;
-    var pos = text.Pos{};
-    while (pos.para < book.paragraphs.len) {
-        try pages.append(alloc, pos);
-        const next = try text.layoutPage(a.body, null, geometry, book.paragraphs, pos, a.layout);
-        if (next.para == pos.para and next.byte == pos.byte) break;
-        pos = next;
-    }
-    if (pages.items.len == 0) return error.EmptyBook;
-    std.debug.print("{d} pages, open {d} ms\n", .{ pages.items.len, (nowUs() - t0) / 1000 });
+    const pages = try paginate(a, alloc, book.paragraphs);
+    if (pages.len == 0) return error.EmptyBook;
+    std.debug.print("{d} pages, open {d} ms\n", .{ pages.len, (nowUs() - t0) / 1000 });
 
     var path_buf: [320]u8 = undefined;
     const state_path = try state.pathFor(&path_buf, a.state_dir, entry.path);
     const saved = state.load(state_path);
-    var start: usize = 0;
-    for (pages.items, 0..) |p, i| {
-        if (p.para < saved.para or (p.para == saved.para and p.byte <= saved.byte)) start = i;
-    }
+    const start = pageContaining(pages, saved.para, saved.byte);
 
     for (&a.slots) |*slot| slot.page = -1;
-    var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages.items, .current = start };
+    var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start };
     try session.show(start, null, true);
     saveProgress(entry, state_path, &session);
 
     var since_save: u32 = 0;
+    var menu_open = false;
     defer saveProgress(entry, state_path, &session);
     while (true) {
         switch (a.input.next()) {
             .tap => |t| {
+                if (menu_open) {
+                    switch (menu.hit(t.x, t.y, a.input.width)) {
+                        .none => {},
+                        .library => return .library,
+                        .kindle => return .quit,
+                        .close => {
+                            menu_open = false;
+                            try closeMenu(a, &session);
+                        },
+                        .smaller, .larger, .tighter, .looser => |change| {
+                            var next = a.settings;
+                            switch (change) {
+                                .smaller => next.size = menu.step(next.size, -1, menu.sizes.len),
+                                .larger => next.size = menu.step(next.size, 1, menu.sizes.len),
+                                .tighter => next.spacing = menu.step(next.spacing, -1, menu.spacings.len),
+                                else => next.spacing = menu.step(next.spacing, 1, menu.spacings.len),
+                            }
+                            if (std.meta.eql(next, a.settings)) continue;
+                            a.settings = next;
+                            try relayout(a, alloc, &session);
+                            try drawMenu(a, &session, entry.title, true);
+                        },
+                    }
+                    continue;
+                }
+                if (t.y < menu.tap_zone) {
+                    menu_open = true;
+                    try drawMenu(a, &session, entry.title, false);
+                    continue;
+                }
                 const delta: i32 = if (t.x < @divTrunc(a.input.width, 3)) -1 else 1;
                 const target = @as(i64, @intCast(session.current)) + delta;
                 if (target < 0 or target >= session.pages.len) continue;
@@ -333,7 +393,6 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     since_save = 0;
                 }
             },
-            .hold => return .library,
             .power, .idle, .stop => return .quit,
         }
     }
@@ -393,7 +452,6 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                         break :browse;
                     },
                 },
-                .hold => continue,
                 .power, .idle, .stop => return,
             }
             try library.render(a.alloc, fonts, a.page(buf), entries, visible[0..count], index, filter, order, "");
@@ -420,7 +478,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const regular = try file.map(argv[2]);
     const bold = try file.map(argv[3]);
     var screen = try hwtcon.Screen.open();
-    var body = try text.Font.init(alloc, regular, 46, 1.35);
+    var fallback_body = try text.Font.init(alloc, regular, 46, 1.35);
     var footer = try text.Font.init(alloc, regular, 28, 1.2);
     var title = try text.Font.init(alloc, bold, 40, 1.2);
     var small = try text.Font.init(alloc, regular, 30, 1.2);
@@ -453,16 +511,26 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (failed(linux.ioctl(touch, eviocgrab, 1))) return error.GrabFailed;
     defer _ = linux.ioctl(touch, eviocgrab, 0);
 
+    var settings_buf: [320]u8 = undefined;
+    const settings_path = try std.fmt.bufPrintSentinel(&settings_buf, "{s}/settings", .{state_dir}, 0);
+    const ui = library.Fonts{ .title = &title, .small = &small };
+
     var app = App{
         .alloc = alloc,
         .screen = &screen,
         .input = &input,
-        .body = &body,
+        .body = &fallback_body,
+        .regular = regular,
         .footer = &footer,
+        .ui = ui,
         .slots = slots,
+        .overlay = try alloc.alloc(u8, screen.pixels.len),
         .state_dir = state_dir,
+        .settings_path = settings_path,
+        .settings = menu.load(settings_path),
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 },
     };
-    try runLibrary(&app, entries, .{ .title = &title, .small = &small });
+    try app.applySettings();
+    try runLibrary(&app, entries, ui);
     std.debug.print("quit\n", .{});
 }
