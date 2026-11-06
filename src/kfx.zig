@@ -3,6 +3,12 @@ const std = @import("std");
 const ion = @import("ion.zig");
 
 const f_name = 4;
+const f_style_events = 142;
+const f_event_offset = 143;
+const f_event_length = 144;
+const f_id = 155;
+const f_link = 179;
+const f_anchor_position = 183;
 const f_section_item = 141;
 const f_content_ref = 145;
 const f_children = 146;
@@ -17,12 +23,49 @@ const f_index_offset = 413;
 const f_index_length = 414;
 
 const t_content = 145;
+const t_anchor = 266;
 const t_story = 259;
 const t_section = 260;
 const t_document = 538;
 const t_book_nav = 258;
 
-pub const Paragraph = struct { text: []const u8, style: u32 };
+/// A byte range of a paragraph that links to another paragraph.
+pub const Link = struct { start: usize, end: usize, target: u32 };
+
+pub const Paragraph = struct {
+    text: []const u8,
+    style: u32,
+    links: []const Link = &.{},
+    note: bool = false, // Reached through a reference, so hidden from the flow
+};
+
+const max_reference_bytes = 12;
+
+/// A short link inside longer text pointing forward is a note reference.
+/// That leaves out contents pages, where the link is the whole line, and
+/// back-links inside notes, which point backward.
+pub fn markNotes(paragraphs: []Paragraph) void {
+    for (paragraphs, 0..) |p, i| {
+        for (p.links) |l| {
+            if (l.target <= i or l.target >= paragraphs.len) continue;
+            const span = l.end - l.start;
+            if (span > max_reference_bytes or span * 2 > p.text.len) continue;
+            paragraphs[l.target].note = true;
+        }
+    }
+}
+
+/// Byte offset of the `count`th code point, as KFX offsets count characters.
+pub fn byteOffset(text: []const u8, count: u64) usize {
+    var bytes: usize = 0;
+    var seen: u64 = 0;
+    while (bytes < text.len and seen < count) : (seen += 1) {
+        bytes += std.unicode.utf8ByteSequenceLength(text[bytes]) catch 1;
+    }
+    return @min(bytes, text.len);
+}
+
+const RawLink = struct { para: u32, start: usize, end: usize, anchor: u32 };
 
 pub const Book = struct {
     paragraphs: []Paragraph,
@@ -37,6 +80,42 @@ const Parser = struct {
     index: std.AutoHashMapUnmanaged(Key, []const u8) = .empty,
     paragraphs: std.ArrayList(Paragraph) = .empty,
     missing: u32 = 0,
+    positions: std.AutoHashMapUnmanaged(u64, u32) = .empty, // Element ID to paragraph
+    raw_links: std.ArrayList(RawLink) = .empty,
+
+    fn collectLinks(p: *Parser, item: ion.Value, para: u32, text: []const u8) !void {
+        const events = item.get(f_style_events) orelse return;
+        var it = events.items();
+        while (it.next()) |event| {
+            const anchor = (event.get(f_link) orelse continue).symbol() orelse continue;
+            const offset = (event.get(f_event_offset) orelse continue).unsigned() orelse continue;
+            const length = (event.get(f_event_length) orelse continue).unsigned() orelse continue;
+            try p.raw_links.append(p.alloc, .{
+                .para = para,
+                .start = byteOffset(text, offset),
+                .end = byteOffset(text, offset + length),
+                .anchor = anchor,
+            });
+        }
+    }
+
+    /// Turns anchors into paragraph indexes, now that every position is known.
+    fn resolveLinks(p: *Parser) !void {
+        var i: usize = 0;
+        while (i < p.raw_links.items.len) {
+            const para = p.raw_links.items[i].para;
+            var links: std.ArrayList(Link) = .empty;
+            while (i < p.raw_links.items.len and p.raw_links.items[i].para == para) : (i += 1) {
+                const raw = p.raw_links.items[i];
+                const anchor = p.entity(raw.anchor, t_anchor) orelse continue;
+                const position = anchor.get(f_anchor_position) orelse continue;
+                const id = (position.get(f_id) orelse continue).unsigned() orelse continue;
+                const target = p.positions.get(id) orelse continue;
+                try links.append(p.alloc, .{ .start = raw.start, .end = raw.end, .target = target });
+            }
+            p.paragraphs.items[para].links = try links.toOwnedSlice(p.alloc);
+        }
+    }
 
     fn entity(p: *Parser, id: u32, kind: u32) ?ion.Value {
         const raw = p.index.get(.{ .id = id, .kind = kind }) orelse return null;
@@ -77,9 +156,16 @@ const Parser = struct {
             return;
         }
         const style = if (item.get(f_style)) |s| s.symbol() orelse 0 else 0;
+        if (item.get(f_id)) |id| {
+            const slot = try p.positions.getOrPut(p.alloc, id.int);
+            if (!slot.found_existing) slot.value_ptr.* = @intCast(p.paragraphs.items.len);
+        }
 
         if (item.get(f_content_ref)) |ref| {
-            if (try p.addContent(ref, style) == false) p.missing += 1;
+            if (try p.addContent(ref, style)) {
+                const para: u32 = @intCast(p.paragraphs.items.len - 1);
+                try p.collectLinks(item, para, p.paragraphs.items[para].text);
+            } else p.missing += 1;
         }
         if (item.get(f_story)) |story| {
             // A story names itself in this same field, so only descend into its children.
@@ -145,6 +231,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
         // Later templates are conditional alternatives of the first.
         if (templates.next()) |first| try p.walk(first, 0);
     }
+    try p.resolveLinks();
+    markNotes(p.paragraphs.items);
     return .{ .paragraphs = try p.paragraphs.toOwnedSlice(alloc), .sections = count, .missing_refs = p.missing };
 }
 
@@ -165,4 +253,30 @@ test "offsets that would wrap are rejected" {
     std.mem.writeInt(u32, d[10..14], 0xFFFFFFF0, .little);
     std.mem.writeInt(u32, d[14..18], 0x20, .little);
     try std.testing.expectError(error.Truncated, parse(std.testing.allocator, &d));
+}
+
+test "offsets count characters, not bytes" {
+    try std.testing.expectEqual(@as(usize, 3), byteOffset("\u{e1}bc", 2));
+    try std.testing.expectEqual(@as(usize, 4), byteOffset("\u{e1}bc", 99));
+}
+
+test "short forward references mark their target as a note" {
+    var paras = [_]Paragraph{
+        .{ .text = "body text with a reference in it", .style = 0, .links = &.{.{ .start = 10, .end = 11, .target = 2 }} },
+        .{ .text = "more body", .style = 0 },
+        .{ .text = "the note", .style = 0, .links = &.{.{ .start = 0, .end = 1, .target = 0 }} },
+    };
+    markNotes(&paras);
+    try std.testing.expect(paras[2].note);
+    try std.testing.expect(!paras[0].note); // Back-link from the note
+    try std.testing.expect(!paras[1].note);
+}
+
+test "a contents line does not hide its chapter" {
+    var paras = [_]Paragraph{
+        .{ .text = "Chapter 1", .style = 0, .links = &.{.{ .start = 0, .end = 9, .target = 1 }} },
+        .{ .text = "Chapter 1 begins", .style = 0 },
+    };
+    markNotes(&paras);
+    try std.testing.expect(!paras[1].note);
 }
