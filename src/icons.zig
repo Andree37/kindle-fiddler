@@ -118,18 +118,6 @@ pub fn battery(page: text.Page, x: f32, cy: f32, percent: u32) void {
     if (fill > 0) page.fillRect(@intFromFloat(x + 5), @intFromFloat(y + 5), fill, h - 10, 0x00);
 }
 
-pub fn home(page: text.Page, cx: f32, cy: f32) void {
-    const p = Pen{ .page = page, .cx = cx, .cy = cy };
-    p.line(-32, 2, 0, -26, 4);
-    p.line(0, -26, 32, 2, 4);
-    p.line(-22, -6, -22, 28, 4);
-    p.line(22, -6, 22, 28, 4);
-    p.line(-22, 28, 22, 28, 4);
-    p.line(-7, 28, -7, 8, 4);
-    p.line(7, 28, 7, 8, 4);
-    p.line(-7, 8, 7, 8, 4);
-}
-
 pub fn menu(page: text.Page, x: f32, y: f32) void {
     page.stroke(x, y, x + 44, y, 4);
     page.stroke(x, y + 14, x + 44, y + 14, 4);

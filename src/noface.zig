@@ -4,7 +4,7 @@
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
 //! Tapping the top of a page, or dragging down from it, opens a bar with Library,
 //! Kindle and settings. Dragging down from the top of the library opens Menu.
-//! "Kindle" or the power button returns to the stock UI.
+//! All Settings or the power button returns to the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
 const cache = @import("cache.zig");
@@ -612,7 +612,6 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                             return .quit;
                         },
                         .library => return .library,
-                        .kindle => return .quit,
                         .close => {
                             menu_open = false;
                             try closeMenu(a, try session.ensure(session.current, session.current), true);
@@ -684,7 +683,6 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                     continue;
                 }
                 switch (choice) {
-                    .kindle => return true,
                     .settings => {
                         system.openSettings();
                         return true;

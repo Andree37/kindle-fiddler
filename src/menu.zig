@@ -41,7 +41,7 @@ pub fn step(value: usize, delta: i32, len: usize) usize {
     return @min(value + 1, len - 1);
 }
 
-pub const Hit = enum { none, close, library, kindle, smaller, larger, tighter, looser, dimmer, brighter, slider, airplane, settings };
+pub const Hit = enum { none, close, library, smaller, larger, tighter, looser, dimmer, brighter, slider, airplane, settings };
 
 const Button = struct { hit: Hit, label: []const u8, left: i32, right: i32 };
 const text_buttons = [_]Button{
@@ -51,16 +51,15 @@ const text_buttons = [_]Button{
     .{ .hit = .looser, .label = "+", .left = 1020, .right = 1140 },
 };
 
-const Icon = enum { airplane, wifi, bluetooth, sync, gear, home };
+const Icon = enum { airplane, wifi, bluetooth, sync, gear };
 const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
 const icon_radius = 52;
 const shortcuts = [_]Shortcut{
     .{ .icon = .airplane, .hit = .airplane, .x = 318, .y = 240 },
     .{ .icon = .wifi, .hit = .settings, .x = 636, .y = 240 }, // Networks live in stock settings
     .{ .icon = .bluetooth, .hit = .none, .x = 954, .y = 240 }, // Not wired up yet
-    .{ .icon = .sync, .hit = .none, .x = 318, .y = 430 }, // Not wired up yet
-    .{ .icon = .gear, .hit = .settings, .x = 636, .y = 430 },
-    .{ .icon = .home, .hit = .kindle, .x = 954, .y = 430 },
+    .{ .icon = .sync, .hit = .none, .x = 477, .y = 430 }, // Not wired up yet
+    .{ .icon = .gear, .hit = .settings, .x = 795, .y = 430 },
 };
 
 /// Brightness level for a tap at `x` on the slider.
@@ -128,7 +127,6 @@ fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
         .bluetooth => icons.bluetooth(page, x, y),
         .sync => icons.sync(page, x, y),
         .gear => icons.gear(page, x, y),
-        .home => icons.home(page, x, y),
     }
 }
 
@@ -139,7 +137,6 @@ fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
         .bluetooth => "Off",
         .sync => "Sync",
         .gear => "All Settings",
-        .home => "Kindle Home",
     };
 }
 
@@ -193,9 +190,9 @@ test "panel maps taps like the stock layout" {
     try std.testing.expectEqual(Hit.airplane, hit(318, 240, false));
     try std.testing.expectEqual(Hit.settings, hit(636, 240, false)); // Wi-Fi
     try std.testing.expectEqual(Hit.none, hit(954, 240, false)); // Bluetooth
-    try std.testing.expectEqual(Hit.none, hit(318, 430, false)); // Sync
-    try std.testing.expectEqual(Hit.settings, hit(636, 430, false));
-    try std.testing.expectEqual(Hit.kindle, hit(954, 430, false));
+    try std.testing.expectEqual(Hit.none, hit(477, 430, false)); // Sync
+    try std.testing.expectEqual(Hit.settings, hit(795, 430, false));
+    try std.testing.expectEqual(Hit.none, hit(954, 430, false));
     try std.testing.expectEqual(Hit.dimmer, hit(90, 680, false));
     try std.testing.expectEqual(Hit.brighter, hit(1180, 680, false));
     try std.testing.expectEqual(Hit.slider, hit(600, 680, false));
