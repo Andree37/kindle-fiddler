@@ -1,16 +1,17 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
 //! Usage: panelshot [panel | notes | toolbar [sheet] | library [page [read]]]
 const std = @import("std");
+const core = @import("core");
 const linux = std.os.linux;
-const file = @import("file.zig");
-const kfx = @import("kfx.zig");
-const library = @import("library.zig");
-const menu = @import("menu.zig");
-const notes = @import("notes.zig");
-const sheet = @import("sheet.zig");
-const system = @import("system.zig");
-const text = @import("text.zig");
-const toolbar = @import("toolbar.zig");
+const file = core.file;
+const kfx = core.kfx;
+const library = core.library;
+const menu = core.menu;
+const notes = core.notes;
+const sheet = core.sheet;
+const system = core.system;
+const text = core.text;
+const toolbar = core.toolbar;
 
 fn write(data: []const u8) void {
     var at: usize = 0;

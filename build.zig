@@ -8,33 +8,43 @@ pub fn build(b: *std.Build) void {
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a7 },
     });
 
-    for ([_][]const u8{ "latency", "kfxstat", "touchsim", "fbcap" }) |name| {
-        const exe = b.addExecutable(.{
-            .name = name,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path(b.fmt("src/{s}.zig", .{name})),
-                .target = target,
-                .optimize = .ReleaseFast,
-                .strip = true,
-            }),
-        });
-        b.installArtifact(exe);
-    }
+    // The app.
+    const noface = b.addExecutable(.{
+        .name = "noface",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/noface.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .strip = true,
+            .link_libc = true,
+        }),
+    });
+    addFontAndImageCode(b, noface.root_module);
+    b.installArtifact(noface);
 
-    for ([_][]const u8{ "pagetest", "panelshot", "noface" }) |name| {
-        const exe = b.addExecutable(.{
+    // Development tools, kept out of the app. Built with `zig build tools`.
+    const core = b.createModule(.{
+        .root_source_file = b.path("src/core.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+        .link_libc = true,
+    });
+    addFontAndImageCode(b, core);
+
+    const tools_step = b.step("tools", "Build the development tools in tools/");
+    for ([_][]const u8{ "latency", "kfxstat", "pagetest", "panelshot", "touchsim", "fbcap" }) |name| {
+        const tool = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
-                .root_source_file = b.path(b.fmt("src/{s}.zig", .{name})),
+                .root_source_file = b.path(b.fmt("tools/{s}.zig", .{name})),
                 .target = target,
                 .optimize = .ReleaseFast,
                 .strip = true,
                 .link_libc = true,
             }),
         });
-        exe.root_module.addIncludePath(b.path("third_party"));
-        exe.root_module.addCSourceFile(.{ .file = b.path("src/stb_shim.c"), .flags = &.{"-O2"} });
-        b.installArtifact(exe);
+        tool.root_module.addImport("core", core);
+        tools_step.dependOn(&b.addInstallArtifact(tool, .{}).step);
     }
 
     const test_step = b.step("test", "Run unit tests on the host");
@@ -45,4 +55,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(tests).step);
+}
+
+fn addFontAndImageCode(b: *std.Build, module: *std.Build.Module) void {
+    module.addIncludePath(b.path("third_party"));
+    module.addCSourceFile(.{ .file = b.path("src/stb_shim.c"), .flags = &.{"-O2"} });
 }

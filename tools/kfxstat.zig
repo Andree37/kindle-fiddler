@@ -1,8 +1,9 @@
 //! Parses a KFX file and prints counts only, never book text.
 const std = @import("std");
+const core = @import("core");
 const linux = std.os.linux;
-const file = @import("file.zig");
-const kfx = @import("kfx.zig");
+const file = core.file;
+const kfx = core.kfx;
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;

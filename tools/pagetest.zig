@@ -1,11 +1,12 @@
 //! Shows real book pages in each e-ink waveform so they can be compared by eye.
 //! Saves the screen first and restores it when done.
 const std = @import("std");
+const core = @import("core");
 const linux = std.os.linux;
-const file = @import("file.zig");
-const hwtcon = @import("hwtcon.zig");
-const kfx = @import("kfx.zig");
-const text = @import("text.zig");
+const file = core.file;
+const hwtcon = core.hwtcon;
+const kfx = core.kfx;
+const text = core.text;
 
 const Case = struct { name: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode, mono: bool };
 

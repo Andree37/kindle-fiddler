@@ -1,8 +1,9 @@
 //! Measures how long each e-ink waveform takes for a full-page flip.
 //! Saves the current screen first and restores it when done.
 const std = @import("std");
+const core = @import("core");
 const linux = std.os.linux;
-const hwtcon = @import("hwtcon.zig");
+const hwtcon = core.hwtcon;
 
 const Case = struct { name: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode };
 
