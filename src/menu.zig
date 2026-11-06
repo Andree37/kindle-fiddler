@@ -102,8 +102,9 @@ fn centered(font: *text.Font, page: text.Page, cx: i32, y: i32, s: []const u8) !
 pub const slider_top = 620;
 pub const slider_height = 110;
 
-/// Just the slider, which is redrawn alone while dragging.
-pub fn drawSlider(fonts: library.Fonts, page: text.Page, quick: *const system.Quick) !void {
+/// Just the slider, which is redrawn alone while dragging. `mono` draws it in pure
+/// black and white for the fast waveform, which breaks up gray.
+pub fn drawSlider(fonts: library.Fonts, page: text.Page, quick: *const system.Quick, mono: bool) !void {
     page.fillRect(0, slider_top, page.width, slider_height, 0xff);
     const knob_x: i32 = slider_left + @divTrunc(@as(i32, @intCast(@min(quick.brightness, system.max_brightness))) * (slider_right - slider_left), system.max_brightness);
     var level: [8]u8 = undefined;
@@ -111,10 +112,11 @@ pub fn drawSlider(fonts: library.Fonts, page: text.Page, quick: *const system.Qu
     page.stroke(70, slider_y, 110, slider_y, 4);
     page.stroke(1160, slider_y, 1200, slider_y, 4);
     page.stroke(1180, slider_y - 20, 1180, slider_y + 20, 4);
-    page.fillRect(slider_left, slider_y - 2, slider_right - slider_left, 4, 0xa0);
+    page.fillRect(slider_left, slider_y - 2, slider_right - slider_left, 4, if (mono) 0x00 else 0xa0);
     page.fillRect(slider_left, slider_y - 4, @intCast(knob_x - slider_left), 8, 0x00);
     page.disc(knob_x, slider_y, 25, 0, 0x00);
     page.disc(knob_x, slider_y, 21, 0, 0xff);
+    if (mono) page.threshold(slider_top, slider_height);
 }
 
 fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
@@ -160,7 +162,7 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book:
 
     page.fillRect(40, 560, page.width - 80, 2, 0x80);
     try fonts.small.draw(page, 60, 610, "Brightness");
-    try drawSlider(fonts, page, quick);
+    try drawSlider(fonts, page, quick, false);
     icons.chevron(page, w / 2, 754);
 
     if (!in_book) return;

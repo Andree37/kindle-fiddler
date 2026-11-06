@@ -214,6 +214,12 @@ pub const Page = struct {
         }
     }
 
+    /// Forces a band to pure black and white, for waveforms that can't show gray.
+    pub fn threshold(p: Page, top: u32, height: u32) void {
+        const start = top * p.stride;
+        for (p.buf[start .. start + height * p.stride]) |*px| px.* = if (px.* < 128) 0x00 else 0xff;
+    }
+
     /// Filled disc, or a ring when `inner` is above zero.
     pub fn disc(p: Page, cx: i32, cy: i32, outer: i32, inner: i32, value: u8) void {
         var y = -outer;

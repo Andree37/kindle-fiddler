@@ -124,6 +124,29 @@ const Input = struct {
         in.drag_slot = in.last_touched;
     }
 
+    /// Skips to the newest finger position already waiting, if any.
+    /// Anything else that turns up is kept for the next call to `next`.
+    fn latestDrag(in: *Input) ?i32 {
+        var latest: ?i32 = null;
+        while (in.stashed == null) {
+            while (in.event_next >= in.event_count) {
+                const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
+                if (failed(n) or n < @sizeOf(InputEvent)) return latest;
+                in.event_count = n / @sizeOf(InputEvent);
+                in.event_next = 0;
+                in.last_input = nowUs();
+            }
+            const e = in.events[in.event_next];
+            in.event_next += 1;
+            const action = in.handle(e) orelse continue;
+            switch (action) {
+                .drag => |x| latest = x,
+                else => in.stashed = action,
+            }
+        }
+        return latest;
+    }
+
     /// Sums page-turn taps already waiting, so fast tapping jumps instead of lagging.
     /// Anything else that turns up is kept for the next call to `next`.
     fn takeTurns(in: *Input) i32 {
@@ -447,16 +470,25 @@ fn closeNote(a: *App, s: *Session) !void {
 fn dragBrightness(a: *App, background: []const u8, title: []const u8, in_book: bool) !void {
     a.input.beginDrag();
     const screen_page = a.page(a.screen.pixels);
+    var marker: ?u32 = null;
+    var updates: u32 = 0;
+    const started = nowUs();
     while (true) {
         const action = a.input.next();
         switch (action) {
-            .drag => |x| {
-                const level = menu.levelAt(x);
+            .drag => |first| {
+                // One update at a time: overlapping ones smear on the panel.
+                if (marker) |m| {
+                    try a.screen.waitComplete(m);
+                    marker = null;
+                }
+                const level = menu.levelAt(a.input.latestDrag() orelse first);
                 if (level == a.quick.brightness) continue;
                 a.quick.brightness = level;
                 system.setBrightness(level);
-                try menu.drawSlider(a.ui, screen_page, &a.quick);
-                _ = try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .du, .partial);
+                try menu.drawSlider(a.ui, screen_page, &a.quick, true);
+                marker = try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .a2, .partial);
+                updates += 1;
             },
             .drag_end => break,
             .tap, .pull => {},
@@ -466,7 +498,11 @@ fn dragBrightness(a: *App, background: []const u8, title: []const u8, in_book: b
             },
         }
     }
+    if (marker) |m| try a.screen.waitComplete(m);
+    std.debug.print("drag: {d} updates in {d} ms\n", .{ updates, (nowUs() - started) / 1000 });
     try drawMenu(a, background, title, in_book, false);
+    // Clears what the fast waveform left behind, in that row only.
+    try a.screen.waitComplete(try a.screen.updateRegion(0, menu.slider_top, a.screen.width, menu.slider_height, .gc16, .partial));
 }
 
 /// Applies a light or airplane change. False means the tap wasn't one of those.
