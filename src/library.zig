@@ -116,9 +116,11 @@ const top = 150;
 const row_height = 140;
 const buttons_top = 1420;
 const buttons_bottom = 1560;
-const prev_left = 320;
-const next_left = 652;
-const button_width = 300;
+// Between the bottom corners, where a holding thumb rests.
+const prev_left = 300;
+const sort_left = 520;
+const next_left = 752;
+const button_width = 220;
 const exit_width = 300;
 
 // Tabs start past the top-left corner, which is held to leave a book.
@@ -222,8 +224,10 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: 
         page.fillRect(bar_x, bar_y, bar_w * e.percent / 100, 6, 0x00);
     }
 
-    try fonts.title.draw(page, prev_left + 50, buttons_top + 90, "Previous");
-    try fonts.title.draw(page, next_left + 100, buttons_top + 90, "Next");
+    try fonts.title.draw(page, prev_left + 20, buttons_top + 90, "Previous");
+    try fonts.title.draw(page, next_left + 60, buttons_top + 90, "Next");
+    if (index == 0) page.dim(prev_left, buttons_top, button_width, buttons_bottom - buttons_top);
+    if (index + 1 >= pageCount(visible.len)) page.dim(next_left, buttons_top, button_width, buttons_bottom - buttons_top);
 
     var label: [32]u8 = undefined;
     const count = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, pageCount(visible.len) }) catch "";
@@ -256,7 +260,7 @@ test "rows parse and sort newest first" {
 test "taps map to rows, buttons and exit" {
     try std.testing.expectEqual(Hit{ .book = 0 }, hit(300, 200, 1272, 0, 79));
     try std.testing.expectEqual(Hit{ .book = 10 }, hit(300, 320, 1272, 1, 79));
-    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 1272, 0, 79));
+    try std.testing.expectEqual(Hit.prev, hit(350, 1500, 1272, 0, 79));
     try std.testing.expectEqual(Hit.next, hit(800, 1500, 1272, 0, 79));
     try std.testing.expectEqual(Hit.exit, hit(1100, 80, 1272, 0, 79));
     try std.testing.expectEqual(Hit.none, hit(100, 80, 1272, 0, 79));

@@ -130,6 +130,15 @@ pub const Page = struct {
         }
     }
 
+    /// Fades an area toward white, for disabled controls.
+    pub fn dim(p: Page, x: u32, y: u32, w: u32, h: u32) void {
+        var row = y;
+        while (row < @min(y + h, p.height)) : (row += 1) {
+            const start = row * p.stride + x;
+            for (p.buf[start .. start + @min(w, p.width - x)]) |*px| px.* = 0xc8 + px.* / 5;
+        }
+    }
+
     pub fn copyImage(p: Page, x: u32, y: u32, src: []const u8, w: u32, h: u32) void {
         var row: u32 = 0;
         while (row < h) : (row += 1) {
