@@ -19,8 +19,6 @@ const text = @import("text.zig");
 const touch_zones = @import("touch.zig");
 
 const page_waveform: hwtcon.Waveform = .reagl;
-const clean_refresh_every = 20;
-const clean_refresh_pause_us = 1_000_000; // Never flash while pages are being flicked
 const idle_quit_ms = 30 * 60 * 1000;
 const save_every = 10;
 
@@ -283,8 +281,6 @@ const Session = struct {
     paragraphs: []const kfx.Paragraph,
     pages: []const text.Pos,
     current: usize,
-    since_clean: u32 = 0,
-    last_turn_us: u64 = 0,
 
     fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
         for (&s.app.slots) |*slot| {
@@ -321,12 +317,7 @@ const Session = struct {
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);
         s.current = index;
-        s.since_clean += 1;
-        const now = nowUs();
-        const paused = now -| s.last_turn_us >= clean_refresh_pause_us;
-        s.last_turn_us = now;
-        const clean = force_clean or (s.since_clean >= clean_refresh_every and paused);
-        if (clean) s.since_clean = 0;
+        const clean = force_clean;
         const marker = if (clean)
             try a.screen.update(.gc16, .full)
         else
