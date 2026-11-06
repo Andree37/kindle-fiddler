@@ -1,5 +1,6 @@
 //! Bar shown over a book: tap the top of a page to open it.
 const std = @import("std");
+const icons = @import("icons.zig");
 const library = @import("library.zig");
 const state = @import("state.zig");
 const system = @import("system.zig");
@@ -50,13 +51,15 @@ const text_buttons = [_]Button{
     .{ .hit = .looser, .label = "+", .left = 1020, .right = 1140 },
 };
 
-const Shortcut = struct { hit: Hit, label: []const u8, x: i32, y: i32 };
+const Icon = enum { airplane, wifi, bluetooth, sync, gear };
+const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
 const icon_radius = 52;
 const shortcuts = [_]Shortcut{
-    .{ .hit = .airplane, .label = "", .x = 318, .y = 240 },
-    .{ .hit = .none, .label = "Off", .x = 636, .y = 240 }, // Bluetooth, not wired up yet
-    .{ .hit = .none, .label = "Sync", .x = 954, .y = 240 }, // Not wired up yet
-    .{ .hit = .settings, .label = "All Settings", .x = 636, .y = 430 },
+    .{ .icon = .airplane, .hit = .airplane, .x = 318, .y = 240 },
+    .{ .icon = .wifi, .hit = .settings, .x = 636, .y = 240 }, // Networks live in stock settings
+    .{ .icon = .bluetooth, .hit = .none, .x = 954, .y = 240 }, // Not wired up yet
+    .{ .icon = .sync, .hit = .none, .x = 477, .y = 430 }, // Not wired up yet
+    .{ .icon = .gear, .hit = .settings, .x = 795, .y = 430 },
 };
 
 /// Brightness level for a tap at `x` on the slider.
@@ -96,31 +99,45 @@ fn centered(font: *text.Font, page: text.Page, cx: i32, y: i32, s: []const u8) !
     try font.draw(page, @floatFromInt(cx - @divTrunc(w, 2)), y, s);
 }
 
-fn drawIcon(fonts: library.Fonts, page: text.Page, index: usize, cx: i32, cy: i32) !void {
-    page.disc(cx, cy, icon_radius, icon_radius - 4, 0x00);
-    const x: u32 = @intCast(cx);
-    const y: u32 = @intCast(cy);
-    switch (index) {
-        0 => { // Airplane
-            page.fillRect(x - 3, y - 32, 6, 64, 0x00);
-            page.fillRect(x - 28, y - 6, 56, 6, 0x00);
-            page.fillRect(x - 12, y + 22, 24, 5, 0x00);
-        },
-        1 => try centered(fonts.title, page, cx, cy + 15, "B"), // Bluetooth
-        2 => { // Sync
-            page.disc(cx, cy, 28, 22, 0x00);
-            page.fillRect(x - 34, y - 4, 68, 8, 0xff);
-            page.fillRect(x + 16, y - 16, 22, 6, 0x00);
-            page.fillRect(x - 38, y + 10, 22, 6, 0x00);
-        },
-        else => { // Settings
-            page.disc(cx, cy, 22, 13, 0x00);
-            page.fillRect(x - 4, y - 34, 8, 12, 0x00);
-            page.fillRect(x - 4, y + 22, 8, 12, 0x00);
-            page.fillRect(x - 34, y - 4, 12, 8, 0x00);
-            page.fillRect(x + 22, y - 4, 12, 8, 0x00);
-        },
+pub const slider_top = 620;
+pub const slider_height = 110;
+
+/// Just the slider, which is redrawn alone while dragging.
+pub fn drawSlider(fonts: library.Fonts, page: text.Page, quick: *const system.Quick) !void {
+    page.fillRect(0, slider_top, page.width, slider_height, 0xff);
+    const knob_x: i32 = slider_left + @divTrunc(@as(i32, @intCast(@min(quick.brightness, system.max_brightness))) * (slider_right - slider_left), system.max_brightness);
+    var level: [8]u8 = undefined;
+    try centered(fonts.small, page, knob_x, 647, std.fmt.bufPrint(&level, "{d}", .{quick.brightness}) catch "");
+    page.stroke(70, slider_y, 110, slider_y, 4);
+    page.stroke(1160, slider_y, 1200, slider_y, 4);
+    page.stroke(1180, slider_y - 20, 1180, slider_y + 20, 4);
+    page.fillRect(slider_left, slider_y - 2, slider_right - slider_left, 4, 0xa0);
+    page.fillRect(slider_left, slider_y - 4, @intCast(knob_x - slider_left), 8, 0x00);
+    page.disc(knob_x, slider_y, 25, 0, 0x00);
+    page.disc(knob_x, slider_y, 21, 0, 0xff);
+}
+
+fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
+    const x: f32 = @floatFromInt(s.x);
+    const y: f32 = @floatFromInt(s.y);
+    icons.ring(page, x, y, icon_radius);
+    switch (s.icon) {
+        .airplane => icons.airplane(page, x, y),
+        .wifi => icons.wifi(page, x, y - 4, 0.8, if (quick.wifi_on) quick.wifi_bars else 0),
+        .bluetooth => icons.bluetooth(page, x, y),
+        .sync => icons.sync(page, x, y),
+        .gear => icons.gear(page, x, y),
     }
+}
+
+fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
+    return switch (s.icon) {
+        .airplane => if (quick.airplane) "On" else "Off",
+        .wifi => if (quick.wifi_on) "Connected" else "Wi-Fi Off",
+        .bluetooth => "Off",
+        .sync => "Sync",
+        .gear => "All Settings",
+    };
 }
 
 pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book: bool, quick: *const system.Quick) !void {
@@ -131,39 +148,20 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book:
 
     try fonts.title.draw(page, 60, 70, "Kindle Paperwhite");
     try fonts.small.draw(page, 60, 120, quick.clockText());
+    if (quick.wifi_on) icons.wifi(page, w - 300, 56, 0.42, quick.wifi_bars);
     var pct: [8]u8 = undefined;
-    try fonts.small.draw(page, w - 230, 70, std.fmt.bufPrint(&pct, "{d}%", .{quick.battery}) catch "");
-    const battery_x: u32 = page.width - 130;
-    page.fillRect(battery_x, 44, 70, 32, 0x00);
-    page.fillRect(battery_x + 3, 47, 64, 26, 0xff);
-    page.fillRect(battery_x + 70, 52, 6, 16, 0x00);
-    page.fillRect(battery_x + 5, 49, 60 * @min(quick.battery, 100) / 100, 22, 0x00);
+    try fonts.small.draw(page, w - 250, 72, std.fmt.bufPrint(&pct, "{d}%", .{quick.battery}) catch "");
+    icons.battery(page, w - 140, 44, quick.battery);
 
-    for (shortcuts, 0..) |s, i| {
-        try drawIcon(fonts, page, i, s.x, s.y);
-        const label = if (s.hit == .airplane) (if (quick.airplane) "On" else "Off") else s.label;
-        try centered(fonts.small, page, s.x, s.y + 92, label);
+    for (shortcuts) |s| {
+        drawIcon(page, s, quick);
+        try centered(fonts.small, page, s.x, s.y + 92, label(s, quick));
     }
 
     page.fillRect(40, 560, page.width - 80, 2, 0x80);
     try fonts.small.draw(page, 60, 610, "Brightness");
-    const knob_x: i32 = slider_left + @divTrunc(@as(i32, @intCast(@min(quick.brightness, system.max_brightness))) * (slider_right - slider_left), system.max_brightness);
-    var level: [8]u8 = undefined;
-    try centered(fonts.small, page, knob_x, 645, std.fmt.bufPrint(&level, "{d}", .{quick.brightness}) catch "");
-    try centered(fonts.title, page, 90, slider_y + 14, "-");
-    try centered(fonts.title, page, 1180, slider_y + 14, "+");
-    page.fillRect(slider_left, slider_y - 2, slider_right - slider_left, 4, 0x80);
-    page.fillRect(slider_left, slider_y - 4, @intCast(knob_x - slider_left), 8, 0x00);
-    page.disc(knob_x, slider_y, 24, 0, 0x00);
-    page.disc(knob_x, slider_y, 21, 0, 0xff);
-
-    // Chevron that closes the panel
-    var i: u32 = 0;
-    while (i < 40) : (i += 1) {
-        const rise = (40 - i) / 3;
-        page.fillRect(page.width / 2 - 40 + i, 748 + 13 - rise, 3, 4, 0x00);
-        page.fillRect(page.width / 2 + i, 748 + i / 3, 3, 4, 0x00);
-    }
+    try drawSlider(fonts, page, quick);
+    icons.chevron(page, w / 2, 754);
 
     if (!in_book) return;
     page.fillRect(0, panel_height - 2, page.width, 2, 0x80);
@@ -176,7 +174,9 @@ pub fn render(fonts: library.Fonts, page: text.Page, title: []const u8, in_book:
     for (text_buttons) |b| {
         const left: u32 = @intCast(b.left);
         page.fillRect(left, 930, @intCast(b.right - b.left), 90, 0xe0);
-        try fonts.title.draw(page, @floatFromInt(left + 48), 990, b.label);
+        const cx: f32 = @floatFromInt(left + 60);
+        page.stroke(cx - 22, 975, cx + 22, 975, 5);
+        if (b.label[0] == '+') page.stroke(cx, 953, cx, 997, 5);
     }
 }
 
@@ -192,9 +192,10 @@ pub fn save(path: [*:0]const u8, s: Settings) void {
 
 test "panel maps taps like the stock layout" {
     try std.testing.expectEqual(Hit.airplane, hit(318, 240, 1272, false));
-    try std.testing.expectEqual(Hit.none, hit(636, 240, 1272, false));
-    try std.testing.expectEqual(Hit.none, hit(954, 240, 1272, false));
-    try std.testing.expectEqual(Hit.settings, hit(636, 430, 1272, false));
+    try std.testing.expectEqual(Hit.settings, hit(636, 240, 1272, false)); // Wi-Fi
+    try std.testing.expectEqual(Hit.none, hit(954, 240, 1272, false)); // Bluetooth
+    try std.testing.expectEqual(Hit.none, hit(477, 430, 1272, false)); // Sync
+    try std.testing.expectEqual(Hit.settings, hit(795, 430, 1272, false));
     try std.testing.expectEqual(Hit.dimmer, hit(90, 680, 1272, false));
     try std.testing.expectEqual(Hit.brighter, hit(1180, 680, 1272, false));
     try std.testing.expectEqual(Hit.slider, hit(600, 680, 1272, false));

@@ -12,6 +12,8 @@ pub const Quick = struct {
     brightness: u32 = 0,
     airplane: bool = false,
     battery: u32 = 0,
+    wifi_on: bool = false,
+    wifi_bars: u32 = 0, // 0 to 3
     clock: [40]u8 = undefined,
     clock_len: usize = 0,
 
@@ -70,8 +72,25 @@ fn set(service: [*:0]const u8, prop: [*:0]const u8, value: u32) void {
     _ = run(&argv, &buf);
 }
 
+fn getText(service: [*:0]const u8, prop: [*:0]const u8, buf: []u8) []const u8 {
+    const argv = [_:null]?[*:0]const u8{ lipc_get, "-s", service, prop };
+    const n = run(&argv, buf) orelse return "";
+    return std.mem.trim(u8, buf[0..n], " \n");
+}
+
+/// Maps wifid's "5/5" to the three arcs of the icon.
+pub fn signalBars(signal: []const u8) u32 {
+    const value = std.fmt.parseInt(u32, signal[0 .. std.mem.indexOfScalar(u8, signal, '/') orelse return 0], 10) catch return 0;
+    return @min((value + 1) / 2, 3);
+}
+
 pub fn read() Quick {
+    var state_buf: [32]u8 = undefined;
+    var signal_buf: [16]u8 = undefined;
+    const connected = std.mem.eql(u8, getText("com.lab126.wifid", "cmState", &state_buf), "CONNECTED");
     var q = Quick{
+        .wifi_on = connected,
+        .wifi_bars = if (connected) signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf)) else 0,
         .brightness = get("com.lab126.powerd", "flIntensity") orelse 0,
         .airplane = (get("com.lab126.cmd", "wirelessEnable") orelse 1) == 0,
         .battery = get("com.lab126.powerd", "battLevel") orelse 0,
@@ -104,6 +123,13 @@ pub fn stepBrightness(level: u32, up: bool) u32 {
 test "tool output parses" {
     try std.testing.expectEqual(@as(u32, 21), parseInt("21\n").?);
     try std.testing.expect(parseInt("failed\n") == null);
+}
+
+test "signal maps to icon arcs" {
+    try std.testing.expectEqual(@as(u32, 3), signalBars("5/5"));
+    try std.testing.expectEqual(@as(u32, 2), signalBars("3/5"));
+    try std.testing.expectEqual(@as(u32, 1), signalBars("1/5"));
+    try std.testing.expectEqual(@as(u32, 0), signalBars("none"));
 }
 
 test "brightness stops at both ends" {
