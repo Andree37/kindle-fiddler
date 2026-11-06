@@ -231,7 +231,7 @@ fn turnDirection(x: i32, width: i32) i32 {
     return if (x < @divTrunc(width, 3)) -1 else 1;
 }
 
-const Slot = struct { page: i64 = -1, buf: []u8 };
+const Slot = struct { page: i64 = -1, buf: []u8, hits: text.Hits = .{} };
 
 const App = struct {
     alloc: std.mem.Allocator,
@@ -286,6 +286,13 @@ const Session = struct {
     since_clean: u32 = 0,
     last_turn_us: u64 = 0,
 
+    fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
+        for (&s.app.slots) |*slot| {
+            if (slot.page == @as(i64, @intCast(s.current))) return slot.hits.find(x, y);
+        }
+        return null;
+    }
+
     /// Get a rendered page, reusing a cached one when possible.
     fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
         const a = s.app;
@@ -297,7 +304,8 @@ const Session = struct {
         const victim = cache.victim(cached, @intCast(center));
         const buf = a.slots[victim].buf;
         const page = a.page(buf);
-        _ = try text.renderPage(a.body, page, s.paragraphs, s.pages[index], a.layout);
+        a.slots[victim].hits.len = 0;
+        _ = try text.renderPage(a.body, page, s.paragraphs, s.pages[index], a.layout, &a.slots[victim].hits);
 
         var label: [32]u8 = undefined;
         const counter = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, s.pages.len }) catch "";
@@ -355,7 +363,7 @@ fn paginate(a: *App, alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph
     var pos = text.Pos{};
     while (pos.para < paragraphs.len) {
         try pages.append(alloc, pos);
-        const next = try text.layoutPage(a.body, null, geometry, paragraphs, pos, a.layout);
+        const next = try text.layoutPage(a.body, null, geometry, paragraphs, pos, a.layout, null);
         if (next.para == pos.para and next.byte == pos.byte) break;
         pos = next;
     }
@@ -382,6 +390,33 @@ fn drawMenu(a: *App, background: []const u8, title: []const u8, in_book: bool, w
 fn closeMenu(a: *App, background: []const u8, in_book: bool) !void {
     @memcpy(a.screen.pixels, background);
     try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height(in_book), page_waveform, .partial));
+}
+
+const note_top = 996;
+
+/// Shows a note in a panel over the bottom of the page.
+fn showNote(a: *App, s: *Session, target: u32) !void {
+    @memcpy(a.overlay, try s.ensure(s.current, s.current));
+    const stride = a.screen.stride;
+    const panel = text.Page{
+        .buf = a.overlay[note_top * stride..],
+        .width = a.screen.width,
+        .height = a.screen.height - note_top,
+        .stride = stride,
+    };
+    var note = [1]kfx.Paragraph{s.paragraphs[target]};
+    note[0].note = false;
+    note[0].links = &.{};
+    const layout = text.Layout{ .margin_x = a.layout.margin_x, .margin_top = 50, .margin_bottom = 40, .indent = 0 };
+    _ = try text.renderPage(a.body, panel, &note, .{}, layout, null);
+    panel.fillRect(0, 0, panel.width, 4, 0x00);
+    @memcpy(a.screen.pixels, a.overlay);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, note_top, a.screen.width, panel.height, page_waveform, .partial));
+}
+
+fn closeNote(a: *App, s: *Session) !void {
+    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
+    try a.screen.waitComplete(try a.screen.updateRegion(0, note_top, a.screen.width, a.screen.height - note_top, page_waveform, .partial));
 }
 
 /// Applies a light or airplane change. False means the tap wasn't one of those.
@@ -443,10 +478,16 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
 
     var since_save: u32 = 0;
     var menu_open = false;
+    var note_open = false;
     defer saveProgress(entry, state_path, &session);
     while (true) {
         switch (a.input.next()) {
             .tap => |t| {
+                if (note_open) {
+                    note_open = false;
+                    try closeNote(a, &session);
+                    continue;
+                }
                 if (menu_open) {
                     const choice = menu.hit(t.x, t.y, a.input.width, true);
                     if (applyQuick(a, choice, t.x)) {
@@ -487,6 +528,11 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);
                     continue;
                 }
+                if (session.referenceAt(t.x, t.y)) |target| {
+                    note_open = true;
+                    try showNote(a, &session, target);
+                    continue;
+                }
                 const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
                 const last: i64 = @intCast(session.pages.len - 1);
                 const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
@@ -499,7 +545,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                 }
             },
             .pull => {
-                if (menu_open) continue;
+                if (menu_open or note_open) continue;
                 menu_open = true;
                 a.quick = system.read();
                 try drawMenu(a, try session.ensure(session.current, session.current), entry.title, true, false);

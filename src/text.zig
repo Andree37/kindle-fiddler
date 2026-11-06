@@ -180,6 +180,36 @@ pub const Page = struct {
     }
 };
 
+/// Where a note reference landed on a page.
+pub const Hit = struct { x: i32, y: i32, w: i32, h: i32, target: u32 };
+
+pub const Hits = struct {
+    items: [32]Hit = undefined,
+    len: usize = 0,
+
+    fn add(h: *Hits, hit: Hit) void {
+        if (h.len == h.items.len) return;
+        h.items[h.len] = hit;
+        h.len += 1;
+    }
+
+    /// Finds the reference at a tap, with room for how small they are.
+    pub fn find(h: *const Hits, x: i32, y: i32) ?u32 {
+        const pad = 30;
+        for (h.items[0..h.len]) |r| {
+            if (x >= r.x - pad and x < r.x + r.w + pad and y >= r.y - pad and y < r.y + r.h + pad) return r.target;
+        }
+        return null;
+    }
+};
+
+test "tap near a reference finds it" {
+    var hits = Hits{};
+    hits.add(.{ .x = 100, .y = 200, .w = 20, .h = 40, .target = 7 });
+    try std.testing.expectEqual(@as(u32, 7), hits.find(90, 190).?);
+    try std.testing.expect(hits.find(300, 200) == null);
+}
+
 pub const Pos = struct { para: usize = 0, byte: usize = 0 };
 
 pub const Layout = struct {
@@ -193,7 +223,7 @@ const max_words = 96;
 
 /// Lay out one page and return where the next page starts.
 /// With `page` null this only measures, which is how the book gets paginated.
-pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: Pos, l: Layout) !Pos {
+pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: Pos, l: Layout, hits: ?*Hits) !Pos {
     if (maybe_page) |p| @memset(p.buf, 0xff);
     const page = geometry;
     const line_width: f32 = @floatFromInt(@as(i32, @intCast(page.width)) - 2 * l.margin_x);
@@ -206,7 +236,9 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
         pos.para += 1;
         pos.byte = 0;
     }) {
+        if (paras[pos.para].note) continue;
         const text = paras[pos.para].text;
+        const links = paras[pos.para].links;
         var i = pos.byte;
         var indent: f32 = if (i == 0) l.indent else 0;
 
@@ -265,7 +297,17 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             }
             var x = @as(f32, @floatFromInt(l.margin_x)) + indent;
             for (words[0..n], widths[0..n]) |word, w| {
-                if (maybe_page) |p| try font.draw(p, x, y, word);
+                if (maybe_page) |p| {
+                    try font.draw(p, x, y, word);
+                    const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
+                    for (links) |link| {
+                        if (link.end <= word_start or link.start >= word_start + word.len) continue;
+                        if (link.target >= paras.len or !paras[link.target].note) continue;
+                        const wi: i32 = @intFromFloat(w);
+                        p.fillRect(@intFromFloat(x), @intCast(y + 8), @intCast(wi), 3, 0x00);
+                        if (hits) |h| h.add(.{ .x = @intFromFloat(x), .y = y - font.ascent, .w = wi, .h = font.line_height, .target = link.target });
+                    }
+                }
                 x += w + gap;
             }
             y += font.line_height;
@@ -276,8 +318,8 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
     return pos;
 }
 
-pub fn renderPage(font: *Font, page: Page, paras: []const Paragraph, start: Pos, l: Layout) !Pos {
-    return layoutPage(font, page, page, paras, start, l);
+pub fn renderPage(font: *Font, page: Page, paras: []const Paragraph, start: Pos, l: Layout, hits: ?*Hits) !Pos {
+    return layoutPage(font, page, page, paras, start, l, hits);
 }
 
 /// Hard black and white, for waveforms that cannot show gray.

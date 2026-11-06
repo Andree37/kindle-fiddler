@@ -83,9 +83,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     const r0 = nowUs();
-    const next = try text.renderPage(&font, page, book.paragraphs, start, layout);
+    const next = try text.renderPage(&font, page, book.paragraphs, start, layout, null);
     const r1 = nowUs();
-    _ = try text.renderPage(&font, page_b, book.paragraphs, next, layout);
+    _ = try text.renderPage(&font, page_b, book.paragraphs, next, layout, null);
     const r2 = nowUs();
     std.debug.print("render cold {d} us, warm {d} us\n", .{ r1 - r0, r2 - r1 });
 

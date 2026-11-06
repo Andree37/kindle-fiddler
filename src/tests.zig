@@ -7,5 +7,6 @@ test {
     _ = @import("menu.zig");
     _ = @import("state.zig");
     _ = @import("system.zig");
+    _ = @import("text.zig");
     _ = @import("touch.zig");
 }
