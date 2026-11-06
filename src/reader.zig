@@ -330,34 +330,40 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
 }
 
 fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
-    var index: usize = 0;
+    const visible = try a.alloc.alloc(usize, entries.len);
+    var filter: library.Filter = .all;
     var message: []const u8 = "";
     const buf = a.slots[0].buf;
     a.slots[0].page = -1;
 
     while (true) {
         library.sort(entries);
-        index = 0;
-        try library.render(fonts, a.page(buf), entries, index, message);
+        var count = library.select(entries, filter, visible);
+        var index: usize = 0;
+        try library.render(fonts, a.page(buf), entries, visible[0..count], index, filter, message);
         try a.present(buf, .gc16, .full);
         message = "";
 
         browse: while (true) {
             switch (a.input.next()) {
-                .tap => |t| switch (library.hit(t.x, t.y, a.input.width, index, entries.len)) {
-                    .none => {},
+                .tap => |t| switch (library.hit(t.x, t.y, a.input.width, index, count)) {
+                    .none => continue,
                     .exit => return,
-                    .prev, .next => {
-                        const forward = library.hit(t.x, t.y, a.input.width, index, entries.len) == .next;
-                        const count = library.pageCount(entries.len);
-                        if (forward and index + 1 >= count) continue;
-                        if (!forward and index == 0) continue;
-                        index = if (forward) index + 1 else index - 1;
-                        try library.render(fonts, a.page(buf), entries, index, "");
-                        try a.present(buf, page_waveform, .partial);
+                    .tab => |f| {
+                        filter = f;
+                        count = library.select(entries, filter, visible);
+                        index = 0;
+                    },
+                    .next => {
+                        if (index + 1 >= library.pageCount(count)) continue;
+                        index += 1;
+                    },
+                    .prev => {
+                        if (index == 0) continue;
+                        index -= 1;
                     },
                     .book => |i| {
-                        const outcome = readBook(a, &entries[i]) catch |err| blk: {
+                        const outcome = readBook(a, &entries[visible[i]]) catch |err| blk: {
                             std.debug.print("could not open book: {s}\n", .{@errorName(err)});
                             message = "This book can't be opened here.";
                             break :blk Outcome.library;
@@ -367,9 +373,11 @@ fn runLibrary(a: *App, entries: []library.Entry, fonts: library.Fonts) !void {
                         break :browse;
                     },
                 },
-                .hold => {},
+                .hold => continue,
                 .power, .idle, .stop => return,
             }
+            try library.render(fonts, a.page(buf), entries, visible[0..count], index, filter, "");
+            try a.present(buf, page_waveform, .partial);
         }
     }
 }

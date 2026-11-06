@@ -9,7 +9,18 @@ pub const Entry = struct {
     author: []const u8,
     percent: u32,
     last: u64,
+    finished: bool = false,
+
+    pub fn status(e: Entry) Filter {
+        if (e.finished or e.percent >= finished_percent) return .read;
+        return if (e.percent == 0) .unread else .reading;
+    }
 };
+
+pub const Filter = enum { all, unread, reading, read };
+
+const finished_percent = 99;
+const read_state_finished = 2; // Kindle's own "finished" mark
 
 /// Converted filenames look like "Title -- Author -- Year -- junk".
 pub fn cleanTitle(raw: []const u8) []const u8 {
@@ -33,6 +44,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
         const author = fields.next() orelse continue;
         const percent = std.fmt.parseFloat(f32, fields.next() orelse "0") catch 0;
         const last = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
+        const read_state = std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0;
         if (path.len == 0) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
@@ -40,6 +52,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .author = cleanAuthor(author),
             .percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
             .last = last,
+            // Taken here, before our own progress replaces the percent.
+            .finished = read_state == read_state_finished or percent >= finished_percent,
         });
     }
     return out.toOwnedSlice(alloc);
@@ -53,6 +67,18 @@ pub fn sort(entries: []Entry) void {
     std.mem.sort(Entry, entries, {}, newerFirst);
 }
 
+/// Fills `out` with indexes of matching entries and returns how many matched.
+pub fn select(entries: []const Entry, filter: Filter, out: []usize) usize {
+    var n: usize = 0;
+    for (entries, 0..) |e, i| {
+        if (filter == .all or e.status() == filter) {
+            out[n] = i;
+            n += 1;
+        }
+    }
+    return n;
+}
+
 pub const rows_per_page = 9;
 const margin = 80;
 const top = 150;
@@ -64,9 +90,18 @@ const next_left = 652;
 const button_width = 300;
 const exit_width = 300;
 
+// Tabs start past the top-left corner, which is held to leave a book.
+const Tab = struct { filter: Filter, label: []const u8, left: i32, right: i32 };
+const tabs = [_]Tab{
+    .{ .filter = .all, .label = "All", .left = 210, .right = 330 },
+    .{ .filter = .unread, .label = "Unread", .left = 330, .right = 530 },
+    .{ .filter = .reading, .label = "Reading", .left = 530, .right = 750 },
+    .{ .filter = .read, .label = "Read", .left = 750, .right = 972 },
+};
+
 pub const Fonts = struct { title: *text.Font, small: *text.Font };
 
-pub const Hit = union(enum) { none, book: usize, prev, next, exit };
+pub const Hit = union(enum) { none, book: usize, prev, next, exit, tab: Filter };
 
 pub fn pageCount(entries: usize) usize {
     return @max((entries + rows_per_page - 1) / rows_per_page, 1);
@@ -74,7 +109,13 @@ pub fn pageCount(entries: usize) usize {
 
 /// What a tap on this library page lands on.
 pub fn hit(x: i32, y: i32, width: i32, page: usize, entries: usize) Hit {
-    if (y < top) return if (x >= width - exit_width) .exit else .none;
+    if (y < top) {
+        if (x >= width - exit_width) return .exit;
+        for (tabs) |t| {
+            if (x >= t.left and x < t.right) return .{ .tab = t.filter };
+        }
+        return .none;
+    }
     if (y >= buttons_top and y < buttons_bottom) {
         if (x >= prev_left and x < prev_left + button_width) return .prev;
         if (x >= next_left and x < next_left + button_width) return .next;
@@ -98,16 +139,22 @@ fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8,
     try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
 }
 
-pub fn render(fonts: Fonts, page: text.Page, entries: []const Entry, index: usize, message: []const u8) !void {
+pub fn render(fonts: Fonts, page: text.Page, entries: []const Entry, visible: []const usize, index: usize, filter: Filter, message: []const u8) !void {
     @memset(page.buf, 0xff);
     const right: f32 = @floatFromInt(page.width - margin);
-    try fonts.title.draw(page, margin, 100, "Library");
+    for (tabs) |t| {
+        const left: u32 = @intCast(t.left);
+        const font = if (t.filter == filter) fonts.title else fonts.small;
+        try font.draw(page, @floatFromInt(left), 100, t.label);
+        if (t.filter == filter) page.fillRect(left, 116, @intFromFloat(try font.measure(t.label)), 6, 0x00);
+    }
     try fonts.small.draw(page, right - 150, 100, "Kindle");
     page.fillRect(margin, top - 12, page.width - 2 * margin, 3, 0x00);
 
     const first = index * rows_per_page;
-    const shown = entries[@min(first, entries.len)..@min(first + rows_per_page, entries.len)];
-    for (shown, 0..) |e, i| {
+    const shown = visible[@min(first, visible.len)..@min(first + rows_per_page, visible.len)];
+    for (shown, 0..) |entry_index, i| {
+        const e = entries[entry_index];
         const y: i32 = top + @as(i32, @intCast(i)) * row_height;
         const avail: f32 = right - margin - 120;
         try drawClipped(fonts.title, page, margin, y + 58, e.title, avail);
@@ -127,8 +174,9 @@ pub fn render(fonts: Fonts, page: text.Page, entries: []const Entry, index: usiz
     try fonts.title.draw(page, next_left + 100, buttons_top + 90, "Next");
 
     var label: [32]u8 = undefined;
-    const count = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, pageCount(entries.len) }) catch "";
+    const count = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, pageCount(visible.len) }) catch "";
     try fonts.small.draw(page, @as(f32, @floatFromInt(page.width)) / 2 - 40, 1620, count);
+    if (visible.len == 0) try fonts.small.draw(page, margin, top + 58, "No books here.");
     if (message.len > 0) try fonts.small.draw(page, margin, 1670, message);
 }
 
@@ -169,4 +217,38 @@ test "tapping past the last book does nothing" {
 test "page count rounds up and is never zero" {
     try std.testing.expectEqual(@as(usize, 9), pageCount(79));
     try std.testing.expectEqual(@as(usize, 1), pageCount(0));
+}
+
+test "status uses kindle's finished mark over a lower percent" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const rows = try parse(arena.allocator(), "/a\tA\tx\t99.1\t1\t1\n/b\tB\tx\t40\t1\t2\n/c\tC\tx\t40\t1\t1\n/d\tD\tx\t0\t1\t0\n");
+    rows[0].percent = 3; // Reopened here, so our own progress replaced it
+    try std.testing.expectEqual(Filter.read, rows[0].status());
+    try std.testing.expectEqual(Filter.read, rows[1].status());
+    try std.testing.expectEqual(Filter.reading, rows[2].status());
+    try std.testing.expectEqual(Filter.unread, rows[3].status());
+}
+
+test "select keeps only matching books" {
+    const rows = [_]Entry{
+        .{ .path = "/a", .title = "A", .author = "", .percent = 0, .last = 0 },
+        .{ .path = "/b", .title = "B", .author = "", .percent = 50, .last = 0 },
+        .{ .path = "/c", .title = "C", .author = "", .percent = 0, .last = 0, .finished = true },
+    };
+    var out: [3]usize = undefined;
+    try std.testing.expectEqual(@as(usize, 3), select(&rows, .all, &out));
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .unread, &out));
+    try std.testing.expectEqual(@as(usize, 0), out[0]);
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, &out));
+    try std.testing.expectEqual(@as(usize, 2), out[0]);
+}
+
+test "tabs stay out of the top-left hold corner" {
+    try std.testing.expectEqual(Hit.none, hit(150, 80, 1272, 0, 79));
+    try std.testing.expectEqual(Hit{ .tab = .all }, hit(250, 80, 1272, 0, 79));
+    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(400, 80, 1272, 0, 79));
+    try std.testing.expectEqual(Hit{ .tab = .reading }, hit(600, 80, 1272, 0, 79));
+    try std.testing.expectEqual(Hit{ .tab = .read }, hit(800, 80, 1272, 0, 79));
+    try std.testing.expectEqual(Hit.exit, hit(1000, 80, 1272, 0, 79));
 }
