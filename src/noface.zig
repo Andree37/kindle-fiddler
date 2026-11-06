@@ -76,10 +76,12 @@ fn openInput(path: [*:0]const u8) !i32 {
     return fd;
 }
 
-fn axisMax(fd: i32, req: u32) i32 {
+const Axis = struct { value: i32, max: i32 };
+
+fn axis(fd: i32, req: u32) Axis {
     var info = std.mem.zeroes([6]i32);
     _ = linux.ioctl(fd, req, @intFromPtr(&info));
-    return @max(info[2], 1);
+    return .{ .value = info[0], .max = @max(info[2], 1) };
 }
 
 const Action = union(enum) {
@@ -695,6 +697,12 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
     }
 }
 
+fn loggedHit(x: i32, y: i32, index: usize, count: usize) library.Hit {
+    const h = library.hit(x, y, index, count);
+    std.debug.print("library tap {d},{d}: {s}\n", .{ x, y, @tagName(h) });
+    return h;
+}
+
 fn runLibrary(a: *App, entries: []library.Entry) !void {
     const visible = try a.alloc.alloc(usize, entries.len);
     var filter: library.Filter = .all;
@@ -718,7 +726,7 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
         browse: while (true) {
             var opening: ?*library.Entry = null;
             switch (a.input.next()) {
-                .tap => |t| switch (library.hit(t.x, t.y, index, count)) {
+                .tap => |t| switch (loggedHit(t.x, t.y, index, count)) {
                     .none => continue,
                     .menu => {
                         if (try libraryMenu(a, buf)) return;
@@ -811,13 +819,18 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     const touch = try openInput(touch_device);
     const power = try openInput(power_device);
+    // The kernel only reports coordinates that change, so start from the current ones.
+    const axis_x = axis(touch, eviocgabs_x);
+    const axis_y = axis(touch, eviocgabs_y);
     var input = Input{
         .touch = touch,
         .power = power,
         .width = @intCast(screen.width),
         .height = @intCast(screen.height),
-        .x_max = axisMax(touch, eviocgabs_x),
-        .y_max = axisMax(touch, eviocgabs_y),
+        .x_max = axis_x.max,
+        .y_max = axis_y.max,
+        .xs = .{ axis_x.value, axis_x.value },
+        .ys = .{ axis_y.value, axis_y.value },
         .last_input = nowUs(),
     };
 
