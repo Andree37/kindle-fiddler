@@ -705,19 +705,20 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
 
     while (true) {
         library.sort(entries, order);
-        var count = library.select(entries, filter, visible);
-        if (filter == .all and order == .recent) library.leadWithReading(entries, visible[0..count]);
+        var hero = library.pickHero(entries);
+        var count = library.select(entries, filter, hero, visible);
         var index: usize = 0;
         a.quick = system.read();
         const r0 = nowUs();
-        try library.render(a.alloc, a.ui, a.page(buf), entries, visible[0..count], index, filter, order, message, &a.quick);
+        try library.render(a.alloc, a.ui, a.page(buf), entries, hero, visible[0..count], index, filter, order, message, &a.quick);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         message = "";
 
         browse: while (true) {
+            var opening: ?*library.Entry = null;
             switch (a.input.next()) {
-                .tap => |t| switch (library.hit(t.x, t.y, index, count, filter, order)) {
+                .tap => |t| switch (library.hit(t.x, t.y, index, count)) {
                     .none => continue,
                     .menu => {
                         if (try libraryMenu(a, buf)) return;
@@ -725,35 +726,32 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                     },
                     .tab => |f| {
                         filter = f;
-                        count = library.select(entries, filter, visible);
-                        if (filter == .all and order == .recent) library.leadWithReading(entries, visible[0..count]);
+                        count = library.select(entries, filter, hero, visible);
                         index = 0;
                     },
                     .sort => {
                         order = order.next();
                         library.sort(entries, order);
-                        count = library.select(entries, filter, visible);
-                        if (filter == .all and order == .recent) library.leadWithReading(entries, visible[0..count]);
+                        hero = library.pickHero(entries);
+                        count = library.select(entries, filter, hero, visible);
                         index = 0;
                     },
                     .next => {
-                        if (index + 1 >= library.pageCount(count, filter, order)) continue;
+                        if (index + 1 >= library.pageCount(count)) continue;
                         index += 1;
                     },
                     .prev => {
                         if (index == 0) continue;
                         index -= 1;
                     },
+                    .hero => {
+                        const h = hero orelse continue;
+                        a.flash(library.heroRect(a.screen.width));
+                        opening = &entries[h];
+                    },
                     .book => |i| {
-                        a.flash(library.bookRect(i, index, a.screen.width, filter, order));
-                        const outcome = readBook(a, &entries[visible[i]]) catch |err| blk: {
-                            std.debug.print("could not open book: {s}\n", .{@errorName(err)});
-                            message = "This book can't be opened here.";
-                            break :blk Outcome.library;
-                        };
-                        if (outcome == .quit) return;
-                        a.slots[0].page = -1;
-                        break :browse;
+                        a.flash(library.bookRect(i, index));
+                        opening = &entries[visible[i]];
                     },
                 },
                 .drag, .drag_end => continue,
@@ -763,7 +761,17 @@ fn runLibrary(a: *App, entries: []library.Entry) !void {
                 },
                 .power, .idle, .stop => return,
             }
-            try library.render(a.alloc, a.ui, a.page(buf), entries, visible[0..count], index, filter, order, "", &a.quick);
+            if (opening) |entry| {
+                const outcome = readBook(a, entry) catch |err| blk: {
+                    std.debug.print("could not open book: {s}\n", .{@errorName(err)});
+                    message = "This book can't be opened here.";
+                    break :blk Outcome.library;
+                };
+                if (outcome == .quit) return;
+                a.slots[0].page = -1;
+                break :browse;
+            }
+            try library.render(a.alloc, a.ui, a.page(buf), entries, hero, visible[0..count], index, filter, order, "", &a.quick);
             try a.present(buf, .gc16, .partial);
         }
     }

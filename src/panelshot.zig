@@ -52,10 +52,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
         library.sort(entries, .recent);
         const visible = try alloc.alloc(usize, entries.len);
         const filter: library.Filter = if (argv.len > 3) .read else .all;
-        const count = library.select(entries, filter, visible);
-        if (filter == .all) library.leadWithReading(entries, visible[0..count]);
+        const lead = library.pickHero(entries);
+        const count = library.select(entries, filter, lead, visible);
         const index: usize = if (argv.len > 2) try std.fmt.parseInt(usize, std.mem.sliceTo(argv[2], 0), 10) else 0;
-        try library.render(alloc, fonts, page, entries, visible[0..count], index, filter, .recent, "", &quick);
+        try library.render(alloc, fonts, page, entries, lead, visible[0..count], index, filter, .recent, "", &quick);
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
         write(buf);
         return;

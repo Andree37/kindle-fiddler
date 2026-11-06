@@ -22,13 +22,17 @@ pub const Entry = struct {
     hero: ?[]u8 = null,
     hero_tried: bool = false,
 
-    pub fn status(e: Entry) Filter {
-        if (e.finished or e.percent >= finished_percent) return .read;
-        return if (e.percent == 0) .unread else .reading;
+    pub fn isRead(e: Entry) bool {
+        return e.finished or e.percent >= finished_percent;
+    }
+
+    /// Started but not finished, which is what the hero leads with.
+    pub fn inProgress(e: Entry) bool {
+        return !e.isRead() and e.percent > 0;
     }
 };
 
-pub const Filter = enum { all, unread, reading, read };
+pub const Filter = enum { all, unread, read };
 
 const finished_percent = 99;
 const read_state_finished = 2; // Kindle's own "finished" mark
@@ -135,21 +139,31 @@ pub fn sort(entries: []Entry, order: Order) void {
     std.mem.sort(Entry, entries, order, before);
 }
 
-/// Puts the newest book still in progress first, for the hero.
-pub fn leadWithReading(entries: []const Entry, visible: []usize) void {
-    for (visible, 0..) |index, i| {
-        if (entries[index].status() != .reading) continue;
-        std.mem.copyBackwards(usize, visible[1 .. i + 1], visible[0..i]);
-        visible[0] = index;
-        return;
+/// The book for the hero: the latest one in progress, or else the latest opened.
+pub fn pickHero(entries: []const Entry) ?usize {
+    var best: ?usize = null;
+    for (entries, 0..) |e, i| {
+        if (!e.inProgress()) continue;
+        if (best == null or e.last > entries[best.?].last) best = i;
     }
+    if (best != null) return best;
+    for (entries, 0..) |e, i| {
+        if (best == null or e.last > entries[best.?].last) best = i;
+    }
+    return best;
 }
 
-/// Fills `out` with indexes of matching entries and returns how many matched.
-pub fn select(entries: []const Entry, filter: Filter, out: []usize) usize {
+/// Fills `out` with indexes of matching entries, leaving out the hero, and returns how many.
+pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, out: []usize) usize {
     var n: usize = 0;
     for (entries, 0..) |e, i| {
-        if (filter == .all or e.status() == filter) {
+        if (i == hero) continue;
+        const matches = switch (filter) {
+            .all => true,
+            .read => e.isRead(),
+            .unread => !e.isRead(),
+        };
+        if (matches) {
             out[n] = i;
             n += 1;
         }
@@ -164,7 +178,7 @@ const cell_step = cover.width + gutter;
 const row_height = 410;
 const status_height = 96;
 
-// The first page of All, newest first, leads with the book in progress.
+// Page one always leads with the current book, on every tab and sort.
 const hero_top = 112;
 const hero_bottom = 500;
 const hero_tabs_top = 516;
@@ -179,8 +193,7 @@ const Tab = struct { filter: Filter, label: []const u8, left: i32, right: i32 };
 const tabs = [_]Tab{
     .{ .filter = .all, .label = "All", .left = 72, .right = 170 },
     .{ .filter = .unread, .label = "Unread", .left = 170, .right = 352 },
-    .{ .filter = .reading, .label = "Reading", .left = 352, .right = 552 },
-    .{ .filter = .read, .label = "Read", .left = 552, .right = 700 },
+    .{ .filter = .read, .label = "Read", .left = 352, .right = 500 },
 };
 
 const footer_top = 1450;
@@ -198,31 +211,21 @@ pub const Fonts = struct {
     cover: *text.Font,
 };
 
-pub const Hit = union(enum) { none, book: usize, prev, next, sort, menu, tab: Filter };
-
-fn hasHero(filter: Filter, order: Order, page: usize) bool {
-    return page == 0 and filter == .all and order == .recent;
-}
+pub const Hit = union(enum) { none, hero, book: usize, prev, next, sort, menu, tab: Filter };
 
 fn gridSize(hero: bool) usize {
     return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
 }
 
-/// Index of the first grid book on a page. The hero is book 0 on page zero.
-fn firstBook(filter: Filter, order: Order, page: usize) usize {
-    const leads = filter == .all and order == .recent;
-    if (!leads) return page * gridSize(false);
-    if (page == 0) return 1;
-    return 1 + gridSize(true) + (page - 1) * gridSize(false);
+/// Index of the first grid book on a page.
+fn firstBook(page: usize) usize {
+    if (page == 0) return 0;
+    return gridSize(true) + (page - 1) * gridSize(false);
 }
 
-pub fn pageCount(books: usize, filter: Filter, order: Order) usize {
-    const leads = filter == .all and order == .recent;
-    const paged = if (leads) (1 + gridSize(true)) else @as(usize, 0);
-    if (books <= paged) return 1;
-    const rest = books - paged;
-    const pages = (rest + gridSize(false) - 1) / gridSize(false);
-    return @max(pages + @as(usize, if (leads) 1 else 0), 1);
+pub fn pageCount(books: usize) usize {
+    if (books <= gridSize(true)) return 1;
+    return 1 + (books - gridSize(true) + gridSize(false) - 1) / gridSize(false);
 }
 
 fn tabsTop(hero: bool) i32 {
@@ -234,10 +237,10 @@ fn gridTop(hero: bool) i32 {
 }
 
 /// What a tap on this library page lands on.
-pub fn hit(x: i32, y: i32, page: usize, books: usize, filter: Filter, order: Order) Hit {
-    const hero = hasHero(filter, order, page);
+pub fn hit(x: i32, y: i32, page: usize, books: usize) Hit {
+    const hero = page == 0;
     if (y < status_height) return if (x < 220) .menu else .none;
-    if (hero and y >= hero_top and y < hero_bottom) return if (books > 0) .{ .book = 0 } else .none;
+    if (hero and y >= hero_top and y < hero_bottom) return .hero;
 
     const tabs_top = tabsTop(hero);
     if (y >= tabs_top and y < tabs_top + tabs_height) {
@@ -257,20 +260,23 @@ pub fn hit(x: i32, y: i32, page: usize, books: usize, filter: Filter, order: Ord
     const column: usize = @intCast(@divTrunc(x - margin, cell_step));
     const row: usize = @intCast(@divTrunc(y - top, row_height));
     if (column >= columns or row >= gridSize(hero) / columns) return .none;
-    const index = firstBook(filter, order, page) + row * columns + column;
+    const index = firstBook(page) + row * columns + column;
     return if (index < books) .{ .book = index } else .none;
 }
 
 pub const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
 
-/// Screen area of a book, for tap feedback.
-pub fn bookRect(index: usize, page: usize, width: u32, filter: Filter, order: Order) Rect {
-    const hero = hasHero(filter, order, page);
-    if (hero and index == 0) return .{ .x = margin, .y = hero_top, .w = width - 2 * margin, .h = cover.hero_height };
-    const offset = index - firstBook(filter, order, page);
+/// Screen area of the hero, for tap feedback.
+pub fn heroRect(width: u32) Rect {
+    return .{ .x = margin, .y = hero_top, .w = width - 2 * margin, .h = cover.hero_height };
+}
+
+/// Screen area of a grid book, for tap feedback.
+pub fn bookRect(index: usize, page: usize) Rect {
+    const offset = index - firstBook(page);
     const column: u32 = @intCast(offset % columns);
     const row: u32 = @intCast(offset / columns);
-    const top: u32 = @intCast(gridTop(hero));
+    const top: u32 = @intCast(gridTop(page == 0));
     return .{ .x = margin + column * cell_step, .y = top + row * row_height, .w = cover.width, .h = cover.height };
 }
 
@@ -377,10 +383,9 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) 
 
 fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
     try drawCover(alloc, fonts, page, e, x, y);
-    const status = e.status();
     const bar_y = y + cover.height + 8;
-    if (status == .reading) progressBar(page, x, bar_y, cover.width, e.percent);
-    if (status == .read) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
+    if (e.inProgress()) progressBar(page, x, bar_y, cover.width, e.percent);
+    if (e.isRead()) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
     _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, cover.width, 1);
 }
 
@@ -435,24 +440,26 @@ fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
     if (index + 1 >= pages) page.tint(next_left, footer_top, footer_button, footer_bottom - footer_top, 0xc8);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, visible: []const usize, index: usize, filter: Filter, order: Order, message: []const u8, quick: *const system.Quick) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, hero: ?usize, visible: []const usize, index: usize, filter: Filter, order: Order, message: []const u8, quick: *const system.Quick) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 
-    const hero = hasHero(filter, order, index) and visible.len > 0;
-    if (hero) try drawHero(alloc, fonts, page, &entries[visible[0]]);
-    try drawTabs(fonts, page, tabsTop(hero), filter, order);
+    const with_hero = index == 0;
+    if (with_hero) {
+        if (hero) |h| try drawHero(alloc, fonts, page, &entries[h]);
+    }
+    try drawTabs(fonts, page, tabsTop(with_hero), filter, order);
 
-    const first = firstBook(filter, order, index);
-    const shown = visible[@min(first, visible.len)..@min(first + gridSize(hero), visible.len)];
-    const top: u32 = @intCast(gridTop(hero));
+    const first = firstBook(index);
+    const shown = visible[@min(first, visible.len)..@min(first + gridSize(with_hero), visible.len)];
+    const top: u32 = @intCast(gridTop(with_hero));
     for (shown, 0..) |entry_index, i| {
         const x: u32 = margin + @as(u32, @intCast(i % columns)) * cell_step;
         const y: u32 = top + @as(u32, @intCast(i / columns)) * row_height;
         try drawCell(alloc, fonts, page, &entries[entry_index], x, y);
     }
     if (visible.len == 0) try fonts.small.draw(page, margin, @intCast(top + 60), "No books here yet.");
-    try drawFooter(fonts, page, index, pageCount(visible.len, filter, order));
+    try drawFooter(fonts, page, index, pageCount(visible.len));
     if (message.len > 0) try fonts.caption.draw(page, margin, 1640, message);
 }
 
@@ -477,70 +484,6 @@ test "rows parse and sort newest first" {
     try std.testing.expectEqualStrings("Old", rows[1].title);
 }
 
-test "first page leads with the current book, then four by two" {
-    try std.testing.expectEqual(Hit{ .book = 0 }, hit(300, 200, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit{ .book = 1 }, hit(100, 700, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit{ .book = 4 }, hit(1000, 700, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit{ .book = 5 }, hit(100, 1100, 0, 79, .all, .recent));
-}
-
-test "later pages are four by three" {
-    try std.testing.expectEqual(Hit{ .book = 9 }, hit(100, 300, 1, 79, .all, .recent));
-    try std.testing.expectEqual(Hit{ .book = 20 }, hit(1000, 1100, 1, 79, .all, .recent));
-}
-
-test "a filter drops the hero" {
-    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 300, 0, 30, .read, .recent));
-    try std.testing.expectEqual(Hit{ .book = 12 }, hit(100, 300, 1, 30, .read, .recent));
-    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 300, 0, 30, .all, .title));
-}
-
-test "header and footer controls" {
-    try std.testing.expectEqual(Hit.menu, hit(100, 50, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(250, 560, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 0, 79, .all, .recent));
-    try std.testing.expectEqual(Hit.next, hit(800, 1500, 0, 79, .all, .recent));
-}
-
-test "tapping past the last book does nothing" {
-    try std.testing.expectEqual(Hit.none, hit(1000, 1100, 0, 3, .read, .title));
-}
-
-test "page count follows the layout" {
-    try std.testing.expectEqual(@as(usize, 1), pageCount(0, .all, .recent));
-    try std.testing.expectEqual(@as(usize, 1), pageCount(9, .all, .recent));
-    try std.testing.expectEqual(@as(usize, 2), pageCount(10, .all, .recent));
-    try std.testing.expectEqual(@as(usize, 7), pageCount(79, .all, .recent));
-    try std.testing.expectEqual(@as(usize, 1), pageCount(0, .read, .recent));
-    try std.testing.expectEqual(@as(usize, 2), pageCount(13, .read, .recent));
-}
-
-test "status uses kindle's finished mark over a lower percent" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const rows = try parse(arena.allocator(), "/a\tA\tx\t99.1\t1\t1\n/b\tB\tx\t40\t1\t2\n/c\tC\tx\t40\t1\t1\n/d\tD\tx\t0\t1\t0\n");
-    rows[0].percent = 3; // Reopened here, so our own progress replaced it
-    try std.testing.expectEqual(Filter.read, rows[0].status());
-    try std.testing.expectEqual(Filter.read, rows[1].status());
-    try std.testing.expectEqual(Filter.reading, rows[2].status());
-    try std.testing.expectEqual(Filter.unread, rows[3].status());
-}
-
-test "select keeps only matching books" {
-    const rows = [_]Entry{
-        .{ .path = "/a", .title = "A", .author = "", .percent = 0, .last = 0 },
-        .{ .path = "/b", .title = "B", .author = "", .percent = 50, .last = 0 },
-        .{ .path = "/c", .title = "C", .author = "", .percent = 0, .last = 0, .finished = true },
-    };
-    var out: [3]usize = undefined;
-    try std.testing.expectEqual(@as(usize, 3), select(&rows, .all, &out));
-    try std.testing.expectEqual(@as(usize, 1), select(&rows, .unread, &out));
-    try std.testing.expectEqual(@as(usize, 0), out[0]);
-    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, &out));
-    try std.testing.expectEqual(@as(usize, 2), out[0]);
-}
-
 test "sort orders by title and by date added" {
     var rows = [_]Entry{
         .{ .path = "/a", .title = "banana", .author = "", .percent = 0, .last = 1, .added = 5 },
@@ -562,13 +505,71 @@ test "sort button cycles" {
     try std.testing.expectEqual(Order.recent, Order.added.next());
 }
 
-test "the hero skips finished books" {
+test "the current book stays on page one of every view" {
+    try std.testing.expectEqual(Hit.hero, hit(300, 200, 0, 79));
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 700, 0, 79));
+    try std.testing.expectEqual(Hit{ .book = 3 }, hit(1000, 700, 0, 79));
+    try std.testing.expectEqual(Hit{ .book = 4 }, hit(100, 1100, 0, 79));
+}
+
+test "later pages are four by three" {
+    try std.testing.expectEqual(Hit{ .book = 8 }, hit(100, 300, 1, 79));
+    try std.testing.expectEqual(Hit{ .book = 19 }, hit(1000, 1100, 1, 79));
+}
+
+test "header and footer controls" {
+    try std.testing.expectEqual(Hit.menu, hit(100, 50, 0, 79));
+    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(250, 560, 0, 79));
+    try std.testing.expectEqual(Hit{ .tab = .read }, hit(400, 560, 0, 79));
+    try std.testing.expectEqual(Hit.none, hit(600, 560, 0, 79));
+    try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79));
+    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 0, 79));
+    try std.testing.expectEqual(Hit.next, hit(800, 1500, 0, 79));
+}
+
+test "tapping past the last book does nothing" {
+    try std.testing.expectEqual(Hit.none, hit(1000, 1100, 0, 3));
+}
+
+test "page count follows the layout" {
+    try std.testing.expectEqual(@as(usize, 1), pageCount(0));
+    try std.testing.expectEqual(@as(usize, 1), pageCount(8));
+    try std.testing.expectEqual(@as(usize, 2), pageCount(9));
+    try std.testing.expectEqual(@as(usize, 7), pageCount(78));
+}
+
+test "finished stays read after our progress replaces the percent" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const rows = try parse(arena.allocator(), "/a\tA\tx\t99.1\t1\t1\n/b\tB\tx\t40\t1\t2\n/c\tC\tx\t40\t1\t1\n/d\tD\tx\t0\t1\t0\n");
+    rows[0].percent = 3;
+    try std.testing.expect(rows[0].isRead());
+    try std.testing.expect(rows[1].isRead());
+    try std.testing.expect(!rows[2].isRead());
+    try std.testing.expect(rows[2].inProgress());
+    try std.testing.expect(!rows[3].inProgress());
+}
+
+test "hero is the latest book in progress, and leaves the grid" {
     const rows = [_]Entry{
         .{ .path = "/a", .title = "Done", .author = "", .percent = 99, .last = 3 },
-        .{ .path = "/b", .title = "Later", .author = "", .percent = 0, .last = 2 },
+        .{ .path = "/b", .title = "Fresh", .author = "", .percent = 0, .last = 2 },
         .{ .path = "/c", .title = "Now", .author = "", .percent = 34, .last = 1 },
     };
-    var visible = [_]usize{ 0, 1, 2 };
-    leadWithReading(&rows, &visible);
-    try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 0, 1 }, &visible);
+    const hero = pickHero(&rows);
+    try std.testing.expectEqual(@as(usize, 2), hero.?);
+    var out: [3]usize = undefined;
+    try std.testing.expectEqual(@as(usize, 2), select(&rows, .all, hero, &out));
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .unread, hero, &out));
+    try std.testing.expectEqual(@as(usize, 1), out[0]);
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, hero, &out));
+    try std.testing.expectEqual(@as(usize, 0), out[0]);
+}
+
+test "with nothing in progress the hero is the latest opened" {
+    const rows = [_]Entry{
+        .{ .path = "/a", .title = "Old", .author = "", .percent = 0, .last = 1 },
+        .{ .path = "/b", .title = "New", .author = "", .percent = 0, .last = 5 },
+    };
+    try std.testing.expectEqual(@as(usize, 1), pickHero(&rows).?);
 }
