@@ -127,6 +127,16 @@ fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
         .sync => icons.sync(page, x, y),
         .gear => icons.gear(page, x, y),
     }
+    if (isOn(s, quick)) page.invertDisc(s.x, s.y, icon_radius - 1);
+}
+
+/// Toggles fill when on, like the stock panel.
+pub fn isOn(s: Shortcut, quick: *const system.Quick) bool {
+    return switch (s.icon) {
+        .airplane => quick.airplane,
+        .wifi => quick.wifi_on,
+        else => false,
+    };
 }
 
 fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
@@ -211,4 +221,13 @@ test "defaults match the original reader" {
     const s = Settings{};
     try std.testing.expectEqual(@as(f32, 46), s.px());
     try std.testing.expectEqual(@as(i32, 62), s.lineHeight());
+}
+
+test "toggles report their state" {
+    const on = system.Quick{ .airplane = true, .wifi_on = true };
+    const off = system.Quick{};
+    try std.testing.expect(isOn(shortcuts[0], &on));
+    try std.testing.expect(!isOn(shortcuts[0], &off));
+    try std.testing.expect(isOn(shortcuts[1], &on));
+    try std.testing.expect(!isOn(shortcuts[2], &on));
 }

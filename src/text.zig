@@ -140,6 +140,22 @@ pub const Page = struct {
     height: u32,
     stride: u32,
 
+    /// Flips everything inside a circle, for controls that fill when on.
+    pub fn invertDisc(p: Page, cx: i32, cy: i32, radius: i32) void {
+        var y = -radius;
+        while (y <= radius) : (y += 1) {
+            var x = -radius;
+            while (x <= radius) : (x += 1) {
+                if (x * x + y * y > radius * radius) continue;
+                const px = cx + x;
+                const py = cy + y;
+                if (px < 0 or py < 0 or px >= p.width or py >= p.height) continue;
+                const at = @as(usize, @intCast(py)) * p.stride + @as(usize, @intCast(px));
+                p.buf[at] = ~p.buf[at];
+            }
+        }
+    }
+
     pub fn invert(p: Page, x: u32, y: u32, w: u32, h: u32) void {
         var row = y;
         while (row < @min(y + h, p.height)) : (row += 1) {
