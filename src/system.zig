@@ -145,6 +145,24 @@ pub fn markRead(key: []const u8, kind: []const u8, read_it: bool) void {
     readNowAction("kppMarkAsReadAction", "kppCdeKey = \"{s}\", kppCdeType = \"{s}\", kppMAR = \"{s}\"", .{ key, kind, value });
 }
 
+/// While this file exists, annotation writes are skipped. Used by device tests.
+pub fn dryRun() bool {
+    return !failed(linux.open("/tmp/noface-dry-run", .{ .ACCMODE = .RDONLY }, 0));
+}
+
+/// Fetches a book's highlights as "id|start|end" lines.
+pub fn readHighlights(key: []const u8, out: []u8) []const u8 {
+    if (!safeId(key)) return "";
+    var buf: [900]u8 = undefined;
+    const fields = "annotation_id, json_extract(serialized_payload, '$.start_position.shortPosition'), json_extract(serialized_payload, '$.end_position.shortPosition')";
+    const command = std.fmt.bufPrintSentinel(&buf,
+        \\sqlite3 -separator '|' "file:$(ls /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db)?mode=ro" "select {s} from server_view where dataset=1 and dataset_id like '{s}-%' and annotation_id not in (select annotation_id from local_edit) union select {s} from local_edit where dataset=1 and dataset_id like '{s}-%'"
+    , .{ fields, key, fields, key }, 0) catch return "";
+    const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
+    const n = run(&argv, out) orelse return "";
+    return out[0..n];
+}
+
 /// Runs a SQL statement against the annotation database.
 pub fn runAnnotationSql(sql: []const u8) bool {
     const path = "/tmp/noface-annotation.sql";

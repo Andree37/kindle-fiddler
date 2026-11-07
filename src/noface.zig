@@ -12,6 +12,7 @@ const annotations = @import("annotations.zig");
 const cache = @import("cache.zig");
 const cover = @import("cover.zig");
 const file = @import("file.zig");
+const highlights = @import("highlights.zig");
 const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
 const library = @import("library.zig");
@@ -411,6 +412,7 @@ const Session = struct {
     note_len: usize = 0,
     note_top: u32 = 0,
     note_next: ?text.Pos = null,
+    highlights: std.ArrayList(highlights.Highlight) = .empty,
 
     fn setPage(s: *Session, index: usize) void {
         s.current = index;
@@ -479,7 +481,7 @@ const Session = struct {
 };
 
 const Outcome = enum { library, quit };
-const View = enum { page, toolbar, sheet, panel, note };
+const View = enum { page, toolbar, sheet, panel, note, highlight };
 
 fn saveProgress(entry: *library.Entry, path: [*:0]const u8, s: *const Session) void {
     const pos = s.pages[s.current];
@@ -548,9 +550,6 @@ fn closeToolbar(a: *App, s: *Session, sheet: bool) !void {
     try a.screen.waitComplete(first);
 }
 
-const select_menu_height = 110;
-const select_menu_width = 620;
-
 fn pointFor(s: *Session, para: u32, byte: u32) ?annotations.Point {
     const p = s.paragraphs[para];
     if (p.position == 0) return null;
@@ -558,12 +557,14 @@ fn pointFor(s: *Session, para: u32, byte: u32) ?annotations.Point {
     return .{ .element = p.element, .offset = chars, .short = p.position + chars };
 }
 
-fn saveHighlight(s: *Session, entry: *const library.Entry, first: text.Word, last: text.Word) bool {
-    if (!system.safeId(entry.key) or !system.safeId(entry.kind)) return false;
+fn saveHighlight(s: *Session, entry: *const library.Entry, id: []const u8, first: text.Word, last: text.Word) bool {
+    if (system.dryRun()) return true;
+    if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id)) return false;
     const start = pointFor(s, first.para, first.start) orelse return false;
     const end = pointFor(s, last.para, last.end) orelse return false;
     var buf: [1200]u8 = undefined;
     const sql = annotations.insertSql(&buf, .{
+        .id = id,
         .key = entry.key,
         .kind = entry.kind,
         .guid = entry.guid,
@@ -574,22 +575,70 @@ fn saveHighlight(s: *Session, entry: *const library.Entry, first: text.Word, las
     return system.runAnnotationSql(sql);
 }
 
-/// Press and hold starts here: the selection follows the finger, whole words at a time.
-fn selectText(a: *App, s: *Session, entry: *const library.Entry, hold_x: i32, hold_y: i32) !void {
-    var words: []const text.Word = &.{};
+fn pageWords(a: *App, s: *const Session) []const text.Word {
     for (&a.slots) |*slot| {
-        if (slot.page == @as(i64, @intCast(s.current))) words = slot.hits.words[0..slot.hits.word_count];
+        if (slot.page == @as(i64, @intCast(s.current))) return slot.hits.words[0..slot.hits.word_count];
     }
-    const anchor = selection.wordAt(words, hold_x, hold_y) orelse return;
-    std.debug.print("selecting from {d} of {d} words\n", .{ anchor, words.len });
-    var head = anchor;
+    return &.{};
+}
+
+/// Rebuilds the marks drawn on pages, after highlights change.
+fn refreshMarks(a: *App, s: *Session, alloc: std.mem.Allocator) !void {
+    const marks = try alloc.alloc(text.Mark, s.highlights.items.len);
+    for (s.highlights.items, marks) |h, *m| m.* = h.mark;
+    a.layout.marks = marks;
+    for (&a.slots) |*slot| slot.page = -1;
+}
+
+/// Shows the page, with handles on a highlight when one is active.
+fn showPage(a: *App, s: *Session, active: ?usize) !?usize {
+    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
+    a.stampClock();
+    var delete_top: ?usize = null;
+    if (active) |index| {
+        const words = pageWords(a, s);
+        if (highlights.wordRange(words, s.highlights.items[index].mark)) |r| {
+            const screen_page = a.page(a.screen.pixels);
+            const chosen = words[r.lo .. r.hi + 1];
+            selection.draw(screen_page, chosen);
+            const band = selection.band(chosen);
+            delete_top = try drawDeleteBubble(a, band);
+        }
+    }
+    try a.screen.waitComplete(try a.screen.update(page_waveform, .partial));
+    return delete_top;
+}
+
+const bubble_width = 240;
+const bubble_height = 96;
+
+fn drawDeleteBubble(a: *App, band: selection.Band) !usize {
     const screen_page = a.page(a.screen.pixels);
-    @memcpy(a.overlay, a.screen.pixels); // The page as it was, for putting back
+    const below = band.top + band.height + 12;
+    const top: u32 = if (below + bubble_height < a.screen.height - 130) below else band.top -| (bubble_height + 12);
+    const left = (a.screen.width - bubble_width) / 2;
+    screen_page.fillRect(left - 4, top - 4, bubble_width + 8, bubble_height + 8, 0xff);
+    screen_page.fillRect(left, top, bubble_width, bubble_height, 0x00);
+    screen_page.fillRect(left + 3, top + 3, bubble_width - 6, bubble_height - 6, 0xff);
+    const label = "Delete";
+    const width = try a.ui.small.measure(label);
+    try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(a.screen.width)) / 2 - width / 2, @intCast(top + 62), label);
+    return top;
+}
+
+fn inDeleteBubble(a: *App, top: usize, x: i32, y: i32) bool {
+    const left: i32 = @intCast((a.screen.width - bubble_width) / 2);
+    const t: i32 = @intCast(top);
+    return x >= left and x < left + bubble_width and y >= t and y < t + bubble_height;
+}
+
+/// Follows a finger, keeping `fixed` in place, and returns where it stopped.
+fn dragSelection(a: *App, words: []const text.Word, fixed: usize, moving: usize) !usize {
+    var head = moving;
+    const screen_page = a.page(a.screen.pixels);
     @memcpy(a.lock_cover, a.screen.pixels);
     a.page(a.lock_cover).threshold(0, a.screen.height); // Pure black and white for A2
 
-    var marker: ?u32 = null;
-    var previous: selection.Band = .{ .top = 0, .height = 0 };
     const paint = struct {
         fn run(app: *App, target: text.Page, list: []const text.Word, first: usize, last: usize, old: selection.Band) !selection.Band {
             const lo = @min(first, last);
@@ -597,7 +646,7 @@ fn selectText(a: *App, s: *Session, entry: *const library.Entry, hold_x: i32, ho
             const chosen = list[lo .. hi + 1];
             const now = selection.band(chosen);
             const top = if (old.height == 0) now.top else @min(old.top, now.top);
-            const bottom = @max(old.top + old.height, now.top + now.height);
+            const bottom = @min(@max(old.top + old.height, now.top + now.height), app.screen.height);
             const stride = app.screen.stride;
             @memcpy(app.screen.pixels[top * stride..bottom * stride], app.lock_cover[top * stride..bottom * stride]);
             selection.draw(target, chosen);
@@ -605,8 +654,8 @@ fn selectText(a: *App, s: *Session, entry: *const library.Entry, hold_x: i32, ho
             return now;
         }
     }.run;
-    previous = try paint(a, screen_page, words, anchor, head, previous);
-    marker = a.screen.next_marker - 1;
+    var previous = try paint(a, screen_page, words, fixed, head, .{ .top = 0, .height = 0 });
+    var marker: ?u32 = a.screen.next_marker - 1;
 
     while (true) {
         const action = a.input.next();
@@ -620,7 +669,7 @@ fn selectText(a: *App, s: *Session, entry: *const library.Entry, hold_x: i32, ho
                 const next = selection.wordAt(words, x, a.input.drag_y) orelse continue;
                 if (next == head) continue;
                 head = next;
-                previous = try paint(a, screen_page, words, anchor, head, previous);
+                previous = try paint(a, screen_page, words, fixed, head, previous);
                 marker = a.screen.next_marker - 1;
             },
             .drag_end => break,
@@ -632,53 +681,55 @@ fn selectText(a: *App, s: *Session, entry: *const library.Entry, hold_x: i32, ho
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
+    return head;
+}
 
-    const lo = @min(anchor, head);
-    const hi = @max(anchor, head);
-    const band = selection.band(words[lo .. hi + 1]);
-    std.debug.print("selected {d} words\n", .{hi - lo + 1});
+fn markFor(lo: text.Word, hi: text.Word) text.Mark {
+    return .{ .para = lo.para, .start = lo.start, .end = hi.end };
+}
 
-    // Settle into the clean page with the selection, plus the menu beside it.
-    @memcpy(a.screen.pixels, a.overlay);
-    selection.draw(screen_page, words[lo .. hi + 1]);
-    const below = band.top + band.height + 16;
-    const menu_top: u32 = if (below + select_menu_height < a.screen.height - 40) below else band.top -| (select_menu_height + 16);
-    const menu_left = (a.screen.width - select_menu_width) / 2;
-    screen_page.fillRect(menu_left - 4, menu_top - 4, select_menu_width + 8, select_menu_height + 8, 0xff);
-    screen_page.fillRect(menu_left, menu_top, select_menu_width, select_menu_height, 0x00);
-    screen_page.fillRect(menu_left + 3, menu_top + 3, select_menu_width - 6, select_menu_height - 6, 0xff);
-    screen_page.fillRect(menu_left + select_menu_width / 2, menu_top, 3, select_menu_height, 0x00);
-    try a.ui.title.draw(screen_page, @floatFromInt(menu_left + 60), @intCast(menu_top + 70), "Highlight");
-    try a.ui.small.draw(screen_page, @floatFromInt(menu_left + select_menu_width / 2 + 90), @intCast(menu_top + 70), "Cancel");
-    const top = @min(band.top, menu_top) -| 8;
-    const bottom = @min(@max(band.top + band.height, menu_top + select_menu_height) + 8, a.screen.height);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, bottom - top, page_waveform, .partial));
+/// Press and hold: makes a new highlight from what the finger covers.
+fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, hold_x: i32, hold_y: i32) !?usize {
+    const words = pageWords(a, s);
+    const fixed = selection.wordAt(words, hold_x, hold_y) orelse return null;
+    const head = try dragSelection(a, words, fixed, fixed);
+    const lo = words[@min(fixed, head)];
+    const hi = words[@max(fixed, head)];
+    const start = pointFor(s, lo.para, lo.start) orelse return null;
+    const id = try std.fmt.allocPrint(alloc, "kindle.highlight-{d}", .{start.short});
+    const saved = saveHighlight(s, entry, id, lo, hi);
+    std.debug.print("highlight {s}: {d} words, saved {}\n", .{ id, @max(fixed, head) - @min(fixed, head) + 1, saved });
+    try s.highlights.append(alloc, .{ .mark = markFor(lo, hi), .id = id });
+    try refreshMarks(a, s, alloc);
+    return s.highlights.items.len - 1;
+}
 
-    const deferred = a.input.deferred;
-    a.input.deferred = false;
-    defer a.input.deferred = deferred;
-    var chose_highlight = false;
-    while (true) {
-        const action = a.input.next();
-        switch (action) {
-            .tap => |t| {
-                const on_menu = t.y >= menu_top and t.y < menu_top + select_menu_height;
-                chose_highlight = on_menu and t.x >= menu_left and t.x < menu_left + select_menu_width / 2;
-                break;
-            },
-            .lock, .power, .idle, .stop => {
-                a.input.stashed = action;
-                break;
-            },
-            else => {},
-        }
+/// Drags one end of a highlight. The record keeps its ID, so it extends in place.
+fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, index: usize, grab_start: bool) !void {
+    const words = pageWords(a, s);
+    const range = highlights.wordRange(words, s.highlights.items[index].mark) orelse return;
+    a.input.beginDrag();
+    const fixed = if (grab_start) range.hi else range.lo;
+    const moving = if (grab_start) range.lo else range.hi;
+    const head = try dragSelection(a, words, fixed, moving);
+    const lo = words[@min(fixed, head)];
+    const hi = words[@max(fixed, head)];
+    const saved = saveHighlight(s, entry, s.highlights.items[index].id, lo, hi);
+    std.debug.print("highlight extended: saved {}\n", .{saved});
+    s.highlights.items[index].mark = markFor(lo, hi);
+    try refreshMarks(a, s, alloc);
+}
+
+/// Removes a highlight that hasn't been sent to Amazon yet.
+fn removeUnsent(a: *App, s: *Session, alloc: std.mem.Allocator, index: usize) !void {
+    const id = s.highlights.items[index].id;
+    if (!system.dryRun() and system.safeId(id)) {
+        var buf: [160]u8 = undefined;
+        const sql = try annotations.cancelSql(&buf, id);
+        std.debug.print("highlight removed: {}\n", .{system.runAnnotationSql(sql)});
     }
-    if (chose_highlight) {
-        const saved = saveHighlight(s, entry, words[lo], words[hi]);
-        std.debug.print("highlight saved: {}\n", .{saved});
-    }
-    @memcpy(a.screen.pixels, a.overlay);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, bottom - top, page_waveform, .partial));
+    _ = s.highlights.orderedRemove(index);
+    try refreshMarks(a, s, alloc);
 }
 
 /// Shows the book's cover while the Kindle sleeps, then puts the screen back.
@@ -960,13 +1011,19 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     else
         pageContaining(pages, saved.para, saved.byte);
 
-    for (&a.slots) |*slot| slot.page = -1;
+    const stored = try alloc.alloc(u8, 256 * 1024);
+    a.layout.marks = &.{};
     var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start] };
+    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, system.readHighlights(entry.key, stored)));
+    std.debug.print("{d} highlights loaded\n", .{session.highlights.items.len});
+    try refreshMarks(a, &session, alloc);
     try session.show(start, null, true);
     saveProgress(entry, state_path, &session);
 
     var since_save: u32 = 0;
     var view: View = .page;
+    var active: ?usize = null;
+    var delete_top: ?usize = null;
     a.input.grips = true;
     a.input.tick_us = clock_check_us;
     defer a.input.grips = true;
@@ -978,13 +1035,44 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
         switch (a.input.next()) {
             .unlock => {},
             .hold => |h| {
-                if (view == .page) try selectText(a, &session, entry, h.x, h.y);
+                if (view != .page) continue;
+                active = try newHighlight(a, &session, alloc, entry, h.x, h.y);
+                if (active != null) {
+                    view = .highlight;
+                    delete_top = try showPage(a, &session, active);
+                }
             },
             .lock => {
                 try lockScreen(a, entry);
                 if (view == .page) try a.updateClock();
             },
             .tap => |t| switch (view) {
+                .highlight => {
+                    const index = active.?;
+                    const words = pageWords(a, &session);
+                    const range = highlights.wordRange(words, session.highlights.items[index].mark);
+                    if (delete_top) |top| {
+                        if (inDeleteBubble(a, top, t.x, t.y)) {
+                            try removeUnsent(a, &session, alloc, index);
+                            view = .page;
+                            active = null;
+                            delete_top = try showPage(a, &session, null);
+                            continue;
+                        }
+                    }
+                    if (range) |r| {
+                        const chosen = words[r.lo .. r.hi + 1];
+                        const grab_start = selection.nearHandle(selection.startHandle(chosen), t.x, t.y);
+                        if (grab_start or selection.nearHandle(selection.endHandle(chosen), t.x, t.y)) {
+                            try extendHighlight(a, &session, alloc, entry, index, grab_start);
+                            delete_top = try showPage(a, &session, active);
+                            continue;
+                        }
+                    }
+                    view = .page;
+                    active = null;
+                    delete_top = try showPage(a, &session, null);
+                },
                 .note => {
                     if (t.y >= session.note_top and session.note_next != null) {
                         try showNote(a, &session, session.note_next.?, a.screen.height - session.note_top);
@@ -1049,6 +1137,14 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                         a.quick = system.read();
                         try drawToolbar(a, &session, entry.title, false, false);
                         continue;
+                    }
+                    if (selection.wordUnder(pageWords(a, &session), t.x, t.y)) |word| {
+                        if (highlights.atWord(session.highlights.items, word)) |index| {
+                            active = index;
+                            view = .highlight;
+                            delete_top = try showPage(a, &session, active);
+                            continue;
+                        }
                     }
                     if (session.referenceAt(t.x, t.y)) |target| {
                         view = .note;

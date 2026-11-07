@@ -318,6 +318,18 @@ pub const Hit = struct { x: i32, y: i32, w: i32, h: i32, target: u32 };
 /// A word on a page and where it came from, for selection.
 pub const Word = struct { x: i32, y: i32, w: i32, h: i32, para: u32, start: u32, end: u32 };
 
+/// Part of a paragraph with a highlight on it.
+pub const Mark = struct { para: u32, start: u32, end: u32 };
+
+const mark_shade = 0xe4; // Very faint, so highlighted text reads like any other
+
+fn isMarked(marks: []const Mark, para: usize, start: usize, end: usize) bool {
+    for (marks) |m| {
+        if (m.para == para and start < m.end and end > m.start) return true;
+    }
+    return false;
+}
+
 pub const Hits = struct {
     items: [32]Hit = undefined,
     len: usize = 0,
@@ -366,6 +378,7 @@ pub const Layout = struct {
     margin_bottom: i32,
     indent: f32,
     reference: ?*Font = null, // Smaller font for note references
+    marks: []const Mark = &.{},
 };
 
 const max_words = 96;
@@ -459,6 +472,11 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 var shrink: f32 = 0; // A small mark takes less room than was measured
                 if (maybe_page) |p| {
                     const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
+                    if (isMarked(l.marks, pos.para, word_start, word_start + word.len)) {
+                        // Reaches into the gap, so a marked phrase reads as one band.
+                        const band: u32 = @intFromFloat(w + gap);
+                        p.fillRect(@intFromFloat(x), @intCast(y - font.ascent + 4), band, @intCast(font.line_height - 8), mark_shade);
+                    }
                     if (hits) |h| h.addWord(.{
                         .x = @intFromFloat(x),
                         .y = y - font.ascent,

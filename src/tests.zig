@@ -2,6 +2,7 @@ test {
     _ = @import("annotations.zig");
     _ = @import("cache.zig");
     _ = @import("cover.zig");
+    _ = @import("highlights.zig");
     _ = @import("ion.zig");
     _ = @import("icons.zig");
     _ = @import("kfx.zig");

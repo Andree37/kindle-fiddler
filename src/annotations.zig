@@ -14,6 +14,7 @@ pub fn longPosition(buf: *[12]u8, element: u32, offset: u32) []const u8 {
 pub const Point = struct { element: u32, offset: u32, short: u32 };
 
 pub const Highlight = struct {
+    id: []const u8,
     key: []const u8,
     kind: []const u8,
     guid: []const u8,
@@ -29,8 +30,13 @@ pub fn insertSql(buf: []u8, h: Highlight) ![]const u8 {
     const start = longPosition(&start_buf, h.start.element, h.start.offset);
     const end = longPosition(&end_buf, h.end.element, h.end.offset);
     return std.fmt.bufPrint(buf,
-        \\insert or replace into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) values ('kindle.highlight-{d}',1,1,'{s}-{s}-{s}-1','{{"book_data":{{"asin":"{s}","contentType":"{s}","guid":"{s}","isOwnedByCustomer":1,"isSample":0}},"created_time":{d},"end_position":{{"longPosition":"{s}","shortPosition":{d}}},"json_metadata":"{{}}","last_modified":{d},"position_type":0,"start_position":{{"longPosition":"{s}","shortPosition":{d}}},"type":"HIGHLIGHT"}}',0,{d},{d},0,'');
-    , .{ h.start.short, h.key, h.kind, h.guid, h.key, h.kind, h.guid, h.now_ms, end, h.end.short, h.now_ms, start, h.start.short, h.now_ms, h.now_ms });
+        \\insert or replace into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) values ('{s}',1,1,'{s}-{s}-{s}-1','{{"book_data":{{"asin":"{s}","contentType":"{s}","guid":"{s}","isOwnedByCustomer":1,"isSample":0}},"created_time":{d},"end_position":{{"longPosition":"{s}","shortPosition":{d}}},"json_metadata":"{{}}","last_modified":{d},"position_type":0,"start_position":{{"longPosition":"{s}","shortPosition":{d}}},"type":"HIGHLIGHT"}}',0,{d},{d},0,'');
+    , .{ h.id, h.key, h.kind, h.guid, h.key, h.kind, h.guid, h.now_ms, end, h.end.short, h.now_ms, start, h.start.short, h.now_ms, h.now_ms });
+}
+
+/// Removes a row that hasn't been sent yet.
+pub fn cancelSql(buf: []u8, id: []const u8) ![]const u8 {
+    return std.fmt.bufPrint(buf, "delete from local_edit where annotation_id='{s}';", .{id});
 }
 
 test "long positions match what the Kindle stores" {
@@ -42,6 +48,7 @@ test "long positions match what the Kindle stores" {
 test "row matches the one the stock reader wrote" {
     var buf: [1024]u8 = undefined;
     const sql = try insertSql(&buf, .{
+        .id = "kindle.highlight-381908",
         .key = "0123456789ABCDEF0123456789ABCDEF",
         .kind = "PDOC",
         .guid = "CR!0000000000000000000000000000",
