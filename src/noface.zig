@@ -717,11 +717,11 @@ fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const
     try refreshMarks(a, s, alloc);
 }
 
-/// Removes a highlight that hasn't been sent to Amazon yet.
-fn removeUnsent(a: *App, s: *Session, alloc: std.mem.Allocator, id: []const u8) !void {
+/// Deletes a highlight here and, through sync, everywhere.
+fn removeHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, id: []const u8) !void {
     if (!system.dryRun() and system.safeId(id)) {
-        var buf: [160]u8 = undefined;
-        const sql = try annotations.cancelSql(&buf, id);
+        var buf: [700]u8 = undefined;
+        const sql = try annotations.deleteSql(&buf, id, unixTime() * 1000);
         std.debug.print("highlight removed: {}\n", .{system.runAnnotationSql(sql)});
     }
     highlights.remove(&s.highlights, id);
@@ -1049,7 +1049,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     const range = highlights.wordRange(words, session.highlights.items, id);
                     if (delete_top) |top| {
                         if (inDeleteBubble(a, top, t.x, t.y)) {
-                            try removeUnsent(a, &session, alloc, id);
+                            try removeHighlight(a, &session, alloc, id);
                             view = .page;
                             active = null;
                             delete_top = try showPage(a, &session, null);
