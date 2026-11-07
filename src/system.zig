@@ -152,6 +152,27 @@ pub fn exportLibrary() void {
     _ = run(&argv, &out);
 }
 
+/// Starts a child that prints power events, and returns the pipe it writes to.
+pub fn watchPowerEvents() ?i32 {
+    var fds: [2]i32 = undefined;
+    if (failed(linux.pipe(&fds))) return null;
+    const pid = linux.fork();
+    if (failed(pid)) return null;
+    if (pid == 0) {
+        _ = linux.dup2(fds[1], 1);
+        _ = linux.close(fds[0]);
+        _ = linux.close(fds[1]);
+        const argv = [_:null]?[*:0]const u8{ "/usr/bin/lipc-wait-event", "-m", "com.lab126.powerd", "goingToScreenSaver,outOfScreenSaver" };
+        const envp = [_:null]?[*:0]const u8{};
+        _ = linux.execve(argv[0].?, &argv, &envp);
+        linux.exit(127);
+    }
+    _ = linux.close(fds[1]);
+    const flags = linux.fcntl(fds[0], linux.F.GETFL, 0);
+    _ = linux.fcntl(fds[0], linux.F.SETFL, flags | 0o4000); // O_NONBLOCK
+    return fds[0];
+}
+
 /// Turns date's "+0100" into seconds.
 pub fn parseOffset(zone: []const u8) i64 {
     if (zone.len < 5) return 0;

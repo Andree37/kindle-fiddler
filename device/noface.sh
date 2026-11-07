@@ -2,16 +2,17 @@
 # Pauses the stock UI, runs noface, and always puts the stock UI back.
 DIR=/mnt/us/noface
 FONTS=/usr/java/lib/fonts
-prevent=$(lipc-get-prop com.lab126.powerd preventScreenSaver 2>/dev/null)
-
 restore() {
     killall -CONT awesome 2>/dev/null
     lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
-    lipc-set-prop com.lab126.powerd preventScreenSaver "${prevent:-0}" 2>/dev/null
+    lipc-set-prop com.lab126.blanket load screensaver 2>/dev/null
+    killall lipc-wait-event 2>/dev/null
 }
 trap restore EXIT
 
-lipc-set-prop com.lab126.powerd preventScreenSaver 1
+# noface draws its own lock screen, so the stock one has to stay out of the way.
+lipc-set-prop com.lab126.powerd preventScreenSaver 0
+lipc-set-prop com.lab126.blanket unload screensaver 2>/dev/null
 lipc-set-prop com.lab126.pillow disableEnablePillow disable
 killall -STOP awesome
 

@@ -4,10 +4,12 @@
 //! In a book, touch-down turns the page: left third goes back, the rest forward.
 //! Tapping the top of a page opens the toolbar. Dragging down from the top opens
 //! the quick panel, in a book or in the library.
-//! All Settings or the power button returns to the stock UI.
+//! The power button locks, showing the current book's cover. Waking returns to the
+//! same place. All Settings leaves for the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
 const cache = @import("cache.zig");
+const cover = @import("cover.zig");
 const file = @import("file.zig");
 const hwtcon = @import("hwtcon.zig");
 const kfx = @import("kfx.zig");
@@ -104,6 +106,8 @@ const Action = union(enum) {
     drag: i32, // Finger x while a drag is being followed
     drag_end,
     tick,
+    lock,
+    unlock,
     power,
     idle,
     stop,
@@ -115,6 +119,7 @@ const Action = union(enum) {
 const Input = struct {
     touch: i32,
     power: i32,
+    power_events: i32 = -1,
     width: i32,
     height: i32,
     x_max: i32,
@@ -227,15 +232,19 @@ const Input = struct {
 
             var fds = [_]linux.pollfd{
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
-                .{ .fd = in.power, .events = linux.POLL.IN, .revents = 0 },
+                .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
             };
             _ = linux.poll(&fds, fds.len, if (in.top_slot != null) 30 else 1000);
 
-            var power_events: [16]InputEvent = undefined;
-            const power_n = linux.read(in.power, @ptrCast(&power_events), @sizeOf(@TypeOf(power_events)));
-            if (!failed(power_n) and power_n >= @sizeOf(InputEvent)) {
-                for (power_events[0 .. power_n / @sizeOf(InputEvent)]) |e| {
-                    if (e.kind == ev_key and e.value == 1) return .power;
+            var drained: [16]InputEvent = undefined;
+            _ = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained))); // powerd acts on the key
+
+            if (in.power_events >= 0) {
+                var line: [128]u8 = undefined;
+                const got = linux.read(in.power_events, &line, line.len);
+                if (!failed(got) and got > 0) {
+                    if (std.mem.indexOf(u8, line[0..got], "goingToScreenSaver") != null) return .lock;
+                    if (std.mem.indexOf(u8, line[0..got], "outOfScreenSaver") != null) return .unlock;
                 }
             }
 
@@ -322,6 +331,8 @@ const App = struct {
     ui: library.Fonts,
     slots: [3]Slot,
     overlay: []u8,
+    lock_saved: []u8,
+    lock_cover: []u8,
     state_dir: []const u8,
     library_path: [*:0]const u8,
     settings_path: [*:0]const u8,
@@ -531,6 +542,46 @@ fn closeToolbar(a: *App, s: *Session, sheet: bool) !void {
     try a.screen.waitComplete(first);
 }
 
+/// Shows the book's cover while the Kindle sleeps, then puts the screen back.
+fn lockScreen(a: *App, entry: ?*const library.Entry) !void {
+    @memcpy(a.lock_saved, a.screen.pixels);
+    const target = a.lock_cover;
+    var drawn = false;
+    if (entry) |e| {
+        if (e.isLocal()) {
+            if (file.map(e.path)) |data| {
+                defer file.unmap(data);
+                if (kfx.coverImage(data)) |jpeg| drawn = cover.fillScreen(a.alloc, jpeg, target, a.screen.width, a.screen.height);
+            } else |_| {}
+        }
+        if (!drawn and e.thumbnail.len > 0) {
+            if (file.map(e.thumbnail)) |data| {
+                defer file.unmap(data);
+                drawn = cover.fillScreen(a.alloc, data, target, a.screen.width, a.screen.height);
+            } else |_| {}
+        }
+    }
+    if (!drawn) {
+        @memset(target, 0xff);
+        if (entry) |e| try a.ui.hero.draw(a.page(target), 120, 800, e.title);
+    }
+    try a.present(target, .gc16, .full);
+    std.debug.print("locked, cover drawn: {}\n", .{drawn});
+
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .unlock => break,
+            .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+            else => {},
+        }
+    }
+    try a.present(a.lock_saved, .gc16, .full);
+}
+
 /// Follows a finger along the page scrubber, then jumps there.
 fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32) !void {
     a.input.beginDrag();
@@ -555,8 +606,8 @@ fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32)
                 marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .hold, .pull, .tick => {},
-            .power, .idle, .stop => {
+            .tap, .hold, .pull, .tick, .unlock => {},
+            .lock, .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
             },
@@ -598,8 +649,8 @@ fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8
                 marker = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .hold, .pull, .tick => {},
-            .power, .idle, .stop => {
+            .tap, .hold, .pull, .tick, .unlock => {},
+            .lock, .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
             },
@@ -682,8 +733,8 @@ fn dragRow(a: *App, background: []const u8, row: menu.Row) !void {
                 marker = try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .hold, .pull, .tick => {},
-            .power, .idle, .stop => {
+            .tap, .hold, .pull, .tick, .unlock => {},
+            .lock, .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
             },
@@ -775,7 +826,11 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     while (true) {
         a.input.deferred = view == .page;
         switch (a.input.next()) {
-            .hold => {},
+            .hold, .unlock => {},
+            .lock => {
+                try lockScreen(a, entry);
+                if (view == .page) try a.updateClock();
+            },
             .tap => |t| switch (view) {
                 .note => {
                     if (t.y >= session.note_top and session.note_next != null) {
@@ -895,7 +950,12 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                     else => {},
                 }
             },
-            .pull, .hold, .drag, .drag_end, .tick => {},
+            .pull, .hold, .drag, .drag_end, .tick, .unlock => {},
+            .lock => {
+                a.input.stashed = .lock;
+                try closeMenu(a, background);
+                return false;
+            },
             .power, .idle, .stop => return true,
         }
     }
@@ -976,6 +1036,10 @@ fn bookSheet(a: *App, e: *library.Entry, background: []const u8) !bool {
                 .tap => |t| {
                     const index = book_actions.hit(t.x, t.y, list.len) orelse break null;
                     if (index < list.len) break list[index];
+                },
+                .lock => {
+                    a.input.stashed = .lock;
+                    break null;
                 },
                 .power, .idle, .stop => {
                     a.input.stashed = .power;
@@ -1115,7 +1179,11 @@ fn runLibrary(a: *App) !void {
                     watch_until = 0;
                     break :browse;
                 },
-                .hold, .drag, .drag_end => continue,
+                .hold, .drag, .drag_end, .unlock => continue,
+                .lock => {
+                    try lockScreen(a, if (hero) |h| &lib.entries[h] else null);
+                    continue;
+                },
                 .pull => {
                     if (try libraryMenu(a, buf)) return;
                     continue;
@@ -1183,6 +1251,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var input = Input{
         .touch = touch,
         .power = power,
+        .power_events = system.watchPowerEvents() orelse -1,
         .width = @intCast(screen.width),
         .height = @intCast(screen.height),
         .x_max = axisMax(touch, eviocgabs_x),
@@ -1219,6 +1288,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .ui = ui,
         .slots = slots,
         .overlay = try alloc.alloc(u8, screen.pixels.len),
+        .lock_saved = try alloc.alloc(u8, screen.pixels.len),
+        .lock_cover = try alloc.alloc(u8, screen.pixels.len),
         .state_dir = state_dir,
         .library_path = argv[1],
         .settings_path = settings_path,

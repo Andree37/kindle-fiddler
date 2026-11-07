@@ -244,6 +244,37 @@ const Parser = struct {
     }
 };
 
+const t_raw_media = 417;
+
+/// The book's first embedded JPEG, which is its cover in converted books.
+pub fn coverImage(data: []const u8) ?[]const u8 {
+    if (data.len < 18 or !std.mem.eql(u8, data[0..4], "CONT")) return null;
+    const header_len = std.mem.readInt(u32, data[6..10], .little);
+    const info_off = std.mem.readInt(u32, data[10..14], .little);
+    const info_len = std.mem.readInt(u32, data[14..18], .little);
+    if (info_off > data.len or info_len > data.len - info_off or header_len > data.len) return null;
+    const info = ion.parse(data[info_off..][0..info_len]) catch return null;
+    const idx_off = (info.get(f_index_offset) orelse return null).int;
+    const idx_len = (info.get(f_index_length) orelse return null).int;
+    if (idx_off > data.len or idx_len > data.len - idx_off) return null;
+    const body = data[header_len..];
+    var row_at: usize = @intCast(idx_off);
+    const end: usize = @intCast(idx_off + idx_len);
+    while (row_at + 24 <= end) : (row_at += 24) {
+        const row = data[row_at..][0..24];
+        if (std.mem.readInt(u32, row[4..8], .little) != t_raw_media) continue;
+        const off = std.mem.readInt(u64, row[8..16], .little);
+        const len = std.mem.readInt(u64, row[16..24], .little);
+        if (off > body.len or len > body.len - off or len < 10) continue;
+        const raw = body[@intCast(off)..][0..@intCast(len)];
+        const hdr = std.mem.readInt(u32, raw[6..10], .little);
+        if (hdr >= raw.len) continue;
+        const media = raw[hdr..];
+        if (media.len > 2 and media[0] == 0xff and media[1] == 0xd8) return media;
+    }
+    return null;
+}
+
 pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
     if (data.len < 18 or !std.mem.eql(u8, data[0..4], "CONT")) return error.NotKfx;
     const header_len = std.mem.readInt(u32, data[6..10], .little);
@@ -398,4 +429,12 @@ test "a linked word does not hide its target" {
     };
     markNotes(&paras);
     try std.testing.expect(!paras[1].note);
+}
+
+test "cover lookup refuses files that aren't books" {
+    try std.testing.expect(coverImage("short") == null);
+    var d = std.mem.zeroes([18]u8);
+    @memcpy(d[0..4], "CONT");
+    std.mem.writeInt(u32, d[10..14], 0xFFFFFFF0, .little);
+    try std.testing.expect(coverImage(&d) == null);
 }
