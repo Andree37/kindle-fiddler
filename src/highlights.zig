@@ -48,22 +48,45 @@ fn overlaps(m: text.Mark, w: text.Word) bool {
     return w.para == m.para and w.start < m.end and w.end > m.start;
 }
 
+/// Adds a highlight from one word to another, one mark per paragraph it crosses.
+pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, id: []const u8, lo: text.Word, hi: text.Word) !void {
+    var index = lo.para;
+    while (index <= hi.para) : (index += 1) {
+        const first = if (index == lo.para) lo.start else 0;
+        const last: u32 = if (index == hi.para) hi.end else @intCast(paragraphs[index].text.len);
+        try list.append(alloc, .{ .mark = .{ .para = index, .start = first, .end = last }, .id = id });
+    }
+}
+
+/// Removes every mark of a highlight.
+pub fn remove(list: *std.ArrayList(Highlight), id: []const u8) void {
+    var i: usize = 0;
+    while (i < list.items.len) {
+        if (std.mem.eql(u8, list.items[i].id, id)) {
+            _ = list.orderedRemove(i);
+        } else i += 1;
+    }
+}
+
 /// First and last word of a highlight on this page.
-pub fn wordRange(words: []const text.Word, m: text.Mark) ?struct { lo: usize, hi: usize } {
+pub fn wordRange(words: []const text.Word, list: []const Highlight, id: []const u8) ?struct { lo: usize, hi: usize } {
     var lo: ?usize = null;
     var hi: usize = 0;
     for (words, 0..) |w, i| {
-        if (!overlaps(m, w)) continue;
-        if (lo == null) lo = i;
-        hi = i;
+        for (list) |h| {
+            if (!std.mem.eql(u8, h.id, id) or !overlaps(h.mark, w)) continue;
+            if (lo == null) lo = i;
+            hi = i;
+            break;
+        }
     }
     return if (lo) |l| .{ .lo = l, .hi = hi } else null;
 }
 
-/// The highlight containing a word, if any.
-pub fn atWord(list: []const Highlight, w: text.Word) ?usize {
-    for (list, 0..) |h, i| {
-        if (overlaps(h.mark, w)) return i;
+/// The ID of the highlight containing a word, if any.
+pub fn atWord(list: []const Highlight, w: text.Word) ?[]const u8 {
+    for (list) |h| {
+        if (overlaps(h.mark, w)) return h.id;
     }
     return null;
 }
@@ -101,11 +124,33 @@ test "words map to a highlight" {
         .{ .x = 20, .y = 0, .w = 10, .h = 10, .para = 0, .start = 4, .end = 7 },
         .{ .x = 40, .y = 0, .w = 10, .h = 10, .para = 0, .start = 8, .end = 11 },
     };
-    const r = wordRange(&words, .{ .para = 0, .start = 4, .end = 11 }).?;
+    const list = [_]Highlight{.{ .mark = .{ .para = 0, .start = 4, .end = 11 }, .id = "x" }};
+    const r = wordRange(&words, &list, "x").?;
     try std.testing.expectEqual(@as(usize, 1), r.lo);
     try std.testing.expectEqual(@as(usize, 2), r.hi);
-    try std.testing.expect(wordRange(&words, .{ .para = 1, .start = 0, .end = 3 }) == null);
-    const list = [_]Highlight{.{ .mark = .{ .para = 0, .start = 4, .end = 7 }, .id = "x" }};
-    try std.testing.expectEqual(@as(usize, 0), atWord(&list, words[1]).?);
+    try std.testing.expect(wordRange(&words, &list, "y") == null);
+    try std.testing.expectEqualStrings("x", atWord(&list, words[1]).?);
     try std.testing.expect(atWord(&list, words[0]) == null);
+}
+
+test "a highlight crossing paragraphs covers both and stays one highlight" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const paras = [_]kfx.Paragraph{ sample("first para text here", 100), sample("second para", 121) };
+    const words = [_]text.Word{
+        .{ .x = 0, .y = 0, .w = 10, .h = 10, .para = 0, .start = 11, .end = 15 },
+        .{ .x = 0, .y = 20, .w = 10, .h = 10, .para = 0, .start = 16, .end = 20 },
+        .{ .x = 0, .y = 40, .w = 10, .h = 10, .para = 1, .start = 0, .end = 6 },
+    };
+    var list: std.ArrayList(Highlight) = .empty;
+    try add(&list, alloc, &paras, "h", words[0], words[2]);
+    try std.testing.expectEqual(@as(usize, 2), list.items.len);
+    try std.testing.expectEqual(@as(u32, 20), list.items[0].mark.end);
+    try std.testing.expectEqual(@as(u32, 0), list.items[1].mark.start);
+    const r = wordRange(&words, list.items, "h").?;
+    try std.testing.expectEqual(@as(usize, 0), r.lo);
+    try std.testing.expectEqual(@as(usize, 2), r.hi);
+    remove(&list, "h");
+    try std.testing.expectEqual(@as(usize, 0), list.items.len);
 }

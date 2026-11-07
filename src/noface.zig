@@ -591,13 +591,13 @@ fn refreshMarks(a: *App, s: *Session, alloc: std.mem.Allocator) !void {
 }
 
 /// Shows the page, with handles on a highlight when one is active.
-fn showPage(a: *App, s: *Session, active: ?usize) !?usize {
+fn showPage(a: *App, s: *Session, active: ?[]const u8) !?usize {
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
     a.stampClock();
     var delete_top: ?usize = null;
-    if (active) |index| {
+    if (active) |id| {
         const words = pageWords(a, s);
-        if (highlights.wordRange(words, s.highlights.items[index].mark)) |r| {
+        if (highlights.wordRange(words, s.highlights.items, id)) |r| {
             const screen_page = a.page(a.screen.pixels);
             const chosen = words[r.lo .. r.hi + 1];
             selection.draw(screen_page, chosen);
@@ -684,12 +684,8 @@ fn dragSelection(a: *App, words: []const text.Word, fixed: usize, moving: usize)
     return head;
 }
 
-fn markFor(lo: text.Word, hi: text.Word) text.Mark {
-    return .{ .para = lo.para, .start = lo.start, .end = hi.end };
-}
-
 /// Press and hold: makes a new highlight from what the finger covers.
-fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, hold_x: i32, hold_y: i32) !?usize {
+fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, hold_x: i32, hold_y: i32) !?[]const u8 {
     const words = pageWords(a, s);
     const fixed = selection.wordAt(words, hold_x, hold_y) orelse return null;
     const head = try dragSelection(a, words, fixed, fixed);
@@ -699,36 +695,36 @@ fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const li
     const id = try std.fmt.allocPrint(alloc, "kindle.highlight-{d}", .{start.short});
     const saved = saveHighlight(s, entry, id, lo, hi);
     std.debug.print("highlight {s}: {d} words, saved {}\n", .{ id, @max(fixed, head) - @min(fixed, head) + 1, saved });
-    try s.highlights.append(alloc, .{ .mark = markFor(lo, hi), .id = id });
+    try highlights.add(&s.highlights, alloc, s.paragraphs, id, lo, hi);
     try refreshMarks(a, s, alloc);
-    return s.highlights.items.len - 1;
+    return id;
 }
 
 /// Drags one end of a highlight. The record keeps its ID, so it extends in place.
-fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, index: usize, grab_start: bool) !void {
+fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, id: []const u8, grab_start: bool) !void {
     const words = pageWords(a, s);
-    const range = highlights.wordRange(words, s.highlights.items[index].mark) orelse return;
+    const range = highlights.wordRange(words, s.highlights.items, id) orelse return;
     a.input.beginDrag();
     const fixed = if (grab_start) range.hi else range.lo;
     const moving = if (grab_start) range.lo else range.hi;
     const head = try dragSelection(a, words, fixed, moving);
     const lo = words[@min(fixed, head)];
     const hi = words[@max(fixed, head)];
-    const saved = saveHighlight(s, entry, s.highlights.items[index].id, lo, hi);
+    const saved = saveHighlight(s, entry, id, lo, hi);
     std.debug.print("highlight extended: saved {}\n", .{saved});
-    s.highlights.items[index].mark = markFor(lo, hi);
+    highlights.remove(&s.highlights, id);
+    try highlights.add(&s.highlights, alloc, s.paragraphs, id, lo, hi);
     try refreshMarks(a, s, alloc);
 }
 
 /// Removes a highlight that hasn't been sent to Amazon yet.
-fn removeUnsent(a: *App, s: *Session, alloc: std.mem.Allocator, index: usize) !void {
-    const id = s.highlights.items[index].id;
+fn removeUnsent(a: *App, s: *Session, alloc: std.mem.Allocator, id: []const u8) !void {
     if (!system.dryRun() and system.safeId(id)) {
         var buf: [160]u8 = undefined;
         const sql = try annotations.cancelSql(&buf, id);
         std.debug.print("highlight removed: {}\n", .{system.runAnnotationSql(sql)});
     }
-    _ = s.highlights.orderedRemove(index);
+    highlights.remove(&s.highlights, id);
     try refreshMarks(a, s, alloc);
 }
 
@@ -1022,7 +1018,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
 
     var since_save: u32 = 0;
     var view: View = .page;
-    var active: ?usize = null;
+    var active: ?[]const u8 = null;
     var delete_top: ?usize = null;
     a.input.grips = true;
     a.input.tick_us = clock_check_us;
@@ -1048,12 +1044,12 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
             },
             .tap => |t| switch (view) {
                 .highlight => {
-                    const index = active.?;
+                    const id = active.?;
                     const words = pageWords(a, &session);
-                    const range = highlights.wordRange(words, session.highlights.items[index].mark);
+                    const range = highlights.wordRange(words, session.highlights.items, id);
                     if (delete_top) |top| {
                         if (inDeleteBubble(a, top, t.x, t.y)) {
-                            try removeUnsent(a, &session, alloc, index);
+                            try removeUnsent(a, &session, alloc, id);
                             view = .page;
                             active = null;
                             delete_top = try showPage(a, &session, null);
@@ -1064,7 +1060,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                         const chosen = words[r.lo .. r.hi + 1];
                         const grab_start = selection.nearHandle(selection.startHandle(chosen), t.x, t.y);
                         if (grab_start or selection.nearHandle(selection.endHandle(chosen), t.x, t.y)) {
-                            try extendHighlight(a, &session, alloc, entry, index, grab_start);
+                            try extendHighlight(a, &session, alloc, entry, id, grab_start);
                             delete_top = try showPage(a, &session, active);
                             continue;
                         }
@@ -1139,8 +1135,8 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                         continue;
                     }
                     if (selection.wordUnder(pageWords(a, &session), t.x, t.y)) |word| {
-                        if (highlights.atWord(session.highlights.items, word)) |index| {
-                            active = index;
+                        if (highlights.atWord(session.highlights.items, word)) |id| {
+                            active = id;
                             view = .highlight;
                             delete_top = try showPage(a, &session, active);
                             continue;
