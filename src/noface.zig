@@ -701,7 +701,7 @@ fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const li
     const lo = words[@min(fixed, head)];
     const hi = words[@max(fixed, head)];
     const start = pointFor(s, lo.para, lo.start) orelse return null;
-    const id = try std.fmt.allocPrint(alloc, "kindle.highlight-{d}", .{start.short});
+    const id = try highlights.freeId(alloc, s.highlights.items, start.short);
     const saved = saveHighlight(s, entry, id, highlights.Span.of(lo, hi));
     if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight {s}: {d} words, saved {}\n", .{ id, @max(fixed, head) - @min(fixed, head) + 1, saved });
@@ -1096,6 +1096,16 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
             .unlock => {},
             .hold => |h| {
                 if (view != .page) continue;
+                // Holding an existing highlight selects it, rather than starting over it.
+                if (selection.wordUnder(pageWords(a, &session), h.x, h.y)) |word| {
+                    if (highlights.atWord(session.highlights.items, word)) |id| {
+                        a.input.drag_slot = null;
+                        active = id;
+                        view = .highlight;
+                        delete_top = try showPage(a, &session, active);
+                        continue;
+                    }
+                }
                 active = try newHighlight(a, &session, alloc, entry, h.x, h.y);
                 if (active != null) {
                     view = .highlight;

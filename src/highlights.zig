@@ -96,6 +96,19 @@ fn overlaps(m: text.Mark, w: text.Word) bool {
     return w.para == m.para and w.start < m.end and w.end > m.start;
 }
 
+/// An ID for a highlight starting at `short`. Moving a highlight's start keeps
+/// its ID, so that spot can already be taken by a highlight elsewhere.
+pub fn freeId(alloc: std.mem.Allocator, list: []const Highlight, short: u32) ![]const u8 {
+    var n = short;
+    next: while (true) : (n += 1) {
+        const id = try std.fmt.allocPrint(alloc, "kindle.highlight-{d}", .{n});
+        for (list) |h| {
+            if (std.mem.eql(u8, h.id, id)) continue :next;
+        }
+        return id;
+    }
+}
+
 /// Adds a highlight, one mark per paragraph it crosses.
 pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, id: []const u8, span: Span) !void {
     var index = span.first_para;
@@ -228,4 +241,13 @@ test "dragging past the other end swaps the ends" {
     const swapped = dragged(whole, fixed, head, false, true);
     try std.testing.expectEqual(@as(u32, 2), swapped.first_byte);
     try std.testing.expectEqual(@as(u32, 14), swapped.last_byte);
+}
+
+test "a new highlight never takes an ID in use" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const mark = text.Mark{ .para = 0, .start = 0, .end = 1 };
+    const list = [_]Highlight{ .{ .mark = mark, .id = "kindle.highlight-100" }, .{ .mark = mark, .id = "kindle.highlight-101" } };
+    try std.testing.expectEqualStrings("kindle.highlight-99", try freeId(arena.allocator(), &list, 99));
+    try std.testing.expectEqualStrings("kindle.highlight-102", try freeId(arena.allocator(), &list, 100));
 }
