@@ -6,6 +6,54 @@ const text = @import("text.zig");
 /// A highlight, plus the Amazon ID that keeps edits on the same record.
 pub const Highlight = struct { mark: text.Mark, id: []const u8 };
 
+/// Where a highlight starts and ends, which may be on other pages.
+pub const Span = struct {
+    first_para: u32,
+    first_byte: u32,
+    last_para: u32,
+    last_byte: u32,
+
+    pub fn of(lo: text.Word, hi: text.Word) Span {
+        return .{ .first_para = lo.para, .first_byte = lo.start, .last_para = hi.para, .last_byte = hi.end };
+    }
+};
+
+/// A highlight's whole range, from all its marks.
+pub fn extent(list: []const Highlight, id: []const u8) ?Span {
+    var out: ?Span = null;
+    for (list) |h| {
+        if (!std.mem.eql(u8, h.id, id)) continue;
+        const m = h.mark;
+        if (out) |*s| {
+            if (m.para < s.first_para or (m.para == s.first_para and m.start < s.first_byte)) {
+                s.first_para = m.para;
+                s.first_byte = m.start;
+            }
+            if (m.para > s.last_para or (m.para == s.last_para and m.end > s.last_byte)) {
+                s.last_para = m.para;
+                s.last_byte = m.end;
+            }
+        } else out = .{ .first_para = m.para, .first_byte = m.start, .last_para = m.para, .last_byte = m.end };
+    }
+    return out;
+}
+
+/// The range after dragging one end to `head`. The other end stays where it
+/// was, even off this page, unless the drag crossed `fixed`, the on-page word
+/// that end sits on.
+pub fn dragged(whole: Span, fixed: text.Word, head: text.Word, grab_start: bool, crossed: bool) Span {
+    if (crossed) return if (grab_start) Span.of(fixed, head) else Span.of(head, fixed);
+    var out = whole;
+    if (grab_start) {
+        out.first_para = head.para;
+        out.first_byte = head.start;
+    } else {
+        out.last_para = head.para;
+        out.last_byte = head.end;
+    }
+    return out;
+}
+
 /// Finds the paragraph and byte for one of Amazon's short positions.
 pub fn locate(paragraphs: []const kfx.Paragraph, short: u32) ?struct { para: u32, byte: u32 } {
     var found: ?usize = null;
@@ -48,12 +96,12 @@ fn overlaps(m: text.Mark, w: text.Word) bool {
     return w.para == m.para and w.start < m.end and w.end > m.start;
 }
 
-/// Adds a highlight from one word to another, one mark per paragraph it crosses.
-pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, id: []const u8, lo: text.Word, hi: text.Word) !void {
-    var index = lo.para;
-    while (index <= hi.para) : (index += 1) {
-        const first = if (index == lo.para) lo.start else 0;
-        const last: u32 = if (index == hi.para) hi.end else @intCast(paragraphs[index].text.len);
+/// Adds a highlight, one mark per paragraph it crosses.
+pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, id: []const u8, span: Span) !void {
+    var index = span.first_para;
+    while (index <= span.last_para) : (index += 1) {
+        const first = if (index == span.first_para) span.first_byte else 0;
+        const last: u32 = if (index == span.last_para) span.last_byte else @intCast(paragraphs[index].text.len);
         try list.append(alloc, .{ .mark = .{ .para = index, .start = first, .end = last }, .id = id });
     }
 }
@@ -144,7 +192,7 @@ test "a highlight crossing paragraphs covers both and stays one highlight" {
         .{ .x = 0, .y = 40, .w = 10, .h = 10, .para = 1, .start = 0, .end = 6 },
     };
     var list: std.ArrayList(Highlight) = .empty;
-    try add(&list, alloc, &paras, "h", words[0], words[2]);
+    try add(&list, alloc, &paras, "h", Span.of(words[0], words[2]));
     try std.testing.expectEqual(@as(usize, 2), list.items.len);
     try std.testing.expectEqual(@as(u32, 20), list.items[0].mark.end);
     try std.testing.expectEqual(@as(u32, 0), list.items[1].mark.start);
@@ -153,4 +201,31 @@ test "a highlight crossing paragraphs covers both and stays one highlight" {
     try std.testing.expectEqual(@as(usize, 2), r.hi);
     remove(&list, "h");
     try std.testing.expectEqual(@as(usize, 0), list.items.len);
+}
+
+test "dragging keeps an end that sits on another page" {
+    const whole = Span{ .first_para = 3, .first_byte = 10, .last_para = 8, .last_byte = 40 };
+    const list = [_]Highlight{
+        .{ .mark = .{ .para = 3, .start = 10, .end = 90 }, .id = "h" },
+        .{ .mark = .{ .para = 8, .start = 0, .end = 40 }, .id = "h" },
+        .{ .mark = .{ .para = 1, .start = 0, .end = 9 }, .id = "other" },
+    };
+    try std.testing.expectEqual(whole, extent(&list, "h").?);
+    try std.testing.expect(extent(&list, "none") == null);
+
+    const fixed = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 7, .start = 0, .end = 4 };
+    const head = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 8, .start = 50, .end = 55 };
+    const longer = dragged(whole, fixed, head, false, false);
+    try std.testing.expectEqual(@as(u32, 3), longer.first_para);
+    try std.testing.expectEqual(@as(u32, 10), longer.first_byte);
+    try std.testing.expectEqual(@as(u32, 55), longer.last_byte);
+}
+
+test "dragging past the other end swaps the ends" {
+    const whole = Span{ .first_para = 2, .first_byte = 10, .last_para = 2, .last_byte = 20 };
+    const fixed = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 2, .start = 10, .end = 14 };
+    const head = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 2, .start = 2, .end = 6 };
+    const swapped = dragged(whole, fixed, head, false, true);
+    try std.testing.expectEqual(@as(u32, 2), swapped.first_byte);
+    try std.testing.expectEqual(@as(u32, 14), swapped.last_byte);
 }

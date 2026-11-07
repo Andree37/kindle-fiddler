@@ -566,11 +566,11 @@ fn pointFor(s: *Session, para: u32, byte: u32) ?annotations.Point {
     return .{ .element = p.element, .offset = chars, .short = p.position + chars };
 }
 
-fn saveHighlight(s: *Session, entry: *const library.Entry, id: []const u8, first: text.Word, last: text.Word) bool {
+fn saveHighlight(s: *Session, entry: *const library.Entry, id: []const u8, span: highlights.Span) bool {
     if (system.dryRun()) return true;
     if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id)) return false;
-    const start = pointFor(s, first.para, first.start) orelse return false;
-    const end = pointFor(s, last.para, last.end) orelse return false;
+    const start = pointFor(s, span.first_para, span.first_byte) orelse return false;
+    const end = pointFor(s, span.last_para, span.last_byte) orelse return false;
     var buf: [1200]u8 = undefined;
     const sql = annotations.insertSql(&buf, .{
         .id = id,
@@ -702,10 +702,10 @@ fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const li
     const hi = words[@max(fixed, head)];
     const start = pointFor(s, lo.para, lo.start) orelse return null;
     const id = try std.fmt.allocPrint(alloc, "kindle.highlight-{d}", .{start.short});
-    const saved = saveHighlight(s, entry, id, lo, hi);
+    const saved = saveHighlight(s, entry, id, highlights.Span.of(lo, hi));
     if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight {s}: {d} words, saved {}\n", .{ id, @max(fixed, head) - @min(fixed, head) + 1, saved });
-    try highlights.add(&s.highlights, alloc, s.paragraphs, id, lo, hi);
+    try highlights.add(&s.highlights, alloc, s.paragraphs, id, highlights.Span.of(lo, hi));
     try refreshMarks(a, s, alloc);
     return id;
 }
@@ -714,17 +714,19 @@ fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const li
 fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, id: []const u8, grab_start: bool) !void {
     const words = pageWords(a, s);
     const range = highlights.wordRange(words, s.highlights.items, id) orelse return;
+    const whole = highlights.extent(s.highlights.items, id) orelse return;
     a.input.beginDrag();
     const fixed = if (grab_start) range.hi else range.lo;
     const moving = if (grab_start) range.lo else range.hi;
     const head = try dragSelection(a, words, fixed, moving);
-    const lo = words[@min(fixed, head)];
-    const hi = words[@max(fixed, head)];
-    const saved = saveHighlight(s, entry, id, lo, hi);
+    if (head == moving) return; // Touched without moving, so nothing changed
+    const crossed = if (grab_start) head > fixed else head < fixed;
+    const span = highlights.dragged(whole, words[fixed], words[head], grab_start, crossed);
+    const saved = saveHighlight(s, entry, id, span);
     if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight extended: saved {}\n", .{saved});
     highlights.remove(&s.highlights, id);
-    try highlights.add(&s.highlights, alloc, s.paragraphs, id, lo, hi);
+    try highlights.add(&s.highlights, alloc, s.paragraphs, id, span);
     try refreshMarks(a, s, alloc);
 }
 
