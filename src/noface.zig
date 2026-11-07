@@ -638,9 +638,7 @@ fn showNotice(a: *App, message: []const u8) !void {
     const label = try a.ui.small.measure(message);
     try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(left + width / 2)) - label / 2, @intCast(top + 62), message);
     try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, page_waveform, .partial));
-    var wait = linux.timespec{ .sec = 0, .nsec = notice_ms * 1_000_000 };
-    wait.sec = @divTrunc(wait.nsec, 1_000_000_000);
-    wait.nsec = @rem(wait.nsec, 1_000_000_000);
+    const wait = linux.timespec{ .sec = notice_ms / 1000, .nsec = (notice_ms % 1000) * 1_000_000 };
     _ = linux.nanosleep(&wait, null);
 }
 
