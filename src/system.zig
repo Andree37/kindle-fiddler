@@ -148,7 +148,10 @@ pub fn markRead(key: []const u8, kind: []const u8, read_it: bool) void {
 
 /// While this file exists, annotation writes are skipped. Used by device tests.
 pub fn dryRun() bool {
-    return !failed(linux.open("/tmp/noface-dry-run", .{ .ACCMODE = .RDONLY }, 0));
+    const rc = linux.open("/tmp/noface-dry-run", .{ .ACCMODE = .RDONLY }, 0);
+    if (failed(rc)) return false;
+    _ = linux.close(@intCast(rc));
+    return true;
 }
 
 /// Fetches a book's highlights as "id|start|end" lines.
