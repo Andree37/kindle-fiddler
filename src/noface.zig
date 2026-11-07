@@ -1035,8 +1035,12 @@ fn applyQuick(a: *App, change: menu.Hit, x: i32) bool {
 
 /// Re-lays out the book after a text setting changed, keeping the reading position.
 fn relayout(a: *App, alloc: std.mem.Allocator, s: *Session) !void {
+    a.applySettings() catch |err| {
+        std.debug.print("settings failed: {s}\n", .{@errorName(err)});
+        a.settings = menu.load(a.settings_path);
+        return a.applySettings();
+    };
     menu.save(a.settings_path, a.settings);
-    try a.applySettings();
     for (&a.slots) |*slot| slot.page = -1;
     s.pages = try paginate(a, alloc, s.paragraphs);
     s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
@@ -1594,7 +1598,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .settings = menu.load(settings_path),
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };
-    try app.applySettings();
+    app.applySettings() catch {
+        app.settings = .{};
+        try app.applySettings();
+    };
     try runLibrary(&app);
     std.debug.print("quit\n", .{});
 }
