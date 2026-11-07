@@ -1378,6 +1378,16 @@ fn loadLibrary(a: *App) !Library {
     return .{ .arena = arena, .data = data, .entries = entries, .visible = try alloc.alloc(usize, entries.len) };
 }
 
+/// Saves the book as unread, so the reload that follows doesn't bring back 100%.
+fn forgetFinished(a: *App, e: *const library.Entry) !void {
+    var path_buf: [320]u8 = undefined;
+    const path = try state.pathFor(&path_buf, a.state_dir, e.path);
+    var saved = state.load(path);
+    saved.percent = 0;
+    saved.opened = unixTime();
+    state.save(path, saved);
+}
+
 /// Shows a book's actions. True means the library changed and should be reloaded.
 fn bookSheet(a: *App, e: *library.Entry, background: []const u8) !bool {
     std.debug.print("sheet: {s}\n", .{e.title});
@@ -1430,7 +1440,7 @@ fn bookSheet(a: *App, e: *library.Entry, background: []const u8) !bool {
                 const done = choice == .mark_read;
                 system.markRead(e.key, e.kind, done);
                 e.finished = done;
-                if (!done and e.percent >= 99) e.percent = 0;
+                if (!done and e.isLocal()) forgetFinished(a, e) catch {};
                 return true;
             },
         }

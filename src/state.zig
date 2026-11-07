@@ -27,10 +27,10 @@ pub fn pathFor(buf: []u8, dir: []const u8, book_path: []const u8) ![:0]u8 {
 }
 
 /// True when the Kindle's own position should win over ours: we have nothing
-/// beyond page one, or the stock reader had the book open more recently.
+/// saved, or the stock reader had the book open more recently.
 pub fn preferKindle(saved: State, kindle_last: u64) bool {
-    if (saved.para == 0 and saved.byte == 0) return true;
-    if (saved.opened == 0) return false; // Older files have no time, so nothing beats them
+    // Older files have no time, so only an empty one gives way.
+    if (saved.opened == 0) return saved.para == 0 and saved.byte == 0;
     return kindle_last > saved.opened;
 }
 

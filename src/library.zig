@@ -114,8 +114,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .author = cleanAuthor(author),
             .percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
             .last = last,
-            // Taken here, before our own progress replaces the percent.
-            .finished = read_state == read_state_finished or percent >= finished_percent,
+            // The Kindle's own mark, which marking as unread clears.
+            .finished = read_state == read_state_finished,
             .kindle_percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
             .kindle_last = last,
             .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
@@ -594,8 +594,9 @@ test "finished stays read after our progress replaces the percent" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const rows = try parse(arena.allocator(), "/a\tA\tx\t99.1\t1\t1\n/b\tB\tx\t40\t1\t2\n/c\tC\tx\t40\t1\t1\n/d\tD\tx\t0\t1\t0\n");
-    rows[0].percent = 3;
     try std.testing.expect(rows[0].isRead());
+    rows[0].percent = 3; // Read again from the start, or marked as unread
+    try std.testing.expect(!rows[0].isRead());
     try std.testing.expect(rows[1].isRead());
     try std.testing.expect(!rows[2].isRead());
     try std.testing.expect(rows[2].inProgress());
