@@ -618,6 +618,33 @@ fn showPage(a: *App, s: *Session, active: ?[]const u8) !?usize {
     return delete_top;
 }
 
+const notice_ms = 1800;
+
+/// Says something went wrong, over the page, for a moment.
+fn showNotice(a: *App, message: []const u8) !void {
+    const screen_page = a.page(a.screen.pixels);
+    const width: u32 = 760;
+    const height: u32 = 100;
+    const left = (a.screen.width - width) / 2;
+    const top = a.screen.height - 260;
+    screen_page.fillRect(left, top, width, height, 0x00);
+    screen_page.fillRect(left + 3, top + 3, width - 6, height - 6, 0xff);
+    const label = try a.ui.small.measure(message);
+    try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(left + width / 2)) - label / 2, @intCast(top + 62), message);
+    try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, page_waveform, .partial));
+    var wait = linux.timespec{ .sec = 0, .nsec = notice_ms * 1_000_000 };
+    wait.sec = @divTrunc(wait.nsec, 1_000_000_000);
+    wait.nsec = @rem(wait.nsec, 1_000_000_000);
+    _ = linux.nanosleep(&wait, null);
+}
+
+/// Takes a failed selection back off the page and says so.
+fn highlightNotSaved(a: *App, s: *Session) !void {
+    _ = try showPage(a, s, null);
+    try showNotice(a, "This highlight couldn't be saved.");
+    _ = try showPage(a, s, null);
+}
+
 const bubble_width = 240;
 const bubble_height = 96;
 
@@ -700,11 +727,18 @@ fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const li
     const head = try dragSelection(a, words, fixed, fixed);
     const lo = words[@min(fixed, head)];
     const hi = words[@max(fixed, head)];
-    const start = pointFor(s, lo.para, lo.start) orelse return null;
+    const start = pointFor(s, lo.para, lo.start) orelse {
+        try highlightNotSaved(a, s);
+        return null;
+    };
     const id = try highlights.freeId(alloc, s.highlights.items, start.short);
     const saved = saveHighlight(s, entry, id, highlights.Span.of(lo, hi));
     if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight {s}: {d} words, saved {}\n", .{ id, @max(fixed, head) - @min(fixed, head) + 1, saved });
+    if (!saved) {
+        try highlightNotSaved(a, s);
+        return null;
+    }
     try highlights.add(&s.highlights, alloc, s.paragraphs, id, highlights.Span.of(lo, hi));
     try refreshMarks(a, s, alloc);
     return id;
@@ -725,6 +759,7 @@ fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const
     const saved = saveHighlight(s, entry, id, span);
     if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight extended: saved {}\n", .{saved});
+    if (!saved) return showNotice(a, "This highlight couldn't be changed.");
     highlights.remove(&s.highlights, id);
     try highlights.add(&s.highlights, alloc, s.paragraphs, id, span);
     try refreshMarks(a, s, alloc);
@@ -732,10 +767,13 @@ fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const
 
 /// Deletes a highlight here and, through sync, everywhere.
 fn removeHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const library.Entry, id: []const u8) !void {
-    if (!system.dryRun() and system.safeId(id) and system.safeId(entry.key)) {
+    if (!system.dryRun()) {
         var buf: [900]u8 = undefined;
+        const safe = system.safeId(id) and system.safeId(entry.key);
         const sql = try annotations.deleteSql(&buf, id, entry.key, unixTime() * 1000);
-        std.debug.print("highlight removed: {}\n", .{system.runAnnotationSql(sql)});
+        const removed = safe and system.runAnnotationSql(sql);
+        std.debug.print("highlight removed: {}\n", .{removed});
+        if (!removed) return showNotice(a, "This highlight couldn't be deleted.");
         system.syncNow();
     }
     highlights.remove(&s.highlights, id);
