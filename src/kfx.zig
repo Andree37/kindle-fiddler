@@ -37,6 +37,8 @@ pub const Paragraph = struct {
     style: u32,
     links: []const Link = &.{},
     section: u32 = 0,
+    element: u32 = 0, // Position IDs Amazon uses for this text
+    position: u32 = 0,
     note: bool = false, // Part of a note, so hidden from the flow
     note_start: bool = false, // First paragraph of a note: what references point at
 };
@@ -113,6 +115,16 @@ pub fn markNotes(paragraphs: []Paragraph) void {
     }
 }
 
+/// Characters before a byte offset, which is how Amazon counts positions.
+pub fn charOffset(text: []const u8, byte: usize) u32 {
+    var bytes: usize = 0;
+    var chars: u32 = 0;
+    while (bytes < byte and bytes < text.len) : (chars += 1) {
+        bytes += std.unicode.utf8ByteSequenceLength(text[bytes]) catch 1;
+    }
+    return chars;
+}
+
 /// Byte offset of the `count`th code point, as KFX offsets count characters.
 pub fn byteOffset(text: []const u8, count: u64) usize {
     var bytes: usize = 0;
@@ -133,6 +145,31 @@ pub const Book = struct {
 
 const Key = struct { id: u32, kind: u32 };
 
+const MapRow = struct { delta: u32, element: ?u32 };
+
+fn readMapRow(row: ion.Value) ?MapRow {
+    if (row.unsigned()) |delta| return .{ .delta = @intCast(delta), .element = null };
+    var fields = row.items();
+    const delta = (fields.next() orelse return null).unsigned() orelse return null;
+    const element = (fields.next() orelse return null).unsigned() orelse return null;
+    return .{ .delta = @intCast(delta), .element = @intCast(element) };
+}
+
+/// A section's position map is delta encoded. Each row moves the position on, and
+/// names its element, or a bare number means the element after the previous one.
+const MapWalker = struct {
+    position: u32,
+    element: u32 = 0,
+
+    const At = struct { position: u32, element: u32 };
+
+    fn next(w: *MapWalker, row: MapRow) At {
+        w.position += row.delta;
+        w.element = row.element orelse w.element + 1;
+        return .{ .position = w.position, .element = w.element };
+    }
+};
+
 const Parser = struct {
     alloc: std.mem.Allocator,
     index: std.AutoHashMapUnmanaged(Key, []const u8) = .empty,
@@ -141,6 +178,34 @@ const Parser = struct {
     positions: std.AutoHashMapUnmanaged(u64, u32) = .empty, // Element ID to paragraph
     raw_links: std.ArrayList(RawLink) = .empty,
     section: u32 = 0,
+
+    /// Fills in each paragraph's position: section start plus offset in section.
+    fn resolvePositions(p: *Parser) !void {
+        var starts: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+        var kinds = p.index.keyIterator();
+        while (kinds.next()) |key| {
+            if (key.kind != t_section_positions) continue;
+            const table = p.entity(key.id, key.kind) orelse continue;
+            var rows = (table.get(f_position_rows) orelse continue).items();
+            while (rows.next()) |row| {
+                const section = (row.get(f_section_name) orelse continue).symbol() orelse continue;
+                const start = (row.get(f_section_start) orelse continue).unsigned() orelse continue;
+                const map = p.entity(section, t_section_map) orelse continue;
+                var walker = MapWalker{ .position = @intCast(start) };
+                var rows_in_map = (map.get(f_position_rows) orelse continue).items();
+                while (rows_in_map.next()) |row_in_map| {
+                    const step = readMapRow(row_in_map) orelse continue;
+                    const at = walker.next(step);
+                    if (at.element == 0) continue;
+                    const slot = try starts.getOrPut(p.alloc, at.element);
+                    if (!slot.found_existing) slot.value_ptr.* = at.position;
+                }
+            }
+        }
+        for (p.paragraphs.items) |*para| {
+            para.position = starts.get(para.element) orelse 0;
+        }
+    }
 
     fn collectLinks(p: *Parser, item: ion.Value, para: u32, text: []const u8) !void {
         const events = item.get(f_style_events) orelse return;
@@ -224,6 +289,7 @@ const Parser = struct {
             if (try p.addContent(ref, style)) {
                 const para: u32 = @intCast(p.paragraphs.items.len - 1);
                 p.paragraphs.items[para].section = p.section;
+                if (item.get(f_id)) |id| p.paragraphs.items[para].element = @intCast(id.int);
                 try p.collectLinks(item, para, p.paragraphs.items[para].text);
             } else p.missing += 1;
         }
@@ -245,6 +311,11 @@ const Parser = struct {
 };
 
 const t_raw_media = 417;
+const t_section_positions = 265;
+const t_section_map = 609;
+const f_position_rows = 181;
+const f_section_name = 174;
+const f_section_start = 184;
 
 /// The book's first embedded JPEG, which is its cover in converted books.
 pub fn coverImage(data: []const u8) ?[]const u8 {
@@ -324,6 +395,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
         if (templates.next()) |first| try p.walk(first, 0);
     }
     try p.resolveLinks();
+    try p.resolvePositions();
     markNotes(p.paragraphs.items);
     return .{ .paragraphs = try p.paragraphs.toOwnedSlice(alloc), .sections = count, .missing_refs = p.missing };
 }
@@ -437,4 +509,28 @@ test "cover lookup refuses files that aren't books" {
     @memcpy(d[0..4], "CONT");
     std.mem.writeInt(u32, d[10..14], 0xFFFFFFF0, .little);
     try std.testing.expect(coverImage(&d) == null);
+}
+
+test "byte and character offsets agree" {
+    try std.testing.expectEqual(@as(u32, 2), charOffset("\u{e1}bc", 3));
+    try std.testing.expectEqual(@as(u32, 0), charOffset("abc", 0));
+}
+
+test "position map finds element 80 where the Kindle stored it" {
+    // Section 870 of a real book. Kindle records this element at 377338.
+    const rows = [_]MapRow{
+        .{ .delta = 0, .element = 120 },
+        .{ .delta = 1, .element = 74 },
+        .{ .delta = 4077, .element = null },
+        .{ .delta = 5554, .element = null },
+        .{ .delta = 3395, .element = null },
+        .{ .delta = 6967, .element = null },
+        .{ .delta = 6453, .element = null },
+        .{ .delta = 3892, .element = null },
+    };
+    var walker = MapWalker{ .position = 346999 };
+    var last: MapWalker.At = undefined;
+    for (rows) |r| last = walker.next(r);
+    try std.testing.expectEqual(@as(u32, 80), last.element);
+    try std.testing.expectEqual(@as(u32, 377338), last.position);
 }

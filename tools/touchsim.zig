@@ -1,6 +1,6 @@
 //! Sends fake touches to the panel's input device, for testing on the Kindle.
 //! Usage: touchsim tap <x> <y>
-//!        touchsim drag <x0> <y0> <x1> <y1> <steps> <delay-ms>
+//!        touchsim drag <x0> <y0> <x1> <y1> <steps> <delay-ms> [hold-ms]
 const std = @import("std");
 const linux = std.os.linux;
 
@@ -67,6 +67,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const steps = arg(argv[6]);
     const delay: u64 = @intCast(arg(argv[7]));
     down(x0, y0);
+    if (argv.len > 8) sleepMs(@intCast(arg(argv[8]))); // Press before moving, to start a hold
     var i: i32 = 1;
     while (i <= steps) : (i += 1) {
         sleepMs(delay);

@@ -140,6 +140,14 @@ pub const Page = struct {
     height: u32,
     stride: u32,
 
+    pub fn invert(p: Page, x: u32, y: u32, w: u32, h: u32) void {
+        var row = y;
+        while (row < @min(y + h, p.height)) : (row += 1) {
+            const start = row * p.stride + x;
+            for (p.buf[start .. start + @min(w, p.width - x)]) |*px| px.* = ~px.*;
+        }
+    }
+
     pub fn fillRect(p: Page, x: u32, y: u32, w: u32, h: u32, value: u8) void {
         var row = y;
         while (row < @min(y + h, p.height)) : (row += 1) {
@@ -307,9 +315,25 @@ pub const Page = struct {
 /// Where a note reference landed on a page.
 pub const Hit = struct { x: i32, y: i32, w: i32, h: i32, target: u32 };
 
+/// A word on a page and where it came from, for selection.
+pub const Word = struct { x: i32, y: i32, w: i32, h: i32, para: u32, start: u32, end: u32 };
+
 pub const Hits = struct {
     items: [32]Hit = undefined,
     len: usize = 0,
+    words: [1024]Word = undefined,
+    word_count: usize = 0,
+
+    pub fn clear(h: *Hits) void {
+        h.len = 0;
+        h.word_count = 0;
+    }
+
+    fn addWord(h: *Hits, word: Word) void {
+        if (h.word_count == h.words.len) return;
+        h.words[h.word_count] = word;
+        h.word_count += 1;
+    }
 
     fn add(h: *Hits, hit: Hit) void {
         if (h.len == h.items.len) return;
@@ -435,6 +459,15 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 var shrink: f32 = 0; // A small mark takes less room than was measured
                 if (maybe_page) |p| {
                     const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
+                    if (hits) |h| h.addWord(.{
+                        .x = @intFromFloat(x),
+                        .y = y - font.ascent,
+                        .w = @intFromFloat(w),
+                        .h = font.line_height,
+                        .para = @intCast(pos.para),
+                        .start = @intCast(word_start),
+                        .end = @intCast(word_start + word.len),
+                    });
                     const reference = findReference(links, paras, word_start, word.len);
                     if (reference) |r| {
                         // Raised and small, like a printed note mark.

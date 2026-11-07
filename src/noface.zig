@@ -8,6 +8,7 @@
 //! same place. All Settings leaves for the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
+const annotations = @import("annotations.zig");
 const cache = @import("cache.zig");
 const cover = @import("cover.zig");
 const file = @import("file.zig");
@@ -17,6 +18,7 @@ const library = @import("library.zig");
 const menu = @import("menu.zig");
 const notes = @import("notes.zig");
 const book_actions = @import("sheet.zig");
+const selection = @import("selection.zig");
 const state = @import("state.zig");
 const system = @import("system.zig");
 const text = @import("text.zig");
@@ -145,6 +147,7 @@ const Input = struct {
     tick_us: u64 = 0, // When set, `next` returns .tick this often
     last_tick: u64 = 0,
     drag_slot: ?usize = null,
+    drag_y: i32 = 0,
     last_input: u64 = 0,
     stashed: ?Action = null,
 
@@ -286,6 +289,7 @@ const Input = struct {
         if (e.kind != 0) return null;
         if (in.drag_slot) |slot| {
             in.pending = null;
+            in.drag_y = @divTrunc(in.ys[slot] * in.height, in.y_max);
             return .{ .drag = @divTrunc(in.xs[slot] * in.width, in.x_max) };
         }
         if (in.top_slot) |slot| {
@@ -423,15 +427,15 @@ const Session = struct {
     /// Get a rendered page, reusing a cached one when possible.
     fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
         const a = s.app;
-        for (a.slots) |slot| {
+        for (&a.slots) |*slot| {
             if (slot.page == @as(i64, @intCast(index))) return slot.buf;
         }
         var cached: [3]i64 = undefined;
-        for (a.slots, &cached) |slot, *c| c.* = slot.page;
+        for (&a.slots, &cached) |*slot, *c| c.* = slot.page;
         const victim = cache.victim(cached, @intCast(center));
         const buf = a.slots[victim].buf;
         const page = a.page(buf);
-        a.slots[victim].hits.len = 0;
+        a.slots[victim].hits.clear();
         _ = try text.renderPage(a.body, page, s.paragraphs, s.pages[index], a.layout, &a.slots[victim].hits);
 
         var label: [32]u8 = undefined;
@@ -542,6 +546,139 @@ fn closeToolbar(a: *App, s: *Session, sheet: bool) !void {
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, page_waveform, .partial);
     try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, page_waveform, .partial));
     try a.screen.waitComplete(first);
+}
+
+const select_menu_height = 110;
+const select_menu_width = 620;
+
+fn pointFor(s: *Session, para: u32, byte: u32) ?annotations.Point {
+    const p = s.paragraphs[para];
+    if (p.position == 0) return null;
+    const chars = kfx.charOffset(p.text, byte);
+    return .{ .element = p.element, .offset = chars, .short = p.position + chars };
+}
+
+fn saveHighlight(s: *Session, entry: *const library.Entry, first: text.Word, last: text.Word) bool {
+    if (!system.safeId(entry.key) or !system.safeId(entry.kind)) return false;
+    const start = pointFor(s, first.para, first.start) orelse return false;
+    const end = pointFor(s, last.para, last.end) orelse return false;
+    var buf: [1200]u8 = undefined;
+    const sql = annotations.insertSql(&buf, .{
+        .key = entry.key,
+        .kind = entry.kind,
+        .guid = entry.guid,
+        .start = start,
+        .end = end,
+        .now_ms = unixTime() * 1000,
+    }) catch return false;
+    return system.runAnnotationSql(sql);
+}
+
+/// Press and hold starts here: the selection follows the finger, whole words at a time.
+fn selectText(a: *App, s: *Session, entry: *const library.Entry, hold_x: i32, hold_y: i32) !void {
+    var words: []const text.Word = &.{};
+    for (&a.slots) |*slot| {
+        if (slot.page == @as(i64, @intCast(s.current))) words = slot.hits.words[0..slot.hits.word_count];
+    }
+    const anchor = selection.wordAt(words, hold_x, hold_y) orelse return;
+    std.debug.print("selecting from {d} of {d} words\n", .{ anchor, words.len });
+    var head = anchor;
+    const screen_page = a.page(a.screen.pixels);
+    @memcpy(a.overlay, a.screen.pixels); // The page as it was, for putting back
+    @memcpy(a.lock_cover, a.screen.pixels);
+    a.page(a.lock_cover).threshold(0, a.screen.height); // Pure black and white for A2
+
+    var marker: ?u32 = null;
+    var previous: selection.Band = .{ .top = 0, .height = 0 };
+    const paint = struct {
+        fn run(app: *App, target: text.Page, list: []const text.Word, first: usize, last: usize, old: selection.Band) !selection.Band {
+            const lo = @min(first, last);
+            const hi = @max(first, last);
+            const chosen = list[lo .. hi + 1];
+            const now = selection.band(chosen);
+            const top = if (old.height == 0) now.top else @min(old.top, now.top);
+            const bottom = @max(old.top + old.height, now.top + now.height);
+            const stride = app.screen.stride;
+            @memcpy(app.screen.pixels[top * stride..bottom * stride], app.lock_cover[top * stride..bottom * stride]);
+            selection.draw(target, chosen);
+            _ = try app.screen.updateRegion(0, top, app.screen.width, bottom - top, .a2, .partial);
+            return now;
+        }
+    }.run;
+    previous = try paint(a, screen_page, words, anchor, head, previous);
+    marker = a.screen.next_marker - 1;
+
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .drag => |first| {
+                if (marker) |m| {
+                    try a.screen.waitComplete(m);
+                    marker = null;
+                }
+                const x = a.input.latestDrag() orelse first;
+                const next = selection.wordAt(words, x, a.input.drag_y) orelse continue;
+                if (next == head) continue;
+                head = next;
+                previous = try paint(a, screen_page, words, anchor, head, previous);
+                marker = a.screen.next_marker - 1;
+            },
+            .drag_end => break,
+            .tap, .hold, .pull, .tick, .unlock => {},
+            .lock, .power, .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+        }
+    }
+    if (marker) |m| try a.screen.waitComplete(m);
+
+    const lo = @min(anchor, head);
+    const hi = @max(anchor, head);
+    const band = selection.band(words[lo .. hi + 1]);
+    std.debug.print("selected {d} words\n", .{hi - lo + 1});
+
+    // Settle into the clean page with the selection, plus the menu beside it.
+    @memcpy(a.screen.pixels, a.overlay);
+    selection.draw(screen_page, words[lo .. hi + 1]);
+    const below = band.top + band.height + 16;
+    const menu_top: u32 = if (below + select_menu_height < a.screen.height - 40) below else band.top -| (select_menu_height + 16);
+    const menu_left = (a.screen.width - select_menu_width) / 2;
+    screen_page.fillRect(menu_left - 4, menu_top - 4, select_menu_width + 8, select_menu_height + 8, 0xff);
+    screen_page.fillRect(menu_left, menu_top, select_menu_width, select_menu_height, 0x00);
+    screen_page.fillRect(menu_left + 3, menu_top + 3, select_menu_width - 6, select_menu_height - 6, 0xff);
+    screen_page.fillRect(menu_left + select_menu_width / 2, menu_top, 3, select_menu_height, 0x00);
+    try a.ui.title.draw(screen_page, @floatFromInt(menu_left + 60), @intCast(menu_top + 70), "Highlight");
+    try a.ui.small.draw(screen_page, @floatFromInt(menu_left + select_menu_width / 2 + 90), @intCast(menu_top + 70), "Cancel");
+    const top = @min(band.top, menu_top) -| 8;
+    const bottom = @min(@max(band.top + band.height, menu_top + select_menu_height) + 8, a.screen.height);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, bottom - top, page_waveform, .partial));
+
+    const deferred = a.input.deferred;
+    a.input.deferred = false;
+    defer a.input.deferred = deferred;
+    var chose_highlight = false;
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .tap => |t| {
+                const on_menu = t.y >= menu_top and t.y < menu_top + select_menu_height;
+                chose_highlight = on_menu and t.x >= menu_left and t.x < menu_left + select_menu_width / 2;
+                break;
+            },
+            .lock, .power, .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+            else => {},
+        }
+    }
+    if (chose_highlight) {
+        const saved = saveHighlight(s, entry, words[lo], words[hi]);
+        std.debug.print("highlight saved: {}\n", .{saved});
+    }
+    @memcpy(a.screen.pixels, a.overlay);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, bottom - top, page_waveform, .partial));
 }
 
 /// Shows the book's cover while the Kindle sleeps, then puts the screen back.
@@ -839,7 +976,10 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     while (true) {
         a.input.deferred = view == .page;
         switch (a.input.next()) {
-            .hold, .unlock => {},
+            .unlock => {},
+            .hold => |h| {
+                if (view == .page) try selectText(a, &session, entry, h.x, h.y);
+            },
             .lock => {
                 try lockScreen(a, entry);
                 if (view == .page) try a.updateClock();

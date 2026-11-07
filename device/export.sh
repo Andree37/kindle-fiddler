@@ -11,7 +11,7 @@ sqlite3 -separator "$(printf '\t')" /tmp/kf-cc.db \
             case when p_isDownloading = 1 then 2
                  when coalesce(p_location, '') = '' then 1
                  else 0 end,
-            coalesce(p_cdeKey, ''), coalesce(p_cdeType, '')
+            coalesce(p_cdeKey, ''), coalesce(p_cdeType, ''), coalesce(p_guid, '')
      from Entries
      where p_location like '%.kfx'
         or (p_isArchived = 1 and p_isVisibleInHome = 1 and p_type = 'Entry:Item')" > "$DIR/library.tsv.tmp"

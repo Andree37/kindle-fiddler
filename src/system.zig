@@ -145,6 +145,22 @@ pub fn markRead(key: []const u8, kind: []const u8, read_it: bool) void {
     readNowAction("kppMarkAsReadAction", "kppCdeKey = \"{s}\", kppCdeType = \"{s}\", kppMAR = \"{s}\"", .{ key, kind, value });
 }
 
+/// Runs a SQL statement against the annotation database.
+pub fn runAnnotationSql(sql: []const u8) bool {
+    const path = "/tmp/noface-annotation.sql";
+    const rc = linux.open(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o600);
+    if (failed(rc)) return false;
+    const fd: i32 = @intCast(rc);
+    const written = linux.write(fd, sql.ptr, sql.len);
+    _ = linux.close(fd);
+    if (failed(written) or written != sql.len) return false;
+    const command = "sqlite3 /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db < " ++ path ++ " && echo ok";
+    const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
+    var out: [8]u8 = undefined;
+    const n = run(&argv, &out) orelse return false;
+    return std.mem.startsWith(u8, out[0..n], "ok");
+}
+
 /// Rebuilds library.tsv from the catalog.
 pub fn exportLibrary() void {
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "/mnt/us/noface/export.sh" };

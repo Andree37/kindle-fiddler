@@ -1,4 +1,5 @@
 test {
+    _ = @import("annotations.zig");
     _ = @import("cache.zig");
     _ = @import("cover.zig");
     _ = @import("ion.zig");
@@ -7,6 +8,7 @@ test {
     _ = @import("library.zig");
     _ = @import("menu.zig");
     _ = @import("notes.zig");
+    _ = @import("selection.zig");
     _ = @import("sheet.zig");
     _ = @import("slider.zig");
     _ = @import("state.zig");

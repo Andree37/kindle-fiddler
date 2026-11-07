@@ -65,6 +65,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
     std.debug.print("refs mark {d} word {d}, notes {d}, multi {d}, capped {d}, longest {d}\n", .{ refs_mark, refs_word, starts, multi, capped, longest_note });
     std.debug.print("first refs {any}\n", .{first_refs[0..first_refs_len]});
+    var placed: usize = 0;
+    for (book.paragraphs) |p| {
+        if (p.position != 0) placed += 1;
+    }
+    std.debug.print("paragraphs with positions {d} of {d}\n", .{ placed, book.paragraphs.len });
+    for (book.paragraphs) |p| {
+        if (p.element == 80) std.debug.print("element 80 position {d}\n", .{p.position});
+    }
 
     const us = (ts1.sec - ts0.sec) * 1_000_000 + @divTrunc(ts1.nsec - ts0.nsec, 1000);
     std.debug.print(

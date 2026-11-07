@@ -22,6 +22,7 @@ pub const Entry = struct {
     availability: Availability = .local,
     key: []const u8 = "",
     kind: []const u8 = "",
+    guid: []const u8 = "",
     cover: ?[]u8 = null,
     cover_tried: bool = false,
     hero: ?[]u8 = null,
@@ -105,6 +106,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
         };
         const key = fields.next() orelse "";
         const kind = fields.next() orelse "";
+        const guid = fields.next() orelse "";
         if (path.len == 0 and availability == .local) continue;
         try out.append(alloc, .{
             .path = try alloc.dupeSentinel(u8, path, 0),
@@ -121,6 +123,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
             .availability = availability,
             .key = key,
             .kind = kind,
+            .guid = guid,
         });
     }
     return out.toOwnedSlice(alloc);
