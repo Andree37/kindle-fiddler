@@ -44,7 +44,7 @@ pub const Settings = struct {
     }
 };
 
-pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, settings };
+pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, settings, sync };
 
 const Icon = enum { airplane, wifi, bluetooth, sync, gear };
 const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
@@ -53,7 +53,7 @@ const shortcuts = [_]Shortcut{
     .{ .icon = .airplane, .hit = .airplane, .x = 318, .y = 240 },
     .{ .icon = .wifi, .hit = .settings, .x = 636, .y = 240 }, // Networks live in stock settings
     .{ .icon = .bluetooth, .hit = .none, .x = 954, .y = 240 }, // Not wired up yet
-    .{ .icon = .sync, .hit = .none, .x = 477, .y = 430 }, // Not wired up yet
+    .{ .icon = .sync, .hit = .sync, .x = 477, .y = 430 },
     .{ .icon = .gear, .hit = .settings, .x = 795, .y = 430 },
 };
 
@@ -144,7 +144,7 @@ fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
         .airplane => if (quick.airplane) "On" else "Off",
         .wifi => if (quick.wifi_on) "Connected" else "Wi-Fi Off",
         .bluetooth => "Off",
-        .sync => "Sync",
+        .sync => if (quick.syncing) "Syncing" else "Sync",
         .gear => "All Settings",
     };
 }
@@ -196,7 +196,7 @@ test "panel maps taps like the stock layout" {
     try std.testing.expectEqual(Hit.airplane, hit(318, 240));
     try std.testing.expectEqual(Hit.settings, hit(636, 240)); // Wi-Fi
     try std.testing.expectEqual(Hit.none, hit(954, 240)); // Bluetooth
-    try std.testing.expectEqual(Hit.none, hit(477, 430)); // Sync
+    try std.testing.expectEqual(Hit.sync, hit(477, 430));
     try std.testing.expectEqual(Hit.settings, hit(795, 430));
     try std.testing.expectEqual(Hit.none, hit(954, 430));
     try std.testing.expectEqual(Hit.dimmer, hit(90, 680));

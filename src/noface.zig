@@ -694,6 +694,7 @@ fn newHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const li
     const start = pointFor(s, lo.para, lo.start) orelse return null;
     const id = try std.fmt.allocPrint(alloc, "kindle.highlight-{d}", .{start.short});
     const saved = saveHighlight(s, entry, id, lo, hi);
+    if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight {s}: {d} words, saved {}\n", .{ id, @max(fixed, head) - @min(fixed, head) + 1, saved });
     try highlights.add(&s.highlights, alloc, s.paragraphs, id, lo, hi);
     try refreshMarks(a, s, alloc);
@@ -711,6 +712,7 @@ fn extendHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, entry: *const
     const lo = words[@min(fixed, head)];
     const hi = words[@max(fixed, head)];
     const saved = saveHighlight(s, entry, id, lo, hi);
+    if (saved and !system.dryRun()) system.syncNow();
     std.debug.print("highlight extended: saved {}\n", .{saved});
     highlights.remove(&s.highlights, id);
     try highlights.add(&s.highlights, alloc, s.paragraphs, id, lo, hi);
@@ -723,6 +725,7 @@ fn removeHighlight(a: *App, s: *Session, alloc: std.mem.Allocator, id: []const u
         var buf: [700]u8 = undefined;
         const sql = try annotations.deleteSql(&buf, id, unixTime() * 1000);
         std.debug.print("highlight removed: {}\n", .{system.runAnnotationSql(sql)});
+        system.syncNow();
     }
     highlights.remove(&s.highlights, id);
     try refreshMarks(a, s, alloc);
@@ -963,6 +966,10 @@ fn applyQuick(a: *App, change: menu.Hit, x: i32) bool {
         .slider => setRowValue(a, menu.brightness_row, menu.levelAt(menu.brightness_row, x)),
         .cooler, .warmer => setRowValue(a, menu.warmth_row, system.stepBrightness(a.quick.warmth, change == .warmer)),
         .warmth => setRowValue(a, menu.warmth_row, menu.levelAt(menu.warmth_row, x)),
+        .sync => {
+            a.quick.syncing = true;
+            system.syncNow();
+        },
         .schedule => {
             a.quick.schedule = !a.quick.schedule;
             system.setSchedule(a.quick.schedule);

@@ -14,6 +14,7 @@ pub const Quick = struct {
     warmth: u32 = 0,
     schedule: bool = false,
     airplane: bool = false,
+    syncing: bool = false,
     battery: u32 = 0,
     wifi_on: bool = false,
     wifi_bars: u32 = 0, // 0 to 3
@@ -228,6 +229,13 @@ pub fn utcOffset() i64 {
 pub fn formatClock(buf: []u8, unix: i64, offset: i64) []const u8 {
     const minutes: u32 = @intCast(@divFloor(@mod(unix + offset, 86400), 60));
     return std.fmt.bufPrint(buf, "{d:0>2}:{d:0>2}", .{ minutes / 60, minutes % 60 }) catch "";
+}
+
+/// Same as the Sync button in the stock panel.
+pub fn syncNow() void {
+    const argv = [_:null]?[*:0]const u8{ lipc_set, "-s", "com.lab126.quickactions", "syncAndCheck", "1" };
+    var out: [32]u8 = undefined;
+    _ = run(&argv, &out);
 }
 
 pub fn openSettings() void {
