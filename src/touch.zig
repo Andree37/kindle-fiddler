@@ -5,6 +5,19 @@ const bottom_strip = 120; // Full width, along the bottom edge
 const corner_width = 300; // Bottom corners, where thumbs sit higher
 const corner_height = 250;
 
+pub const PowerEvent = enum { lock, unlock };
+
+/// The newest power event in what was read, so a quick lock and unlock settles
+/// on where the Kindle ended up.
+pub fn lastPowerEvent(line: []const u8) ?PowerEvent {
+    const lock = std.mem.lastIndexOf(u8, line, "goingToScreenSaver");
+    const unlock = std.mem.lastIndexOf(u8, line, "outOfScreenSaver");
+    if (unlock) |u| {
+        if (lock == null or u > lock.?) return .unlock;
+    }
+    return if (lock != null) .lock else null;
+}
+
 pub const top_zone = 200; // Top edge: opens the toolbar, or the panel when dragged
 pub const hold_ms = 450; // Press this long to start selecting text
 const hold_slop = 36; // Movement that still counts as holding still
@@ -48,4 +61,11 @@ test "dragging down from the top counts as a pull" {
 test "small wobble still counts as holding" {
     try std.testing.expect(!movedOff(100, 100, 120, 90));
     try std.testing.expect(movedOff(100, 100, 200, 100));
+}
+
+test "the newest power event wins" {
+    try std.testing.expectEqual(PowerEvent.lock, lastPowerEvent("goingToScreenSaver\n").?);
+    try std.testing.expectEqual(PowerEvent.unlock, lastPowerEvent("goingToScreenSaver\noutOfScreenSaver\n").?);
+    try std.testing.expectEqual(PowerEvent.lock, lastPowerEvent("outOfScreenSaver\ngoingToScreenSaver\n").?);
+    try std.testing.expect(lastPowerEvent("something else\n") == null);
 }

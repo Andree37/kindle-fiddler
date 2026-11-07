@@ -248,11 +248,16 @@ const Input = struct {
             _ = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained))); // powerd acts on the key
 
             if (in.power_events >= 0) {
-                var line: [128]u8 = undefined;
+                var line: [512]u8 = undefined;
                 const got = linux.read(in.power_events, &line, line.len);
-                if (!failed(got) and got > 0) {
-                    if (std.mem.indexOf(u8, line[0..got], "goingToScreenSaver") != null) return .lock;
-                    if (std.mem.indexOf(u8, line[0..got], "outOfScreenSaver") != null) return .unlock;
+                if (got == 0) {
+                    // The watcher died. Without this the closed pipe wakes poll forever.
+                    _ = linux.close(in.power_events);
+                    in.power_events = -1;
+                } else if (!failed(got)) {
+                    if (touch_zones.lastPowerEvent(line[0..got])) |event| {
+                        return if (event == .lock) .lock else .unlock;
+                    }
                 }
             }
 
@@ -822,13 +827,15 @@ fn lockScreen(a: *App, entry: ?*const library.Entry) !void {
                 if (redraws == lock_redraws) a.input.tick_us = 0;
             },
             .unlock => break,
-            .idle, .stop => {
+            .idle => a.input.last_input = nowUs(), // Time asleep isn't time idle
+            .stop => {
                 a.input.stashed = action;
                 break;
             },
             else => {},
         }
     }
+    a.input.last_input = nowUs();
     try a.present(a.lock_saved, .gc16, .full);
 }
 
