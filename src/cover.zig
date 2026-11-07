@@ -27,6 +27,33 @@ pub fn scale(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: us
     }
 }
 
+/// Rounds to the 16 grays the panel shows, spreading each pixel's rounding error
+/// onto its neighbours (Floyd-Steinberg). Without it the panel rounds by itself,
+/// and dark areas flatten into one murky gray.
+pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
+    const errs = try alloc.alloc(i16, 2 * (w + 2));
+    defer alloc.free(errs);
+    @memset(errs, 0);
+    var cur = errs[0 .. w + 2];
+    var nxt = errs[w + 2 ..];
+    const h = pixels.len / w;
+    for (0..h) |y| {
+        for (0..w) |x| {
+            const i = y * w + x;
+            const want = std.math.clamp(@as(i16, pixels[i]) + @divTrunc(cur[x + 1], 16), 0, 255);
+            const got = @divTrunc(want + 8, 17) * 17;
+            pixels[i] = @intCast(got);
+            const e = want - got;
+            cur[x + 2] += e * 7;
+            nxt[x] += e * 3;
+            nxt[x + 1] += e * 5;
+            nxt[x + 2] += e;
+        }
+        std.mem.swap([]i16, &cur, &nxt);
+        @memset(nxt, 0);
+    }
+}
+
 /// Decodes a JPEG and draws it as large as fits, centred on black.
 pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_px: usize, height_px: usize) bool {
     var w: c_int = 0;
@@ -40,6 +67,7 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
     const scaled = alloc.alloc(u8, fit.w * fit.h) catch return false;
     defer alloc.free(scaled);
     scale(pixels[0 .. sw * sh], sw, sh, scaled, fit.w, fit.h);
+    dither(alloc, scaled, fit.w) catch return false;
     @memset(buf, 0x00);
     const left = (width_px - fit.w) / 2;
     const top = (height_px - fit.h) / 2;
@@ -91,4 +119,19 @@ test "covers keep their shape on screen" {
     try std.testing.expectEqual(Size{ .w = 1272, .h = 1696 }, fitted(600, 800, 1272, 1696));
     try std.testing.expectEqual(Size{ .w = 1060, .h = 1696 }, fitted(500, 800, 1272, 1696));
     try std.testing.expectEqual(Size{ .w = 1272, .h = 636 }, fitted(800, 400, 1272, 1696));
+}
+
+test "dithering keeps only panel grays and the overall tone" {
+    var pixels: [64 * 64]u8 = undefined;
+    for (&pixels, 0..) |*p, i| p.* = @intCast((i % 64) * 4);
+    var before: u32 = 0;
+    for (pixels) |p| before += p;
+    try dither(std.testing.allocator, &pixels, 64);
+    var after: u32 = 0;
+    for (pixels) |p| {
+        try std.testing.expectEqual(@as(u8, 0), p % 17);
+        after += p;
+    }
+    const diff = @as(i64, before) - @as(i64, after);
+    try std.testing.expect(@abs(diff) < 64 * 64 * 2);
 }
