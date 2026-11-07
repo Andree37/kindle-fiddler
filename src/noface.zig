@@ -26,6 +26,10 @@ const idle_quit_ms = 30 * 60 * 1000;
 const save_every = 10;
 const download_poll_us = 5 * 1000 * 1000;
 const download_watch_us = 3 * 60 * 1000 * 1000;
+const clock_check_us = 10 * 1000 * 1000;
+const clock_top = 16;
+const clock_height = 56;
+const clock_width = 160;
 
 const touch_device = "/dev/input/event1";
 const power_device = "/dev/input/event0";
@@ -307,6 +311,8 @@ const App = struct {
     settings_path: [*:0]const u8,
     settings: menu.Settings,
     quick: system.Quick = .{},
+    utc_offset: i64,
+    clock_minute: u64 = 0,
     layout: text.Layout,
 
     /// Notes read smaller than the page, like a printed footnote.
@@ -336,6 +342,26 @@ const App = struct {
             for (a.screen.pixels[start .. start + r.w]) |*p| p.* = ~p.*;
         }
         _ = a.screen.updateRegion(r.x, r.y, r.w, r.h, .du, .partial) catch {};
+    }
+
+    /// Writes the time into the page on screen, without refreshing the panel.
+    fn stampClock(a: *App) void {
+        const target = a.page(a.screen.pixels);
+        const left = (a.screen.width - clock_width) / 2;
+        target.fillRect(left, clock_top, clock_width, clock_height, 0xff);
+        var buf: [8]u8 = undefined;
+        const time = system.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
+        const width = a.ui.caption.measure(time) catch return;
+        const x = @as(f32, @floatFromInt(a.screen.width)) / 2 - width / 2;
+        a.ui.caption.draw(target, x, clock_top + 38, time) catch {};
+        a.clock_minute = unixTime() / 60;
+    }
+
+    /// Redraws just the clock, which is too small to need a flash.
+    fn updateClock(a: *App) !void {
+        a.stampClock();
+        const left = (a.screen.width - clock_width) / 2;
+        try a.screen.waitComplete(try a.screen.updateRegion(left, clock_top, clock_width, clock_height, .gl16, .partial));
     }
 
     fn present(a: *App, buf: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode) !void {
@@ -388,6 +414,7 @@ const Session = struct {
         const a = s.app;
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);
+        a.stampClock();
         s.current = index;
         const clean = force_clean;
         const marker = if (clean)
@@ -721,7 +748,9 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     var since_save: u32 = 0;
     var view: View = .page;
     a.input.grips = true;
+    a.input.tick_us = clock_check_us;
     defer a.input.grips = true;
+    defer a.input.tick_us = 0;
     defer saveProgress(entry, state_path, &session);
     while (true) {
         switch (a.input.next()) {
@@ -746,6 +775,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                         .close => {
                             view = .page;
                             try closeMenu(a, page);
+                            try a.updateClock();
                         },
                         else => {},
                     }
@@ -758,6 +788,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                             view = .page;
                             a.input.grips = true;
                             try closeToolbar(a, &session, sheet);
+                            try a.updateClock();
                         },
                         .home => return .library,
                         .text => {
@@ -801,7 +832,10 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     }
                 },
             },
-            .drag, .drag_end, .tick => {},
+            .tick => {
+                if (view == .page and unixTime() / 60 != a.clock_minute) try a.updateClock();
+            },
+            .drag, .drag_end => {},
             .pull => {
                 if (view != .page) continue;
                 view = .panel;
@@ -1160,6 +1194,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .state_dir = state_dir,
         .library_path = argv[1],
         .settings_path = settings_path,
+        .utc_offset = system.utcOffset(),
         .settings = menu.load(settings_path),
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };
