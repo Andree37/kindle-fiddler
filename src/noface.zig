@@ -146,6 +146,7 @@ const Input = struct {
     deferred: bool = false, // On book pages: taps wait for lift, so a press can become a hold
     last_touched: usize = 0,
     grips: bool = true, // Off while controls sit where a thumb usually rests
+    edge_zones: bool = true, // Off while handles can sit at the screen edges
     tick_us: u64 = 0, // When set, `next` returns .tick this often
     last_tick: u64 = 0,
     drag_slot: ?usize = null,
@@ -308,8 +309,8 @@ const Input = struct {
         in.last_touched = touched;
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
-        if (in.grips and touch_zones.isGrip(px, py, in.width, in.height)) return null;
-        if (in.deferred or py < touch_zones.top_zone) {
+        if (in.edge_zones and in.grips and touch_zones.isGrip(px, py, in.width, in.height)) return null;
+        if (in.deferred or (in.edge_zones and py < touch_zones.top_zone)) {
             in.top_slot = touched;
             in.top_x = px;
             in.top_y = py;
@@ -1128,8 +1129,10 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     defer a.input.tick_us = 0;
     defer saveProgress(entry, state_path, &session);
     defer a.input.deferred = false;
+    defer a.input.edge_zones = true;
     while (true) {
         a.input.deferred = view == .page;
+        a.input.edge_zones = view != .highlight;
         switch (a.input.next()) {
             .unlock => {},
             .hold => |h| {
@@ -1233,13 +1236,6 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     }
                 },
                 .page => {
-                    if (t.y < touch_zones.top_zone) {
-                        view = .toolbar;
-                        a.input.grips = false;
-                        a.quick = system.read();
-                        try drawToolbar(a, &session, entry.title, false, false);
-                        continue;
-                    }
                     if (selection.wordUnder(pageWords(a, &session), t.x, t.y)) |word| {
                         if (highlights.atWord(session.highlights.items, word)) |id| {
                             active = id;
@@ -1251,6 +1247,13 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                     if (session.referenceAt(t.x, t.y)) |target| {
                         view = .note;
                         try openNote(a, &session, target);
+                        continue;
+                    }
+                    if (t.y < touch_zones.top_zone) {
+                        view = .toolbar;
+                        a.input.grips = false;
+                        a.quick = system.read();
+                        try drawToolbar(a, &session, entry.title, false, false);
                         continue;
                     }
                     const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
