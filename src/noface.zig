@@ -153,6 +153,7 @@ const Input = struct {
     drag_y: i32 = 0,
     last_input: u64 = 0,
     stashed: ?Action = null,
+    locked: bool = false, // Nothing to check on a timer, so sleep until an event
 
     /// Follows the finger of the last tap until it lifts.
     fn beginDrag(in: *Input) void {
@@ -223,7 +224,7 @@ const Input = struct {
                 in.event_next += 1;
                 if (in.handle(e)) |action| return action;
             }
-            if (nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
+            if (!in.locked and nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
             if (in.deferred and !in.top_moved) {
                 if (in.top_slot) |slot| {
                     if (nowUs() -| in.top_us >= touch_zones.hold_ms * 1000) {
@@ -242,7 +243,8 @@ const Input = struct {
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
             };
-            _ = linux.poll(&fds, fds.len, if (in.top_slot != null) 30 else 1000);
+            const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) -1 else 1000;
+            _ = linux.poll(&fds, fds.len, wait);
 
             var drained: [16]InputEvent = undefined;
             _ = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained))); // powerd acts on the key
@@ -815,6 +817,8 @@ fn lockScreen(a: *App, entry: ?*const library.Entry) !void {
     defer a.input.tick_us = tick;
     a.input.tick_us = lock_redraw_us;
     a.input.last_tick = nowUs();
+    a.input.locked = true;
+    defer a.input.locked = false;
     var redraws: u32 = 0;
     while (true) {
         const action = a.input.next();
