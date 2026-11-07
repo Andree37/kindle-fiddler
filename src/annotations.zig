@@ -38,11 +38,13 @@ const action_delete = 3;
 
 /// Deletes a highlight the way stock does. An unsent one just loses its row. A
 /// sent one gets a delete row: Amazon's own record, with a new modified time.
-pub fn deleteSql(buf: []u8, id: []const u8, now_ms: u64) ![]const u8 {
+pub fn deleteSql(buf: []u8, id: []const u8, key: []const u8, now_ms: u64) ![]const u8 {
     return std.fmt.bufPrint(buf,
-        \\delete from local_edit where annotation_id='{s}';
-        \\insert into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) select annotation_id, {d}, dataset, dataset_id, json_set(serialized_payload, '$.last_modified', {d}), 0, created_time, {d}, 0, '' from server_view where annotation_id='{s}' and dataset=1;
-    , .{ id, action_delete, now_ms, now_ms, id });
+        \\begin;
+        \\delete from local_edit where annotation_id='{s}' and dataset_id like '{s}-%';
+        \\insert into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) select annotation_id, {d}, dataset, dataset_id, json_set(serialized_payload, '$.last_modified', {d}), 0, created_time, {d}, 0, '' from server_view where annotation_id='{s}' and dataset_id like '{s}-%' and dataset=1;
+        \\commit;
+    , .{ id, key, action_delete, now_ms, now_ms, id, key });
 }
 
 test "long positions match what the Kindle stores" {
@@ -75,11 +77,11 @@ test "row matches the one the stock reader wrote" {
 }
 
 test "delete clears any unsent row, then queues Amazon's record" {
-    var buf: [700]u8 = undefined;
-    const sql = try deleteSql(&buf, "kindle.highlight-382334", 1794053974114);
-    const first = std.mem.indexOf(u8, sql, "delete from local_edit where annotation_id='kindle.highlight-382334';").?;
+    var buf: [900]u8 = undefined;
+    const sql = try deleteSql(&buf, "kindle.highlight-382334", "BOOKKEY", 1794053974114);
+    const first = std.mem.indexOf(u8, sql, "delete from local_edit where annotation_id='kindle.highlight-382334' and dataset_id like 'BOOKKEY-%';").?;
     const second = std.mem.indexOf(u8, sql, "select annotation_id, 3, dataset").?;
     try std.testing.expect(first < second);
     try std.testing.expect(std.mem.indexOf(u8, sql, "json_set(serialized_payload, '$.last_modified', 1794053974114)") != null);
-    try std.testing.expect(std.mem.indexOf(u8, sql, "from server_view where annotation_id='kindle.highlight-382334' and dataset=1;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sql, "from server_view where annotation_id='kindle.highlight-382334' and dataset_id like 'BOOKKEY-%' and dataset=1;") != null);
 }

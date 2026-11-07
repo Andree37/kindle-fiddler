@@ -160,8 +160,8 @@ pub fn readHighlights(key: []const u8, out: []u8) []const u8 {
     var buf: [900]u8 = undefined;
     const fields = "annotation_id, json_extract(serialized_payload, '$.start_position.shortPosition'), json_extract(serialized_payload, '$.end_position.shortPosition')";
     const command = std.fmt.bufPrintSentinel(&buf,
-        \\sqlite3 -separator '|' "file:$(ls /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db)?mode=ro" "select {s} from server_view where dataset=1 and dataset_id like '{s}-%' and annotation_id not in (select annotation_id from local_edit) union select {s} from local_edit where dataset=1 and action != 3 and dataset_id like '{s}-%'"
-    , .{ fields, key, fields, key }, 0) catch return "";
+        \\sqlite3 -separator '|' "file:$(ls /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db)?mode=ro" "select {s} from server_view where dataset=1 and dataset_id like '{s}-%' and annotation_id not in (select annotation_id from local_edit where dataset_id like '{s}-%') union select {s} from local_edit where dataset=1 and action != 3 and dataset_id like '{s}-%'"
+    , .{ fields, key, key, fields, key }, 0) catch return "";
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
     const n = run(&argv, out) orelse return "";
     return out[0..n];
@@ -176,7 +176,7 @@ pub fn runAnnotationSql(sql: []const u8) bool {
     const written = linux.write(fd, sql.ptr, sql.len);
     _ = linux.close(fd);
     if (failed(written) or written != sql.len) return false;
-    const command = "sqlite3 /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db < " ++ path ++ " && echo ok";
+    const command = "sqlite3 -bail -cmd '.timeout 3000' /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db < " ++ path ++ " && echo ok";
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
     var out: [8]u8 = undefined;
     const n = run(&argv, &out) orelse return false;
