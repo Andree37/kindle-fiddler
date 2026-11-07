@@ -18,12 +18,22 @@ pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = system.max_warmt
 const schedule_top = 754;
 const schedule_bottom = 794;
 
+pub const Family = struct { label: []const u8, path: [*:0]const u8 };
+const font_dir = "/usr/java/lib/fonts/";
+pub const families = [_]Family{
+    .{ .label = "Ember", .path = font_dir ++ "Amazon-Ember-Regular.ttf" },
+    .{ .label = "Bookerly", .path = font_dir ++ "Bookerly-Regular.ttf" },
+    .{ .label = "Baskerville", .path = font_dir ++ "Baskerville-Regular.ttf" },
+    .{ .label = "Serif", .path = font_dir ++ "AmazonEmberSerif_Rg.ttf" },
+};
+
 pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
 pub const spacings = [_]f32{ 1.2, 1.35, 1.5, 1.7 };
 
 pub const Settings = struct {
     size: usize = 2,
     spacing: usize = 1,
+    font: usize = 0,
 
     pub fn px(s: Settings) f32 {
         return sizes[s.size];
@@ -157,14 +167,19 @@ pub fn render(fonts: library.Fonts, page: text.Page, quick: *const system.Quick)
 
 }
 
-/// Settings share the state file format: size, then spacing.
+/// Settings share the state file format: size, spacing, font.
 pub fn load(path: [*:0]const u8) Settings {
     const s = state.load(path);
-    return .{ .size = @min(if (s.opened == 0) 2 else s.para, sizes.len - 1), .spacing = @min(if (s.opened == 0) 1 else s.byte, spacings.len - 1) };
+    if (s.opened == 0) return .{};
+    return .{
+        .size = @min(s.para, sizes.len - 1),
+        .spacing = @min(s.byte, spacings.len - 1),
+        .font = @min(s.percent orelse 0, families.len - 1),
+    };
 }
 
 pub fn save(path: [*:0]const u8, s: Settings) void {
-    state.save(path, .{ .para = s.size, .byte = s.spacing, .opened = 1 });
+    state.save(path, .{ .para = s.size, .byte = s.spacing, .percent = @intCast(s.font), .opened = 1 });
 }
 
 test "panel maps taps like the stock layout" {

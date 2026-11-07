@@ -99,6 +99,7 @@ fn slotValues(fd: i32, code: u32) [2]i32 {
 
 const Action = union(enum) {
     tap: struct { x: i32, y: i32, us: u64 },
+    hold: struct { x: i32, y: i32 },
     pull,
     drag: i32, // Finger x while a drag is being followed
     drag_end,
@@ -130,6 +131,8 @@ const Input = struct {
     top_x: i32 = 0,
     top_y: i32 = 0,
     top_us: u64 = 0,
+    top_moved: bool = false,
+    deferred: bool = false, // On book pages: taps wait for lift, so a press can become a hold
     last_touched: usize = 0,
     grips: bool = true, // Off while controls sit where a thumb usually rests
     tick_us: u64 = 0, // When set, `next` returns .tick this often
@@ -208,6 +211,15 @@ const Input = struct {
                 if (in.handle(e)) |action| return action;
             }
             if (nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
+            if (in.deferred and !in.top_moved) {
+                if (in.top_slot) |slot| {
+                    if (nowUs() -| in.top_us >= touch_zones.hold_ms * 1000) {
+                        in.top_slot = null;
+                        in.drag_slot = slot;
+                        return .{ .hold = .{ .x = in.top_x, .y = in.top_y } };
+                    }
+                }
+            }
             if (in.tick_us != 0 and nowUs() - in.last_tick >= in.tick_us) {
                 in.last_tick = nowUs();
                 return .tick;
@@ -217,7 +229,7 @@ const Input = struct {
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = in.power, .events = linux.POLL.IN, .revents = 0 },
             };
-            _ = linux.poll(&fds, fds.len, 1000);
+            _ = linux.poll(&fds, fds.len, if (in.top_slot != null) 30 else 1000);
 
             var power_events: [16]InputEvent = undefined;
             const power_n = linux.read(in.power, @ptrCast(&power_events), @sizeOf(@TypeOf(power_events)));
@@ -266,8 +278,10 @@ const Input = struct {
             return .{ .drag = @divTrunc(in.xs[slot] * in.width, in.x_max) };
         }
         if (in.top_slot) |slot| {
+            const x = @divTrunc(in.xs[slot] * in.width, in.x_max);
             const y = @divTrunc(in.ys[slot] * in.height, in.y_max);
-            if (touch_zones.isPull(in.top_y, y)) {
+            if (touch_zones.movedOff(in.top_x, in.top_y, x, y)) in.top_moved = true;
+            if (in.top_y < touch_zones.top_zone and touch_zones.isPull(in.top_y, y)) {
                 in.top_slot = null;
                 return .pull;
             }
@@ -278,11 +292,12 @@ const Input = struct {
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
         if (in.grips and touch_zones.isGrip(px, py, in.width, in.height)) return null;
-        if (py < touch_zones.top_zone) {
+        if (in.deferred or py < touch_zones.top_zone) {
             in.top_slot = touched;
             in.top_x = px;
             in.top_y = py;
             in.top_us = in.down_us;
+            in.top_moved = false;
             return null;
         }
         return .{ .tap = .{ .x = px, .y = py, .us = in.down_us } };
@@ -300,8 +315,9 @@ const App = struct {
     screen: *hwtcon.Screen,
     input: *Input,
     body: *text.Font,
-    body_fonts: [menu.sizes.len]?text.Font = @splat(null),
-    regular: []const u8,
+    body_fonts: [menu.families.len][menu.sizes.len]?text.Font = @splat(@splat(null)),
+    font_files: [menu.families.len]?[]const u8 = @splat(null),
+    note_font: *text.Font,
     footer: *text.Font,
     ui: library.Fonts,
     slots: [3]Slot,
@@ -315,17 +331,12 @@ const App = struct {
     clock_minute: u64 = 0,
     layout: text.Layout,
 
-    /// Notes read smaller than the page, like a printed footnote.
-    fn noteFont(a: *App) !*text.Font {
-        if (a.body_fonts[0] == null) a.body_fonts[0] = try text.Font.init(a.alloc, a.regular, menu.sizes[0], 1.3);
-        a.body_fonts[0].?.line_height = 47;
-        return &a.body_fonts[0].?;
-    }
-
     /// Fonts are kept per size, so stepping through sizes doesn't reload them.
     fn applySettings(a: *App) !void {
-        const slot = &a.body_fonts[a.settings.size];
-        if (slot.* == null) slot.* = try text.Font.init(a.alloc, a.regular, a.settings.px(), 1);
+        const family = a.settings.font;
+        if (a.font_files[family] == null) a.font_files[family] = try file.map(menu.families[family].path);
+        const slot = &a.body_fonts[family][a.settings.size];
+        if (slot.* == null) slot.* = try text.Font.init(a.alloc, a.font_files[family].?, a.settings.px(), 1);
         slot.*.?.line_height = a.settings.lineHeight();
         a.body = &slot.*.?;
     }
@@ -334,14 +345,17 @@ const App = struct {
         return .{ .buf = buf, .width = a.screen.width, .height = a.screen.height, .stride = a.screen.stride };
     }
 
-    /// Inverts part of the screen at once, using the fastest waveform.
+    /// Outlines a book at once, using the fastest waveform, and waits so it can't
+    /// collide with what's drawn next.
     fn flash(a: *App, r: library.Rect) void {
-        var row = r.y;
-        while (row < r.y + r.h) : (row += 1) {
-            const start = row * a.screen.stride + r.x;
-            for (a.screen.pixels[start .. start + r.w]) |*p| p.* = ~p.*;
-        }
-        _ = a.screen.updateRegion(r.x, r.y, r.w, r.h, .du, .partial) catch {};
+        const target = a.page(a.screen.pixels);
+        const t = 6;
+        target.fillRect(r.x, r.y, r.w, t, 0x00);
+        target.fillRect(r.x, r.y + r.h - t, r.w, t, 0x00);
+        target.fillRect(r.x, r.y, t, r.h, 0x00);
+        target.fillRect(r.x + r.w - t, r.y, t, r.h, 0x00);
+        const marker = a.screen.updateRegion(r.x, r.y, r.w, r.h, .du, .partial) catch return;
+        a.screen.waitComplete(marker) catch {};
     }
 
     /// Writes the time into the page on screen, without refreshing the panel.
@@ -375,10 +389,16 @@ const Session = struct {
     paragraphs: []const kfx.Paragraph,
     pages: []const text.Pos,
     current: usize,
+    anchor: text.Pos, // What the reader is at. Settings changes keep to this, not the page edge
     note_parts: [kfx.max_note_parts]kfx.Paragraph = undefined,
     note_len: usize = 0,
     note_top: u32 = 0,
     note_next: ?text.Pos = null,
+
+    fn setPage(s: *Session, index: usize) void {
+        s.current = index;
+        s.anchor = s.pages[index];
+    }
 
     fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
         for (&s.app.slots) |*slot| {
@@ -415,7 +435,7 @@ const Session = struct {
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);
         a.stampClock();
-        s.current = index;
+        s.setPage(index);
         const clean = force_clean;
         const marker = if (clean)
             try a.screen.update(.gc16, .full)
@@ -535,7 +555,7 @@ fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32)
                 marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .pull, .tick => {},
+            .tap, .hold, .pull, .tick => {},
             .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
@@ -543,7 +563,7 @@ fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32)
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
-    s.current = target;
+    s.setPage(target);
     try drawToolbar(a, s, title, sheet, true);
     try cleanBand(a, toolbar.scrub_top, band);
 }
@@ -578,7 +598,7 @@ fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8
                 marker = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .pull, .tick => {},
+            .tap, .hold, .pull, .tick => {},
             .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
@@ -596,7 +616,7 @@ fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8
 
 /// Shows a note, or the next part of a long one.
 fn showNote(a: *App, s: *Session, start: text.Pos, fixed: ?u32) !void {
-    const font = try a.noteFont();
+    const font = a.note_font;
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
     const stride = a.screen.stride;
     const fitted = try notes.fit(font, s.note_parts[0..s.note_len], start, a.screen.width, stride, fixed);
@@ -662,7 +682,7 @@ fn dragRow(a: *App, background: []const u8, row: menu.Row) !void {
                 marker = try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .a2, .partial);
             },
             .drag_end => break,
-            .tap, .pull, .tick => {},
+            .tap, .hold, .pull, .tick => {},
             .power, .idle, .stop => {
                 a.input.stashed = action;
                 break;
@@ -710,12 +730,11 @@ fn applyQuick(a: *App, change: menu.Hit, x: i32) bool {
 
 /// Re-lays out the book after a text setting changed, keeping the reading position.
 fn relayout(a: *App, alloc: std.mem.Allocator, s: *Session) !void {
-    const pos = s.pages[s.current];
     menu.save(a.settings_path, a.settings);
     try a.applySettings();
     for (&a.slots) |*slot| slot.page = -1;
     s.pages = try paginate(a, alloc, s.paragraphs);
-    s.current = pageContaining(s.pages, pos.para, pos.byte);
+    s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
 }
 
 fn readBook(a: *App, entry: *library.Entry) !Outcome {
@@ -741,7 +760,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
         pageContaining(pages, saved.para, saved.byte);
 
     for (&a.slots) |*slot| slot.page = -1;
-    var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start };
+    var session = Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start] };
     try session.show(start, null, true);
     saveProgress(entry, state_path, &session);
 
@@ -752,8 +771,11 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
     defer a.input.grips = true;
     defer a.input.tick_us = 0;
     defer saveProgress(entry, state_path, &session);
+    defer a.input.deferred = false;
     while (true) {
+        a.input.deferred = view == .page;
         switch (a.input.next()) {
+            .hold => {},
             .tap => |t| switch (view) {
                 .note => {
                     if (t.y >= session.note_top and session.note_next != null) {
@@ -799,10 +821,15 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                         .chapter_prev, .chapter_next => |direction| {
                             const sections = try alloc.alloc(u32, session.pages.len);
                             for (session.pages, sections) |p, *out| out.* = session.paragraphs[p.para].section;
-                            session.current = toolbar.chapterTarget(sections, session.current, direction == .chapter_next);
+                            session.setPage(toolbar.chapterTarget(sections, session.current, direction == .chapter_next));
                             try drawToolbar(a, &session, entry.title, sheet, true);
                         },
                         .scrub => try dragScrub(a, &session, entry.title, sheet, t.x),
+                        .font => {
+                            a.settings.font = toolbar.fontAt(t.x);
+                            try relayout(a, alloc, &session);
+                            try drawToolbar(a, &session, entry.title, sheet, true);
+                        },
                         .text_size => try dragSetting(a, alloc, &session, entry.title, toolbar.settings[0], t.x),
                         .spacing => try dragSetting(a, alloc, &session, entry.title, toolbar.settings[1], t.x),
                     }
@@ -868,7 +895,7 @@ fn libraryMenu(a: *App, background: []const u8) !bool {
                     else => {},
                 }
             },
-            .pull, .drag, .drag_end, .tick => {},
+            .pull, .hold, .drag, .drag_end, .tick => {},
             .power, .idle, .stop => return true,
         }
     }
@@ -1088,7 +1115,7 @@ fn runLibrary(a: *App) !void {
                     watch_until = 0;
                     break :browse;
                 },
-                .drag, .drag_end => continue,
+                .hold, .drag, .drag_end => continue,
                 .pull => {
                     if (try libraryMenu(a, buf)) return;
                     continue;
@@ -1139,6 +1166,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const ui_bold = try file.map(argv[5]);
     var screen = try hwtcon.Screen.open();
     var fallback_body = try text.Font.init(alloc, regular, 46, 1.35);
+    var note_font = try text.Font.init(alloc, regular, 36, 1.3);
     var footer = try text.Font.init(alloc, regular, 28, 1.2);
     var title = try text.Font.init(alloc, ui_bold, 34, 1.2);
     var small = try text.Font.init(alloc, ui_regular, 34, 1.2);
@@ -1186,7 +1214,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .screen = &screen,
         .input = &input,
         .body = &fallback_body,
-        .regular = regular,
+        .note_font = &note_font,
         .footer = &footer,
         .ui = ui,
         .slots = slots,

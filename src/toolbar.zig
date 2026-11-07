@@ -8,7 +8,7 @@ const system = @import("system.zig");
 const text = @import("text.zig");
 
 pub const top_height = 228;
-pub const sheet_height = 540; // With the text sheet open
+pub const sheet_height = 660; // With the text sheet open
 pub const bottom_top = 1410;
 pub const scrub_top = 1500;
 const screen_height = 1696;
@@ -17,7 +17,7 @@ const status_row = 66;
 const tool_row = 156;
 const scrub = slider.Slider{ .left = 110, .right = 1162, .y = 1610 };
 
-pub const Hit = enum { close, stay, home, text, goto, bookmark, search, more, chapter_prev, chapter_next, scrub, text_size, spacing };
+pub const Hit = enum { close, stay, home, text, goto, bookmark, search, more, chapter_prev, chapter_next, scrub, font, text_size, spacing };
 
 const Tool = struct { hit: Hit, x: i32 };
 const tools = [_]Tool{
@@ -30,14 +30,24 @@ const tools = [_]Tool{
 
 pub const Setting = struct { hit: Hit, label: []const u8, top: u32 };
 pub const settings = [_]Setting{
-    .{ .hit = .text_size, .label = "Text size", .top = 240 },
-    .{ .hit = .spacing, .label = "Line spacing", .top = 386 },
+    .{ .hit = .text_size, .label = "Text size", .top = 360 },
+    .{ .hit = .spacing, .label = "Line spacing", .top = 506 },
 };
 pub const setting_height = 146;
 const setting_slider_y = 92;
 
 fn settingSlider(s: Setting) slider.Slider {
     return .{ .left = 110, .right = 1162, .y = s.top + setting_slider_y };
+}
+
+const font_top = 244;
+const font_height = 100;
+const font_width: i32 = (1272 - 2 * margin) / @as(i32, menu.families.len);
+
+/// Which font a tap on the font row picks.
+pub fn fontAt(x: i32) usize {
+    const at = @divTrunc(std.math.clamp(x - margin, @as(i32, 0), 1127), font_width);
+    return @min(@as(usize, @intCast(at)), menu.families.len - 1);
 }
 
 /// Step for a finger at `x` on a setting's slider.
@@ -56,6 +66,7 @@ pub fn hit(x: i32, y: i32, sheet: bool) Hit {
         return .stay;
     }
     if (sheet and y < sheet_height) {
+        if (y >= font_top and y < font_top + font_height) return .font;
         for (settings) |row| {
             if (y >= row.top and y < row.top + setting_height) return row.hit;
         }
@@ -116,6 +127,13 @@ pub fn drawSetting(fonts: library.Fonts, page: text.Page, row: Setting, value: u
 fn drawSheet(fonts: library.Fonts, page: text.Page, chosen: menu.Settings) !void {
     page.fillRect(0, top_height, page.width, sheet_height - top_height, 0xff);
     page.fillRect(0, sheet_height - 4, page.width, 4, 0x00);
+    for (menu.families, 0..) |f, i| {
+        const left: u32 = margin + @as(u32, @intCast(i)) * @as(u32, @intCast(font_width));
+        const active = i == chosen.font;
+        const font = if (active) fonts.title else fonts.small;
+        try font.draw(page, @floatFromInt(left + 8), font_top + 62, f.label);
+        if (active) page.fillRect(left + 8, font_top + 82, @intFromFloat(try font.measure(f.label)), 5, 0x00);
+    }
     try drawSetting(fonts, page, settings[0], chosen.size, menu.sizes.len, false);
     try drawSetting(fonts, page, settings[1], chosen.spacing, menu.spacings.len, false);
 }
@@ -167,9 +185,12 @@ test "toolbar buttons map to actions" {
 
 test "text sheet takes taps only while open" {
     try std.testing.expectEqual(Hit.close, hit(350, 320, false));
-    try std.testing.expectEqual(Hit.text_size, hit(350, 320, true));
-    try std.testing.expectEqual(Hit.spacing, hit(1100, 470, true));
-    try std.testing.expectEqual(Hit.close, hit(700, 600, true));
+    try std.testing.expectEqual(Hit.font, hit(350, 290, true));
+    try std.testing.expectEqual(Hit.text_size, hit(350, 440, true));
+    try std.testing.expectEqual(Hit.spacing, hit(1100, 590, true));
+    try std.testing.expectEqual(Hit.close, hit(700, 760, true));
+    try std.testing.expectEqual(@as(usize, 0), fontAt(100));
+    try std.testing.expectEqual(@as(usize, 3), fontAt(1150));
 }
 
 test "scrubber maps position to page" {

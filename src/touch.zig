@@ -5,12 +5,19 @@ const bottom_strip = 120; // Full width, along the bottom edge
 const corner_width = 300; // Bottom corners, where thumbs sit higher
 const corner_height = 250;
 
-pub const top_zone = 150; // Top edge: taps wait for lift here, so a drag can start
+pub const top_zone = 200; // Top edge: opens the toolbar, or the panel when dragged
+pub const hold_ms = 450; // Press this long to start selecting text
+const hold_slop = 36; // Movement that still counts as holding still
 const pull_distance = 80;
 
 /// True once a touch that began at the top has dragged far enough down.
 pub fn isPull(start_y: i32, y: i32) bool {
     return y - start_y >= pull_distance;
+}
+
+/// True when a finger has wandered too far to count as a hold.
+pub fn movedOff(x0: i32, y0: i32, x: i32, y: i32) bool {
+    return @abs(x - x0) > hold_slop or @abs(y - y0) > hold_slop;
 }
 
 pub fn isGrip(x: i32, y: i32, width: i32, height: i32) bool {
@@ -36,4 +43,9 @@ test "dragging down from the top counts as a pull" {
     try std.testing.expect(!isPull(40, 100));
     try std.testing.expect(isPull(40, 120));
     try std.testing.expect(!isPull(100, 60));
+}
+
+test "small wobble still counts as holding" {
+    try std.testing.expect(!movedOff(100, 100, 120, 90));
+    try std.testing.expect(movedOff(100, 100, 200, 100));
 }
