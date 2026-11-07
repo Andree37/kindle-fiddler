@@ -825,7 +825,11 @@ fn lockScreen(a: *App, entry: ?*const library.Entry) !void {
         switch (action) {
             .tick => {
                 redraws += 1;
-                try a.present(target, .gc16, .full);
+                // Only when stock painted over it, and only the pixels it changed.
+                if (!std.mem.eql(u8, a.screen.pixels, target)) {
+                    std.debug.print("lock cover repainted\n", .{});
+                    try a.present(target, .gc16, .partial);
+                }
                 if (redraws == lock_redraws) a.input.tick_us = 0;
             },
             .unlock => break,
