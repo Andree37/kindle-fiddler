@@ -3,6 +3,7 @@
 const std = @import("std");
 const core = @import("core");
 const linux = std.os.linux;
+const cover = core.cover;
 const file = core.file;
 const kfx = core.kfx;
 const library = core.library;
@@ -97,6 +98,16 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const confirming = argv.len > 2;
         const opts = sheet.options(&entries[visible[0]], confirming, &list);
         try sheet.render(fonts, page, &entries[visible[0]], opts, confirming);
+        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
+        write(buf);
+        return;
+    }
+
+    if (std.mem.eql(u8, mode, "lock")) {
+        const data = try file.map(argv[2]);
+        const jpeg = kfx.coverImage(data) orelse return error.NoCover;
+        std.debug.print("jpeg {d} bytes\n", .{jpeg.len});
+        if (!cover.fillScreen(alloc, jpeg, buf, w, h)) return error.DecodeFailed;
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
         write(buf);
         return;

@@ -1,4 +1,5 @@
 //! Shared by the app and the tools in tools/, which can't reach into src/ directly.
+pub const cover = @import("cover.zig");
 pub const file = @import("file.zig");
 pub const hwtcon = @import("hwtcon.zig");
 pub const kfx = @import("kfx.zig");

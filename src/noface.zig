@@ -29,6 +29,8 @@ const save_every = 10;
 const download_poll_us = 5 * 1000 * 1000;
 const download_watch_us = 3 * 60 * 1000 * 1000;
 const clock_check_us = 10 * 1000 * 1000;
+const lock_redraw_us = 1500 * 1000;
+const lock_redraws = 2;
 const clock_top = 16;
 const clock_height = 56;
 const clock_width = 160;
@@ -568,9 +570,20 @@ fn lockScreen(a: *App, entry: ?*const library.Entry) !void {
     try a.present(target, .gc16, .full);
     std.debug.print("locked, cover drawn: {}\n", .{drawn});
 
+    // Stock paints its own lock screen just after this, so draw over it again.
+    const tick = a.input.tick_us;
+    defer a.input.tick_us = tick;
+    a.input.tick_us = lock_redraw_us;
+    a.input.last_tick = nowUs();
+    var redraws: u32 = 0;
     while (true) {
         const action = a.input.next();
         switch (action) {
+            .tick => {
+                redraws += 1;
+                try a.present(target, .gc16, .full);
+                if (redraws == lock_redraws) a.input.tick_us = 0;
+            },
             .unlock => break,
             .idle, .stop => {
                 a.input.stashed = action;
