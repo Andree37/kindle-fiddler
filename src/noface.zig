@@ -8,6 +8,7 @@
 //! same place. All Settings leaves for the stock UI.
 const std = @import("std");
 const linux = std.os.linux;
+const aa = @import("aa.zig");
 const annotations = @import("annotations.zig");
 const cache = @import("cache.zig");
 const cover = @import("cover.zig");
@@ -331,8 +332,10 @@ const App = struct {
     screen: *hwtcon.Screen,
     input: *Input,
     body: *text.Font,
-    body_fonts: [menu.families.len][menu.sizes.len]?text.Font = @splat(@splat(null)),
-    font_files: [menu.families.len]?[]const u8 = @splat(null),
+    body_fonts: [menu.families.len][2][menu.sizes.len]?text.Font = @splat(@splat(@splat(null))),
+    font_files: [menu.families.len][2]?[]const u8 = @splat(@splat(null)),
+    tab: aa.Tab = .font,
+    turns: u32 = 0,
     note_font: *text.Font,
     footer: *text.Font,
     ui: library.Fonts,
@@ -352,9 +355,12 @@ const App = struct {
     /// Fonts are kept per size, so stepping through sizes doesn't reload them.
     fn applySettings(a: *App) !void {
         const family = a.settings.font;
-        if (a.font_files[family] == null) a.font_files[family] = try file.map(menu.families[family].path);
-        const slot = &a.body_fonts[family][a.settings.size];
-        if (slot.* == null) slot.* = try text.Font.init(a.alloc, a.font_files[family].?, a.settings.px(), 1);
+        const weight: usize = @intFromBool(a.settings.bold);
+        if (a.font_files[family][weight] == null) a.font_files[family][weight] = try file.map(a.settings.fontPath());
+        const slot = &a.body_fonts[family][weight][a.settings.size];
+        if (slot.* == null) slot.* = try text.Font.init(a.alloc, a.font_files[family][weight].?, a.settings.px(), 1);
+        a.layout.margin_x = menu.margins[a.settings.margin];
+        a.layout.justify = !a.settings.left_align;
         slot.*.?.line_height = a.settings.lineHeight();
         a.body = &slot.*.?;
     }
@@ -378,6 +384,7 @@ const App = struct {
 
     /// Writes the time into the page on screen, without refreshing the panel.
     fn stampClock(a: *App) void {
+        if (!a.settings.clock) return;
         const target = a.page(a.screen.pixels);
         const left = (a.screen.width - clock_width) / 2;
         target.fillRect(left, clock_top, clock_width, clock_height, 0xff);
@@ -391,6 +398,7 @@ const App = struct {
 
     /// Redraws just the clock, which is too small to need a flash.
     fn updateClock(a: *App) !void {
+        if (!a.settings.clock) return;
         a.stampClock();
         const left = (a.screen.width - clock_width) / 2;
         try a.screen.waitComplete(try a.screen.updateRegion(left, clock_top, clock_width, clock_height, .gl16, .partial));
@@ -455,7 +463,8 @@ const Session = struct {
         @memcpy(a.screen.pixels, buf);
         a.stampClock();
         s.setPage(index);
-        const clean = force_clean;
+        a.turns += 1;
+        const clean = force_clean or (a.settings.refresh and a.turns % 20 == 0);
         const marker = if (clean)
             try a.screen.update(.gc16, .full)
         else
@@ -530,13 +539,13 @@ fn closeMenu(a: *App, background: []const u8) !void {
 /// Draws the toolbar over the current page.
 fn drawToolbar(a: *App, s: *Session, title: []const u8, sheet: bool, whole_page: bool) !void {
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
-    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, sheet, a.settings);
+    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, if (sheet) a.tab else null, a.settings);
     @memcpy(a.screen.pixels, a.overlay);
     if (whole_page) {
         try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, a.screen.height, page_waveform, .partial));
         return;
     }
-    const top: u32 = if (sheet) toolbar.sheet_height else toolbar.top_height;
+    const top: u32 = if (sheet) aa.height else toolbar.top_height;
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, page_waveform, .partial);
     try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, page_waveform, .partial));
     try a.screen.waitComplete(first);
@@ -544,7 +553,7 @@ fn drawToolbar(a: *App, s: *Session, title: []const u8, sheet: bool, whole_page:
 
 fn closeToolbar(a: *App, s: *Session, sheet: bool) !void {
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
-    const top: u32 = if (sheet) toolbar.sheet_height else toolbar.top_height;
+    const top: u32 = if (sheet) aa.height else toolbar.top_height;
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, page_waveform, .partial);
     try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, page_waveform, .partial));
     try a.screen.waitComplete(first);
@@ -782,6 +791,39 @@ fn lockScreen(a: *App, entry: ?*const library.Entry) !void {
     try a.present(a.lock_saved, .gc16, .full);
 }
 
+/// Shows a note, or the next part of a long one.
+fn showNote(a: *App, s: *Session, start: text.Pos, fixed: ?u32) !void {
+    const font = a.note_font;
+    @memcpy(a.overlay, try s.ensure(s.current, s.current));
+    const stride = a.screen.stride;
+    const fitted = try notes.fit(font, s.note_parts[0..s.note_len], start, a.screen.width, stride, fixed);
+    const top = a.screen.height - fitted.height;
+    const panel = text.Page{ .buf = a.overlay[top * stride..], .width = a.screen.width, .height = fitted.height, .stride = stride };
+    try notes.render(font, a.ui, panel, s.note_parts[0..s.note_len], start, fitted.next != null);
+    @memcpy(a.screen.pixels, a.overlay);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, fitted.height, page_waveform, .partial));
+    s.note_top = top;
+    s.note_next = fitted.next;
+    std.debug.print("note parts {d} panel {d} more {}\n", .{ s.note_len, fitted.height, fitted.next != null });
+}
+
+fn openNote(a: *App, s: *Session, target: u32) !void {
+    s.note_len = kfx.noteLength(s.paragraphs, target);
+    for (s.paragraphs[target..][0..s.note_len], s.note_parts[0..s.note_len]) |src, *dst| {
+        dst.* = src;
+        dst.note = false;
+        dst.note_start = false;
+        dst.links = &.{};
+    }
+    try showNote(a, s, .{}, null);
+}
+
+fn closeNote(a: *App, s: *Session) !void {
+    std.debug.print("note closed\n", .{});
+    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
+    try a.screen.waitComplete(try a.screen.updateRegion(0, s.note_top, a.screen.width, a.screen.height - s.note_top, page_waveform, .partial));
+}
+
 /// Follows a finger along the page scrubber, then jumps there.
 fn dragScrub(a: *App, s: *Session, title: []const u8, sheet: bool, first_x: i32) !void {
     a.input.beginDrag();
@@ -824,16 +866,22 @@ fn cleanBand(a: *App, top: u32, height: u32) !void {
     try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, height, .gc16, .full));
 }
 
-/// Follows a finger along a text setting, and applies it when lifted.
-fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8, row: toolbar.Setting, first_x: i32) !void {
-    const is_size = row.hit == .text_size;
-    const steps = if (is_size) menu.sizes.len else menu.spacings.len;
-    var value = toolbar.stepAt(row, first_x, steps);
-    const started = if (is_size) a.settings.size else a.settings.spacing;
+fn rowSetting(a: *App, row: aa.Row) *usize {
+    return switch (row.hit) {
+        .text_size => &a.settings.size,
+        .spacing => &a.settings.spacing,
+        else => &a.settings.margin,
+    };
+}
+
+/// Follows a finger along an Aa slider, and applies it when lifted.
+fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8, row: aa.Row, first_x: i32) !void {
+    var value = aa.stepAt(row, first_x);
+    const started = rowSetting(a, row).*;
     a.input.beginDrag();
     const screen_page = a.page(a.screen.pixels);
-    try toolbar.drawSetting(a.ui, screen_page, row, value, steps, true);
-    var marker: ?u32 = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
+    try aa.drawRow(a.ui, screen_page, row, value, true);
+    var marker: ?u32 = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, .a2, .partial);
     while (true) {
         const action = a.input.next();
         switch (action) {
@@ -842,11 +890,11 @@ fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8
                     try a.screen.waitComplete(m);
                     marker = null;
                 }
-                const next = toolbar.stepAt(row, a.input.latestDrag() orelse first, steps);
+                const next = aa.stepAt(row, a.input.latestDrag() orelse first);
                 if (next == value) continue;
                 value = next;
-                try toolbar.drawSetting(a.ui, screen_page, row, value, steps, true);
-                marker = try a.screen.updateRegion(0, row.top, a.screen.width, toolbar.setting_height, .a2, .partial);
+                try aa.drawRow(a.ui, screen_page, row, value, true);
+                marker = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, .a2, .partial);
             },
             .drag_end => break,
             .tap, .hold, .pull, .tick, .unlock => {},
@@ -858,44 +906,46 @@ fn dragSetting(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8
     }
     if (marker) |m| try a.screen.waitComplete(m);
     if (value != started) {
-        if (is_size) a.settings.size = value else a.settings.spacing = value;
+        rowSetting(a, row).* = value;
         try relayout(a, alloc, s);
     }
     try drawToolbar(a, s, title, true, true);
-    try cleanBand(a, row.top, toolbar.setting_height);
+    try cleanBand(a, row.top, aa.row_height);
 }
 
-/// Shows a note, or the next part of a long one.
-fn showNote(a: *App, s: *Session, start: text.Pos, fixed: ?u32) !void {
-    const font = a.note_font;
-    @memcpy(a.overlay, try s.ensure(s.current, s.current));
-    const stride = a.screen.stride;
-    const fitted = try notes.fit(font, s.note_parts[0..s.note_len], start, a.screen.width, stride, fixed);
-    const top = a.screen.height - fitted.height;
-    const panel = text.Page{ .buf = a.overlay[top * stride..], .width = a.screen.width, .height = fitted.height, .stride = stride };
-    try notes.render(font, a.ui, panel, s.note_parts[0..s.note_len], start, fitted.next != null);
-    @memcpy(a.screen.pixels, a.overlay);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, fitted.height, page_waveform, .partial));
-    s.note_top = top;
-    s.note_next = fitted.next;
-    std.debug.print("note parts {d} panel {d} more {}\n", .{ s.note_len, fitted.height, fitted.next != null });
-}
-
-fn openNote(a: *App, s: *Session, target: u32) !void {
-    s.note_len = kfx.noteLength(s.paragraphs, target);
-    for (s.paragraphs[target..][0..s.note_len], s.note_parts[0..s.note_len]) |src, *dst| {
-        dst.* = src;
-        dst.note = false;
-        dst.note_start = false;
-        dst.links = &.{};
+/// Handles a tap inside the Aa sheet.
+fn tapSheet(a: *App, alloc: std.mem.Allocator, s: *Session, title: []const u8, x: i32, y: i32) !void {
+    switch (aa.hit(a.tab, x, y)) {
+        .none => return,
+        .tab => |tab| {
+            a.tab = tab;
+            return drawToolbar(a, s, title, true, false);
+        },
+        .text_size => return dragSetting(a, alloc, s, title, aa.size_row, x),
+        .spacing => return dragSetting(a, alloc, s, title, aa.spacing_row, x),
+        .margins => return dragSetting(a, alloc, s, title, aa.margin_row, x),
+        .theme => |i| {
+            const t = aa.themes[i];
+            a.settings.size = t.size;
+            a.settings.spacing = t.spacing;
+            a.settings.margin = t.margin;
+        },
+        .family => |i| a.settings.font = i,
+        .bold => a.settings.bold = !a.settings.bold,
+        .alignment => a.settings.left_align = !a.settings.left_align,
+        .clock => {
+            a.settings.clock = !a.settings.clock;
+            menu.save(a.settings_path, a.settings);
+            return drawToolbar(a, s, title, true, false);
+        },
+        .refresh => {
+            a.settings.refresh = !a.settings.refresh;
+            menu.save(a.settings_path, a.settings);
+            return drawToolbar(a, s, title, true, false);
+        },
     }
-    try showNote(a, s, .{}, null);
-}
-
-fn closeNote(a: *App, s: *Session) !void {
-    std.debug.print("note closed\n", .{});
-    @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
-    try a.screen.waitComplete(try a.screen.updateRegion(0, s.note_top, a.screen.width, a.screen.height - s.note_top, page_waveform, .partial));
+    try relayout(a, alloc, s);
+    try drawToolbar(a, s, title, true, true);
 }
 
 fn rowValue(a: *App, row: menu.Row) u32 {
@@ -990,6 +1040,7 @@ fn relayout(a: *App, alloc: std.mem.Allocator, s: *Session) !void {
     for (&a.slots) |*slot| slot.page = -1;
     s.pages = try paginate(a, alloc, s.paragraphs);
     s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
+    std.debug.print("relayout: page {d} of {d}, anchor {d}:{d}\n", .{ s.current + 1, s.pages.len, s.anchor.para, s.anchor.byte });
 }
 
 fn readBook(a: *App, entry: *library.Entry) !Outcome {
@@ -1124,13 +1175,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                             try drawToolbar(a, &session, entry.title, sheet, true);
                         },
                         .scrub => try dragScrub(a, &session, entry.title, sheet, t.x),
-                        .font => {
-                            a.settings.font = toolbar.fontAt(t.x);
-                            try relayout(a, alloc, &session);
-                            try drawToolbar(a, &session, entry.title, sheet, true);
-                        },
-                        .text_size => try dragSetting(a, alloc, &session, entry.title, toolbar.settings[0], t.x),
-                        .spacing => try dragSetting(a, alloc, &session, entry.title, toolbar.settings[1], t.x),
+                        .sheet => try tapSheet(a, alloc, &session, entry.title, t.x, t.y),
                     }
                 },
                 .page => {

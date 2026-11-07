@@ -1,4 +1,5 @@
 test {
+    _ = @import("aa.zig");
     _ = @import("annotations.zig");
     _ = @import("cache.zig");
     _ = @import("cover.zig");

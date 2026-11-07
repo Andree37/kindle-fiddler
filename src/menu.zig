@@ -18,25 +18,36 @@ pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = system.max_warmt
 const schedule_top = 754;
 const schedule_bottom = 794;
 
-pub const Family = struct { label: []const u8, path: [*:0]const u8 };
+pub const Family = struct { label: []const u8, regular: [*:0]const u8, bold: [*:0]const u8 };
 const font_dir = "/usr/java/lib/fonts/";
 pub const families = [_]Family{
-    .{ .label = "Ember", .path = font_dir ++ "Amazon-Ember-Regular.ttf" },
-    .{ .label = "Bookerly", .path = font_dir ++ "Bookerly-Regular.ttf" },
-    .{ .label = "Baskerville", .path = font_dir ++ "Baskerville-Regular.ttf" },
-    .{ .label = "Serif", .path = font_dir ++ "AmazonEmberSerif_Rg.ttf" },
+    .{ .label = "Ember", .regular = font_dir ++ "Amazon-Ember-Regular.ttf", .bold = font_dir ++ "Amazon-Ember-Bold.ttf" },
+    .{ .label = "Bookerly", .regular = font_dir ++ "Bookerly-Regular.ttf", .bold = font_dir ++ "Bookerly-Bold.ttf" },
+    .{ .label = "Baskerville", .regular = font_dir ++ "Baskerville-Regular.ttf", .bold = font_dir ++ "Baskerville-Bold.ttf" },
+    .{ .label = "Serif", .regular = font_dir ++ "AmazonEmberSerif_Rg.ttf", .bold = font_dir ++ "AmazonEmberSerif_Bd.ttf" },
 };
 
 pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
 pub const spacings = [_]f32{ 1.2, 1.35, 1.5, 1.7 };
+pub const margins = [_]i32{ 60, 100, 150, 210 };
 
 pub const Settings = struct {
     size: usize = 2,
     spacing: usize = 1,
     font: usize = 0,
+    margin: usize = 1,
+    bold: bool = false,
+    left_align: bool = false,
+    clock: bool = true,
+    refresh: bool = false,
 
     pub fn px(s: Settings) f32 {
         return sizes[s.size];
+    }
+
+    pub fn fontPath(s: Settings) [*:0]const u8 {
+        const family = families[s.font];
+        return if (s.bold) family.bold else family.regular;
     }
 
     pub fn lineHeight(s: Settings) i32 {
@@ -177,19 +188,53 @@ pub fn render(fonts: library.Fonts, page: text.Page, quick: *const system.Quick)
 
 }
 
-/// Settings share the state file format: size, spacing, font.
-pub fn load(path: [*:0]const u8) Settings {
-    const s = state.load(path);
-    if (s.opened == 0) return .{};
+const format_packed = 2;
+
+/// Settings share the state file format, with everything packed into two numbers.
+pub fn decode(saved: state.State) Settings {
+    if (saved.opened == 0) return .{};
+    if (saved.opened != format_packed) {
+        return .{ .size = @min(saved.para, sizes.len - 1), .spacing = @min(saved.byte, spacings.len - 1), .font = @min(saved.percent orelse 0, families.len - 1) };
+    }
+    const flags = saved.byte;
     return .{
-        .size = @min(s.para, sizes.len - 1),
-        .spacing = @min(s.byte, spacings.len - 1),
-        .font = @min(s.percent orelse 0, families.len - 1),
+        .size = @min(saved.para & 15, sizes.len - 1),
+        .spacing = @min((saved.para >> 4) & 15, spacings.len - 1),
+        .font = @min((saved.para >> 8) & 15, families.len - 1),
+        .margin = @min((saved.para >> 12) & 15, margins.len - 1),
+        .bold = flags & 1 != 0,
+        .left_align = flags & 2 != 0,
+        .clock = flags & 4 == 0,
+        .refresh = flags & 8 != 0,
     };
 }
 
+pub fn encode(s: Settings) state.State {
+    const flags = @as(usize, @intFromBool(s.bold)) | @as(usize, @intFromBool(s.left_align)) << 1 |
+        @as(usize, @intFromBool(!s.clock)) << 2 | @as(usize, @intFromBool(s.refresh)) << 3;
+    return .{ .para = s.size | s.spacing << 4 | s.font << 8 | s.margin << 12, .byte = flags, .opened = format_packed };
+}
+
+pub fn load(path: [*:0]const u8) Settings {
+    return decode(state.load(path));
+}
+
 pub fn save(path: [*:0]const u8, s: Settings) void {
-    state.save(path, .{ .para = s.size, .byte = s.spacing, .percent = @intCast(s.font), .opened = 1 });
+    state.save(path, encode(s));
+}
+
+test "settings survive being saved" {
+    const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true };
+    try std.testing.expectEqual(s, decode(encode(s)));
+    try std.testing.expectEqual(Settings{}, decode(encode(.{})));
+}
+
+test "settings saved by older versions still load" {
+    const s = decode(.{ .para = 3, .byte = 2, .percent = 1, .opened = 1 });
+    try std.testing.expectEqual(@as(usize, 3), s.size);
+    try std.testing.expectEqual(@as(usize, 2), s.spacing);
+    try std.testing.expectEqual(@as(usize, 1), s.font);
+    try std.testing.expect(s.clock);
 }
 
 test "panel maps taps like the stock layout" {

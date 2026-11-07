@@ -395,6 +395,7 @@ pub const Layout = struct {
     indent: f32,
     reference: ?*Font = null, // Smaller font for note references
     marks: []const Mark = &.{},
+    justify: bool = true,
 };
 
 const max_words = 96;
@@ -480,7 +481,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             var word_total: f32 = 0;
             for (widths[0..n]) |w| word_total += w;
             var gap = space;
-            if (!line_ends_para and n > 1) {
+            if (l.justify and !line_ends_para and n > 1) {
                 gap = @min((avail - word_total) / @as(f32, @floatFromInt(n - 1)), space * 2.5);
             }
             var x = @as(f32, @floatFromInt(l.margin_x)) + indent;

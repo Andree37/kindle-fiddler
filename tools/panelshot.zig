@@ -114,9 +114,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     if (std.mem.eql(u8, mode, "toolbar")) {
-        const open_sheet = argv.len > 2;
+        const tab: ?core.aa.Tab = if (argv.len > 2) @enumFromInt(argv[2][0] - '0') else null;
         @memset(buf, 0xe8);
-        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, open_sheet, .{});
+        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, tab, .{});
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
         write(buf);
         return;
