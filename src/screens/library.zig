@@ -60,7 +60,7 @@ pub fn loadLibrary(a: *app.App) !Library {
     errdefer arena.deinit();
     const alloc = arena.allocator();
     const data = try file.map(a.library_path);
-    const entries = try catalog.parse(alloc, data);
+    const entries = try catalog_db.parse(alloc, data);
     var path_buf: [320]u8 = undefined;
     for (entries) |*e| {
         if (e.availability == .downloading and isCompleteBook(e.path)) e.availability = .local;

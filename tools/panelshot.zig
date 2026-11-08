@@ -1,6 +1,7 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
 //! Usage: panelshot [panel | notes | toolbar [sheet] | library [page [read]]]
 const std = @import("std");
+const catalog_db = core.catalog_db;
 const Page = core.page.Page;
 const Font = core.font.Font;
 const book_model = core.book;
@@ -78,7 +79,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var quick = lipc.read(.{});
 
     if (std.mem.eql(u8, mode, "library")) {
-        const entries = try catalog.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
         catalog.sort(entries, .recent);
         const visible = try alloc.alloc(usize, entries.len);
         const filter: catalog.Filter = if (argv.len > 3) .read else .all;
@@ -112,7 +113,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     if (std.mem.eql(u8, mode, "sheet")) {
-        const entries = try catalog.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
         catalog.sort(entries, .recent);
         const lead = catalog.pickHero(entries);
         const visible = try alloc.alloc(usize, entries.len);
