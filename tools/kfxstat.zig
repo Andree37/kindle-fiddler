@@ -13,6 +13,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var ts0: linux.timespec = undefined;
     var ts1: linux.timespec = undefined;
     _ = linux.clock_gettime(.MONOTONIC, &ts0);
+    std.debug.print("complete {}\n", .{kfx.isComplete(data)});
     const book = try kfx.parse(std.heap.page_allocator, data);
     _ = linux.clock_gettime(.MONOTONIC, &ts1);
 
