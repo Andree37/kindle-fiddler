@@ -12,12 +12,12 @@ pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool
     try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, if (sheet) a.tab else null, a.settings);
     @memcpy(a.screen.pixels, a.overlay);
     if (whole_page) {
-        try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, a.screen.height, app.page_waveform, .partial));
+        try a.showBand(0, a.screen.height);
         return;
     }
     const top: u32 = if (sheet) aa.height else toolbar.top_height;
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, app.page_waveform, .partial);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, app.page_waveform, .partial));
+    try a.showBand(toolbar.bottom_top, a.screen.height - toolbar.bottom_top);
     try a.screen.waitComplete(first);
 }
 
@@ -25,7 +25,7 @@ pub fn closeToolbar(a: *app.App, s: *sess.Session, sheet: bool) !void {
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
     const top: u32 = if (sheet) aa.height else toolbar.top_height;
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, app.page_waveform, .partial);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, toolbar.bottom_top, a.screen.width, a.screen.height - toolbar.bottom_top, app.page_waveform, .partial));
+    try a.showBand(toolbar.bottom_top, a.screen.height - toolbar.bottom_top);
     try a.screen.waitComplete(first);
 }
 

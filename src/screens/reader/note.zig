@@ -16,7 +16,7 @@ pub fn showNote(a: *app.App, s: *sess.Session, start: text.Pos, fixed: ?u32) !vo
     const panel = text.Page{ .buf = a.overlay[top * stride..], .width = a.screen.width, .height = fitted.height, .stride = stride };
     try notes.render(font, a.ui, panel, s.note_parts[0..s.note_len], start, fitted.next != null);
     @memcpy(a.screen.pixels, a.overlay);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, fitted.height, app.page_waveform, .partial));
+    try a.showBand(top, fitted.height);
     s.note_top = top;
     s.note_next = fitted.next;
     std.debug.print("note parts {d} panel {d} more {}\n", .{ s.note_len, fitted.height, fitted.next != null });
@@ -36,5 +36,5 @@ pub fn openNote(a: *app.App, s: *sess.Session, target: u32) !void {
 pub fn closeNote(a: *app.App, s: *sess.Session) !void {
     std.debug.print("note closed\n", .{});
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
-    try a.screen.waitComplete(try a.screen.updateRegion(0, s.note_top, a.screen.width, a.screen.height - s.note_top, app.page_waveform, .partial));
+    try a.showBand(s.note_top, a.screen.height - s.note_top);
 }

@@ -63,7 +63,7 @@ pub fn loadLibrary(a: *app.App) !Library {
     for (entries) |*e| {
         if (e.availability == .downloading and isCompleteBook(e.path)) e.availability = .local;
         if (!e.isLocal()) continue;
-        const saved = state.load(try state.pathFor(&path_buf, a.state_dir, e.path));
+        const saved = state.load(try a.statePath(&path_buf, e.path));
         if (state.preferKindle(saved, e.kindle_last)) continue;
         if (saved.percent) |p| e.percent = @min(p, 100);
         e.last = @max(e.last, saved.opened);
@@ -76,7 +76,7 @@ pub fn loadLibrary(a: *app.App) !Library {
 /// percent, so it wins, without moving the book up in recent order.
 pub fn forgetFinished(a: *app.App, e: *const catalog.Entry) !void {
     var path_buf: [320]u8 = undefined;
-    const path = try state.pathFor(&path_buf, a.state_dir, e.path);
+    const path = try a.statePath(&path_buf, e.path);
     var saved = state.load(path);
     saved.percent = 0;
     saved.opened = @max(saved.opened, e.kindle_last) + 1;
@@ -95,7 +95,7 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !bool {
         @memcpy(a.screen.pixels, a.overlay);
         const area = book_actions.region();
         const top = book_actions.top(list.len) - 8;
-        try a.screen.waitComplete(try a.screen.updateRegion(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16, app.page_waveform, .partial));
+        try a.showRect(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16);
 
         const chosen: ?book_actions.Option = while (true) {
             switch (a.input.next()) {
@@ -117,7 +117,7 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !bool {
         switch (chosen orelse .cancel) {
             .cancel => {
                 @memcpy(a.screen.pixels, background);
-                try a.screen.waitComplete(try a.screen.updateRegion(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16, app.page_waveform, .partial));
+                try a.showRect(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16);
                 return false;
             },
             .remove => confirming = true,

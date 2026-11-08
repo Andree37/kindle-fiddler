@@ -40,10 +40,8 @@ pub fn saveHighlight(s: *sess.Session, entry: *const catalog.Entry, id: []const 
 }
 
 pub fn pageWords(a: *app.App, s: *const sess.Session) []const text.Word {
-    for (&a.slots) |*slot| {
-        if (slot.page == @as(i64, @intCast(s.current))) return slot.hits.words[0..slot.hits.word_count];
-    }
-    return &.{};
+    const slot = a.slotFor(s.current) orelse return &.{};
+    return slot.hits.words[0..slot.hits.word_count];
 }
 
 /// Rebuilds the marks drawn on pages, after highlights change.
@@ -51,7 +49,7 @@ pub fn refreshMarks(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator) !vo
     const marks = try alloc.alloc(text.Mark, s.highlights.items.len);
     for (s.highlights.items, marks) |h, *m| m.* = h.mark;
     a.layout.marks = marks;
-    for (&a.slots) |*slot| slot.page = -1;
+    a.forgetPages();
 }
 
 /// Shows the page, with handles on a highlight when one is active.

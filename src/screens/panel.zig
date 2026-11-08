@@ -10,12 +10,12 @@ pub fn drawMenu(a: *app.App, background: []const u8) !void {
     @memcpy(a.overlay, background);
     try menu.render(a.ui, a.page(a.overlay), &a.quick);
     @memcpy(a.screen.pixels, a.overlay);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height, app.page_waveform, .partial));
+    try a.showBand(0, menu.height);
 }
 
 pub fn closeMenu(a: *app.App, background: []const u8) !void {
     @memcpy(a.screen.pixels, background);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, 0, a.screen.width, menu.height, app.page_waveform, .partial));
+    try a.showBand(0, menu.height);
 }
 
 pub fn rowValue(a: *app.App, row: menu.Row) u32 {

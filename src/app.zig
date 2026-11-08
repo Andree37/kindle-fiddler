@@ -102,6 +102,34 @@ pub const App = struct {
         try a.screen.waitComplete(try a.screen.updateRegion(left, clock_top, clock_width, clock_height, .gl16, .partial));
     }
 
+    /// Refreshes part of the screen with the page waveform, and waits for it.
+    pub fn showRect(a: *App, left: u32, top: u32, width: u32, height: u32) !void {
+        try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, page_waveform, .partial));
+    }
+
+    /// Refreshes a full-width band of the screen, and waits for it.
+    pub fn showBand(a: *App, top: u32, height: u32) !void {
+        try a.showRect(0, top, a.screen.width, height);
+    }
+
+    /// The cached page buffer holding `page`, if any.
+    pub fn slotFor(a: *App, page_index: usize) ?*Slot {
+        for (&a.slots) |*slot| {
+            if (slot.page == @as(i64, @intCast(page_index))) return slot;
+        }
+        return null;
+    }
+
+    /// Drops every cached page, after anything that changes how pages look.
+    pub fn forgetPages(a: *App) void {
+        for (&a.slots) |*slot| slot.page = -1;
+    }
+
+    /// Where a book's reading position is kept.
+    pub fn statePath(a: *const App, buf: []u8, book_path: []const u8) ![:0]u8 {
+        return state.pathFor(buf, a.state_dir, book_path);
+    }
+
     pub fn present(a: *App, buf: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode) !void {
         @memcpy(a.screen.pixels, buf);
         try a.screen.waitComplete(try a.screen.update(wf, mode));
@@ -121,7 +149,7 @@ pub fn showNotice(a: *App, message: []const u8) !void {
     screen_page.fillRect(left + 3, top + 3, width - 6, height - 6, 0xff);
     const label = try a.ui.small.measure(message);
     try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(left + width / 2)) - label / 2, @intCast(top + 62), message);
-    try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, page_waveform, .partial));
+    try a.showRect(left, top, width, height);
     os.sleepMs(notice_ms);
 }
 

@@ -46,7 +46,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     std.debug.print("open {s}: {d} pages in {d} ms\n", .{ entry.title, pages.len, (nowUs() - t0) / 1000 });
 
     var path_buf: [320]u8 = undefined;
-    const state_path = try state.pathFor(&path_buf, a.state_dir, entry.path);
+    const state_path = try a.statePath(&path_buf, entry.path);
     const saved = state.load(state_path);
     const start = if (state.preferKindle(saved, entry.kindle_last))
         @min(pages.len * entry.kindle_percent / 100, pages.len - 1)

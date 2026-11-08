@@ -32,18 +32,14 @@ pub const Session = struct {
     }
 
     pub fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
-        for (&s.app.slots) |*slot| {
-            if (slot.page == @as(i64, @intCast(s.current))) return slot.hits.find(x, y);
-        }
-        return null;
+        const slot = s.app.slotFor(s.current) orelse return null;
+        return slot.hits.find(x, y);
     }
 
     /// Get a rendered page, reusing a cached one when possible.
     pub fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
         const a = s.app;
-        for (&a.slots) |*slot| {
-            if (slot.page == @as(i64, @intCast(index))) return slot.buf;
-        }
+        if (a.slotFor(index)) |slot| return slot.buf;
         var cached: [3]i64 = undefined;
         for (&a.slots, &cached) |*slot, *c| c.* = slot.page;
         const victim = cache.victim(cached, @intCast(center));
@@ -132,7 +128,7 @@ pub fn relayout(a: *app.App, alloc: std.mem.Allocator, s: *Session) !void {
         return a.applySettings();
     };
     app.saveSettings(a.settings_path, a.settings);
-    for (&a.slots) |*slot| slot.page = -1;
+    a.forgetPages();
     s.pages = try paginate(a, alloc, s.paragraphs);
     s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
     std.debug.print("relayout: page {d} of {d}, anchor {d}:{d}\n", .{ s.current + 1, s.pages.len, s.anchor.para, s.anchor.byte });
