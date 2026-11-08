@@ -48,7 +48,7 @@ pub fn installSignals() void {
 }
 
 fn openInput(path: [*:0]const u8) !i32 {
-    const rc = linux.open(path, .{ .ACCMODE = .RDONLY, .NONBLOCK = true }, 0);
+    const rc = linux.open(path, .{ .ACCMODE = .RDONLY, .NONBLOCK = true, .CLOEXEC = true }, 0);
     if (failed(rc)) return error.InputOpen;
     const fd: i32 = @intCast(rc);
     var clock: i32 = 1; // CLOCK_MONOTONIC, so event times compare with nowUs
@@ -90,6 +90,7 @@ pub const Input = struct {
     touch: i32,
     power: i32,
     power_events: i32 = -1,
+    watcher_pid: i32 = 0, // The lipc-wait-event child behind power_events
     width: i32,
     height: i32,
     x_max: i32,
@@ -119,6 +120,17 @@ pub const Input = struct {
     stashed: ?Action = null,
     locked: bool = false, // Nothing to check on a timer, so sleep until an event
     watcher_retry_us: u64 = 0, // When to restart a power-event watcher that died
+
+    /// Starts listening for lock and unlock from powerd.
+    fn startWatcher(in: *Input) void {
+        const child = system.watchPowerEvents() orelse {
+            in.power_events = -1;
+            in.watcher_pid = 0;
+            return;
+        };
+        in.power_events = child.out;
+        in.watcher_pid = child.pid;
+    }
 
     /// The next action from touch events already waiting, reading more only when the
     /// panel has them ready. Null once nothing more is waiting.
@@ -219,7 +231,7 @@ pub const Input = struct {
 
             if (in.power_events < 0 and nowUs() >= in.watcher_retry_us) {
                 in.watcher_retry_us = nowUs() + watcher_retry_ms * 1000;
-                in.power_events = system.watchPowerEvents() orelse -1;
+                in.startWatcher();
                 std.debug.print("power watcher restarted: {}\n", .{in.power_events >= 0});
                 // A wake-up while no one listened is gone for good, so ask instead.
                 if (in.locked and system.inScreenSaver() == false) return .unlock;
@@ -316,10 +328,9 @@ pub fn open(width: u32, height: u32) !Input {
     const power = try openInput(power_device);
     if (failed(linux.ioctl(touch, eviocgrab, 1))) return error.GrabFailed;
     // The kernel only reports coordinates that change, so start from the current ones.
-    return .{
+    var in = Input{
         .touch = touch,
         .power = power,
-        .power_events = system.watchPowerEvents() orelse -1,
         .width = @intCast(width),
         .height = @intCast(height),
         .x_max = axisMax(touch, eviocgabs_x),
@@ -328,11 +339,18 @@ pub fn open(width: u32, height: u32) !Input {
         .ys = slotValues(touch, abs_mt_y),
         .last_input = nowUs(),
     };
+    in.startWatcher();
+    return in;
 }
 
 /// Gives the touchscreen back to the stock UI.
 pub fn release(in: *const Input) void {
     _ = linux.ioctl(in.touch, eviocgrab, 0);
+    if (in.watcher_pid > 0) {
+        _ = linux.kill(in.watcher_pid, linux.SIG.TERM);
+        var status: i32 = 0;
+        _ = linux.waitpid(in.watcher_pid, &status, 0);
+    }
 }
 
 // A pretend panel, the size of the screen, with no devices behind it.

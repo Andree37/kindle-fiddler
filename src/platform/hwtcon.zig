@@ -63,7 +63,7 @@ pub const Screen = struct {
     next_marker: u32 = 0x7000,
 
     pub fn open() !Screen {
-        const rc = linux.open("/dev/fb0", .{ .ACCMODE = .RDWR }, 0);
+        const rc = linux.open("/dev/fb0", .{ .ACCMODE = .RDWR, .CLOEXEC = true }, 0);
         if (failed(rc)) return error.OpenFailed;
         const fd: i32 = @intCast(rc);
 

@@ -6,7 +6,11 @@ restore() {
     killall -CONT awesome 2>/dev/null
     lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
     lipc-set-prop com.lab126.blanket load screensaver 2>/dev/null
-    killall lipc-wait-event 2>/dev/null
+    # Only noface's own power watcher, in case noface died before ending it. Stock
+    # has listeners of its own that must keep running.
+    for p in $(pidof lipc-wait-event); do
+        grep -q "goingToScreenSaver,outOfScreenSaver" "/proc/$p/cmdline" 2>/dev/null && kill "$p"
+    done
 }
 trap restore EXIT
 

@@ -30,13 +30,15 @@ pub const Quick = struct {
 
 const failed = os.failed;
 
-const Child = struct { pid: i32, out: i32 };
+pub const Child = struct { pid: i32, out: i32 };
 
 /// Starts a program with its output on a pipe, in a process group of its own so
 /// everything it starts can be killed together.
 fn spawn(argv: [*:null]const ?[*:0]const u8) ?Child {
     var fds: [2]i32 = undefined;
-    if (failed(linux.pipe(&fds))) return null;
+    // Close-on-exec, so later children don't inherit this pipe. dup2 below clears it on
+    // the child's own stdout.
+    if (failed(linux.pipe2(&fds, .{ .CLOEXEC = true }))) return null;
     const pid = linux.fork();
     if (failed(pid)) {
         _ = linux.close(fds[0]);
@@ -275,13 +277,13 @@ pub fn exportLibrary() void {
     _ = run(&argv, &out);
 }
 
-/// Starts a child that prints power events, and returns the pipe it writes to.
-pub fn watchPowerEvents() ?i32 {
+/// Starts a child that prints power events. Its `out` pipe is non-blocking.
+pub fn watchPowerEvents() ?Child {
     const argv = [_:null]?[*:0]const u8{ "/usr/bin/lipc-wait-event", "-m", "com.lab126.powerd", "goingToScreenSaver,outOfScreenSaver" };
     const child = spawn(&argv) orelse return null;
     const flags = linux.fcntl(child.out, linux.F.GETFL, 0);
     _ = linux.fcntl(child.out, linux.F.SETFL, flags | 0o4000); // O_NONBLOCK
-    return child.out;
+    return child;
 }
 
 /// Turns date's "+0100" into seconds.
