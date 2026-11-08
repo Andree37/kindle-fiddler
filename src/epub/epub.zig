@@ -124,17 +124,17 @@ fn readPackage(alloc: std.mem.Allocator, files: []const zip.Entry) !Package {
     return p;
 }
 
-/// Title, author and cover, for the library.
-pub fn info(alloc: std.mem.Allocator, data: []const u8) !Info {
+/// Title, author and, if asked for, the cover, for the library.
+pub fn info(alloc: std.mem.Allocator, data: []const u8, with_cover: bool) !Info {
     const files = try zip.entries(alloc, data);
     const p = try readPackage(alloc, files);
     var cover: ?[]const u8 = null;
-    for (p.items) |i| {
+    if (with_cover) for (p.items) |i| {
         const is_cover = std.mem.indexOf(u8, i.properties, "cover-image") != null or (p.cover_id != null and std.mem.eql(u8, i.id, p.cover_id.?));
         if (!is_cover) continue;
         cover = readFile(alloc, files, try resolve(alloc, p.dir, i.href)) catch null;
         break;
-    }
+    };
     return .{ .title = p.title, .author = p.author, .cover = cover };
 }
 
@@ -439,7 +439,7 @@ test "a small EPUB reads into paragraphs, styles, links and contents" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const about = try info(alloc, sample);
+    const about = try info(alloc, sample, true);
     try std.testing.expectEqualStrings("A Test Book", about.title);
     try std.testing.expectEqualStrings("Ann Author", about.author);
     const b = try parse(alloc, sample);
@@ -477,6 +477,6 @@ test "broken EPUBs are refused, never crash" {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
         _ = parse(arena.allocator(), buf[0..len]) catch {};
-        _ = info(arena.allocator(), buf[0..len]) catch {};
+        _ = info(arena.allocator(), buf[0..len], true) catch {};
     }
 }

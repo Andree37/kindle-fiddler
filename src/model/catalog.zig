@@ -34,6 +34,11 @@ pub const Entry = struct {
         return !e.isRead() and e.percent > untouched_percent;
     }
 
+    /// An EPUB copied over the cable, which noface reads itself.
+    pub fn isEpub(e: Entry) bool {
+        return std.ascii.endsWithIgnoreCase(e.path, ".epub");
+    }
+
     /// On this Kindle and complete, so it can be opened.
     pub fn isLocal(e: Entry) bool {
         return e.availability == .local;

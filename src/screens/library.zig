@@ -1,5 +1,7 @@
 //! The home screen: the library, a book's actions, and opening books.
 const std = @import("std");
+const dir = @import("../linux/dir.zig");
+const epub = @import("../epub/epub.zig");
 const card = @import("../ui/card.zig");
 const catalog = @import("../model/catalog.zig");
 const os = @import("../linux/os.zig");
@@ -47,6 +49,47 @@ pub const Library = struct {
     }
 };
 
+const documents = "/mnt/us/documents";
+
+/// EPUBs copied over the cable. The Kindle's catalog doesn't list them, so noface finds
+/// them itself, reading title and author from each book, and its cover once into a file
+/// beside the book's state.
+fn addEpubs(a: *app.App, alloc: std.mem.Allocator, catalog_entries: []catalog.Entry) ![]catalog.Entry {
+    const paths = dir.findFiles(alloc, documents, ".epub") catch return catalog_entries;
+    if (paths.len == 0) return catalog_entries;
+    var out: std.ArrayList(catalog.Entry) = .empty;
+    try out.appendSlice(alloc, catalog_entries);
+    var path_buf: [320]u8 = undefined;
+    var cover_buf: [320]u8 = undefined;
+    next: for (paths) |path| {
+        for (catalog_entries) |e| {
+            if (std.mem.eql(u8, e.path, path)) continue :next;
+        }
+        const data = file.map(path) catch continue;
+        defer file.unmap(data);
+        const state_path = try a.statePath(&path_buf, path);
+        const cover_path = try std.fmt.bufPrintSentinel(&cover_buf, "{s}/cover-{s}", .{ a.state_dir, std.fs.path.basename(state_path)["state-".len..] }, 0);
+        const have_cover = if (file.map(cover_path)) |c| blk: {
+            file.unmap(c);
+            break :blk true;
+        } else |_| false;
+        const about = epub.info(alloc, data, !have_cover) catch continue;
+        if (about.cover) |bytes| state.writeSmall(cover_path, bytes);
+        const saved = state.load(state_path);
+        try out.append(alloc, .{
+            .path = path,
+            .title = if (about.title.len > 0) about.title else std.fs.path.stem(path),
+            .author = about.author,
+            .percent = @min(saved.percent orelse 0, 100),
+            .last = saved.opened,
+            .seconds_read = saved.seconds,
+            .thumbnail = if (have_cover or about.cover != null) try alloc.dupeSentinel(u8, cover_path, 0) else "",
+            .kind = "EPUB",
+        });
+    }
+    return out.items;
+}
+
 /// The catalog's downloading flag can stay set long after a download ended, so
 /// the file decides: a partial book points past its own end.
 pub fn isCompleteBook(path: [:0]const u8) bool {
@@ -72,7 +115,8 @@ pub fn loadLibrary(a: *app.App) !Library {
         if (saved.percent) |p| e.percent = @min(p, 100);
         e.last = @max(e.last, saved.opened);
     }
-    return .{ .arena = arena, .data = data, .entries = entries, .visible = try alloc.alloc(usize, entries.len) };
+    const all = try addEpubs(a, alloc, entries);
+    return .{ .arena = arena, .data = data, .entries = all, .visible = try alloc.alloc(usize, all.len) };
 }
 
 /// Saves the book as unread, so the reload that follows doesn't bring back 100%.

@@ -1,5 +1,6 @@
 //! Reading a book: page turns, and routing taps to the toolbar, panel, notes and highlights.
 const std = @import("std");
+const epub = @import("../epub/epub.zig");
 const memory = @import("../base/memory.zig");
 const book_model = @import("../model/book.zig");
 const catalog = @import("../model/catalog.zig");
@@ -62,7 +63,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const t0 = nowUs();
     const data = try file.map(entry.path);
     defer file.unmap(data);
-    const book = try kfx.parse(alloc, data);
+    const book = if (entry.isEpub()) try epub.parse(alloc, data) else try kfx.parse(alloc, data);
     const t1 = nowUs();
 
     var path_buf: [320]u8 = undefined;
