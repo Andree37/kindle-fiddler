@@ -74,7 +74,7 @@ pub const Session = struct {
     }
 
     /// Minutes left in the chapter and in the book from a page, once speed is known.
-    pub fn timeLeft(s: *const Session, index: usize) struct { chapter: ?u64, book: ?u64 } {
+    pub fn timeLeft(s: *const Session, index: usize) struct { chapter: ?u64, book: u64 } {
         const here = s.textAt(s.pages[index]);
         const total = s.text_before[s.text_before.len - 1];
         var chapter_end: ?u64 = null;
@@ -149,10 +149,8 @@ pub const Session = struct {
             const t = std.fmt.bufPrint(&line, "{s} left in chapter", .{stats.formatMinutes(&buf, m)}) catch "";
             try a.footer.draw(page, margin, y, t);
         }
-        if (left.book) |m| {
-            const t = std.fmt.bufPrint(&line, "{s} left in book", .{stats.formatMinutes(&buf, m)}) catch "";
-            try a.footer.draw(page, @as(f32, @floatFromInt(a.screen.width)) - margin - try a.footer.measure(t), y, t);
-        }
+        const t = std.fmt.bufPrint(&line, "{s} left in book", .{stats.formatMinutes(&buf, left.book)}) catch "";
+        try a.footer.draw(page, @as(f32, @floatFromInt(a.screen.width)) - margin - try a.footer.measure(t), y, t);
     }
 
     /// Get a rendered page, reusing a cached one when possible.

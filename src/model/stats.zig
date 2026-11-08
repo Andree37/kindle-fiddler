@@ -6,6 +6,8 @@ const min_page_seconds = 3; // Quicker than this is flicking past, not reading
 pub const max_page_seconds = 300; // Longer than this, the reader stepped away: not reading
 
 /// Text read and time spent reading it, summed over every book.
+const average_bytes_per_minute = 1400;
+
 pub const Speed = struct {
     bytes: u64 = 0,
     seconds: u64 = 0,
@@ -22,10 +24,10 @@ pub const Speed = struct {
         return s.seconds >= 300 and s.bytes >= 3000;
     }
 
-    /// Minutes to read `bytes` more, rounded up. Null until the speed is known.
-    pub fn minutesFor(s: Speed, bytes: u64) ?u64 {
-        if (!s.known()) return null;
-        const seconds = bytes * s.seconds / s.bytes;
+    /// Minutes to read `bytes` more, rounded up. Until this reader's speed is known,
+    /// an average adult's: about 240 words a minute, some 1400 bytes of text.
+    pub fn minutesFor(s: Speed, bytes: u64) u64 {
+        const seconds = if (s.known()) bytes * s.seconds / s.bytes else bytes * 60 / average_bytes_per_minute;
         return (seconds + 59) / 60;
     }
 };
@@ -66,9 +68,10 @@ test "speed learns from real reading only" {
     try std.testing.expectEqual(@as(u64, 360), s.seconds);
     try std.testing.expect(s.known());
     // 3000 bytes in 360 s: 6000 more takes 720 s, 12 minutes.
-    try std.testing.expectEqual(@as(u64, 12), s.minutesFor(6000).?);
+    try std.testing.expectEqual(@as(u64, 12), s.minutesFor(6000));
     try std.testing.expectEqual(@as(u64, 0), countedSeconds(9999));
-    try std.testing.expect((Speed{}).minutesFor(100) == null);
+    // Before that, an average speed: 14000 bytes is 10 minutes.
+    try std.testing.expectEqual(@as(u64, 10), (Speed{}).minutesFor(14000));
 }
 
 test "durations read naturally" {

@@ -58,3 +58,5 @@ if kill -0 "$pid" 2>/dev/null; then
     code=$?
 fi
 echo "exit code $code" >> "$DIR/noface.log"
+# Leaving on purpose is a good start too, even within the first minute.
+[ "$code" -eq 0 ] && rm -f "$DIR/boot-attempts"
