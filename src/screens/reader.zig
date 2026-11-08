@@ -20,6 +20,7 @@ const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
+const page_store = @import("reader/page_store.zig");
 const search = @import("reader/search.zig");
 const bookmark = @import("reader/bookmark.zig");
 const bookmarks = @import("../model/bookmarks.zig");
@@ -61,13 +62,20 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const data = try file.map(entry.path);
     defer file.unmap(data);
     const book = try kfx.parse(alloc, data);
-
-    const pages = try sess.paginate(a, alloc, book.paragraphs);
-    if (pages.len == 0) return error.EmptyBook;
-    std.debug.print("open {s}: {d} pages in {d} ms\n", .{ entry.title, pages.len, (nowUs() - t0) / 1000 });
+    const t1 = nowUs();
 
     var path_buf: [320]u8 = undefined;
     const state_path = try a.statePath(&path_buf, entry.path);
+    var pages_buf: [320]u8 = undefined;
+    const pages_path = try alloc.dupeSentinel(u8, try page_store.pathFor(&pages_buf, state_path), 0);
+    const pages_key = page_store.key(a, data.len);
+    const stored_pages = page_store.load(alloc, pages_path, pages_key);
+    const pages = stored_pages orelse try sess.paginate(a, alloc, book.paragraphs);
+    if (pages.len == 0) return error.EmptyBook;
+    if (stored_pages == null) page_store.save(alloc, pages_path, pages_key, pages);
+    std.debug.print("open {s}: {d} pages, parsed in {d} ms, {s} in {d} ms\n", .{
+        entry.title, pages.len, (t1 - t0) / 1000, if (stored_pages != null) "saved pages" else "laid out", (nowUs() - t1) / 1000,
+    });
     const saved = state.load(state_path);
     const start = if (state.preferKindle(saved, entry.kindle_last))
         @min(pages.len * entry.kindle_percent / 100, pages.len - 1)
@@ -76,7 +84,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
 
     const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};
-    var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start], .chapters = book.chapters, .seconds_read = saved.seconds };
+    var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start], .chapters = book.chapters, .seconds_read = saved.seconds, .pages_path = pages_path, .book_bytes = data.len };
     const text_before = try alloc.alloc(u64, book.paragraphs.len + 1);
     text_before[0] = 0;
     for (book.paragraphs, 0..) |p, i| text_before[i + 1] = text_before[i] + (if (p.note) 0 else p.text.len);

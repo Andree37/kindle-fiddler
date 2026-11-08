@@ -1,4 +1,5 @@
 test {
+    _ = @import("screens/reader/page_store.zig");
     _ = @import("base/check.zig");
     _ = @import("base/memory.zig");
     _ = @import("gfx/c_memory.zig");

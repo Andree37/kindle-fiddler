@@ -1,5 +1,6 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const page_store = @import("page_store.zig");
 const check = @import("../../base/check.zig");
 const Page = @import("../../gfx/page.zig").Page;
 const book_model = @import("../../model/book.zig");
@@ -52,6 +53,8 @@ pub const Session = struct {
     highlights: std.ArrayList(highlights.Highlight) = .empty,
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
     marks: std.ArrayList(book_model.Mark) = .empty, // What layout shades, rebuilt from highlights
+    pages_path: [:0]const u8 = "", // Where this book's page breaks are saved
+    book_bytes: usize = 0, // The book file's size, part of the saved breaks' key
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const book_model.Chapter = &.{},
     text_before: []const u64 = &.{}, // Bytes of text before each paragraph, for time left
@@ -251,7 +254,12 @@ pub fn relayout(a: *app.App, alloc: std.mem.Allocator, s: *Session) !void {
     };
     app.saveSettings(a.settings_path, a.settings);
     a.forgetPages();
-    s.pages = try paginate(a, alloc, s.paragraphs);
+    const t0 = nowUs();
+    const pages_key = page_store.key(a, s.book_bytes);
+    const stored = page_store.load(alloc, s.pages_path, pages_key);
+    s.pages = stored orelse try paginate(a, alloc, s.paragraphs);
+    if (stored == null) page_store.save(alloc, s.pages_path, pages_key, s.pages);
+    std.debug.print("relayout {s} in {d} ms\n", .{ if (stored != null) "from saved pages" else "laid out", (nowUs() - t0) / 1000 });
     s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
     std.debug.print("relayout: page {d} of {d}, anchor {d}:{d}\n", .{ s.current + 1, s.pages.len, s.anchor.para, s.anchor.byte });
 }
