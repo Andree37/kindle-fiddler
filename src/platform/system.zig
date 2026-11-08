@@ -28,9 +28,8 @@ pub const Quick = struct {
     }
 };
 
-const failed = @import("os.zig").failed;
+const failed = os.failed;
 
-/// Runs a program and returns how many bytes of its output landed in `out`.
 const Child = struct { pid: i32, out: i32 };
 
 /// Starts a program with its output on a pipe, in a process group of its own so
