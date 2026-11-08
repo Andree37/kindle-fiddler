@@ -189,8 +189,8 @@ pub fn removeHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, 
     if (!system.dryRun()) {
         var buf: [900]u8 = undefined;
         const safe = system.safeId(id) and system.safeId(entry.key);
-        const sql = try annotations.deleteSql(&buf, id, entry.key, unixTime() * 1000);
-        const removed = safe and system.runAnnotationSql(sql);
+        const sql: ?[]const u8 = if (safe) annotations.deleteSql(&buf, id, entry.key, unixTime() * 1000) catch null else null;
+        const removed = if (sql) |q| system.runAnnotationSql(q) else false;
         std.debug.print("highlight removed: {}\n", .{removed});
         if (!removed) return app.showNotice(a, "This highlight couldn't be deleted.");
         system.syncNow();
