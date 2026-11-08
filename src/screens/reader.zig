@@ -184,6 +184,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                             lipc.openSettings();
                             return .quit;
                         },
+                        .kindle => return .quit, // noface.sh brings back the Kindle's home
                         .close => {
                             view = .page;
                             try panel.closeMenu(a, page);

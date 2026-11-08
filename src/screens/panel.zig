@@ -104,6 +104,7 @@ pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
                         lipc.openSettings();
                         return true;
                     },
+                    .kindle => return true, // noface.sh brings back the Kindle's home
                     .close => {
                         try closeMenu(a, background);
                         return false;

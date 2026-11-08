@@ -87,6 +87,18 @@ fn arrowHead(p: Pen, radius: f32, degrees: f32) void {
     }
 }
 
+/// A smile arrow, for going back to the Kindle's own home screen.
+pub fn smile(page: Page, cx: f32, cy: f32) void {
+    const p = Pen{ .page = page, .cx = cx, .cy = cy };
+    // The smile: the lower part of a circle, a little flatter than a half.
+    p.arc(0, -26, 36, 25, 155, 6);
+    // The arrowhead at its right end, pointing up and out along the curve.
+    const tip_x = @cos(std.math.degreesToRadians(25.0)) * 36 + 4;
+    const tip_y = -26 + @sin(std.math.degreesToRadians(25.0)) * 36 - 4;
+    p.line(tip_x, tip_y, tip_x - 15, tip_y - 1, 6);
+    p.line(tip_x, tip_y, tip_x - 3, tip_y + 14, 6);
+}
+
 pub fn gear(page: Page, cx: f32, cy: f32) void {
     const p = Pen{ .page = page, .cx = cx, .cy = cy };
     p.arc(0, 0, 25, 0, 360, 5);

@@ -19,9 +19,9 @@ pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = quick_model.max_
 const schedule_top = 754;
 const schedule_bottom = 794;
 
-pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, settings, sync };
+pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, settings, kindle, sync };
 
-const Icon = enum { airplane, wifi, bluetooth, sync, gear };
+const Icon = enum { airplane, wifi, bluetooth, sync, kindle };
 const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
 const icon_radius = 52;
 const shortcuts = [_]Shortcut{
@@ -29,7 +29,7 @@ const shortcuts = [_]Shortcut{
     .{ .icon = .wifi, .hit = .settings, .x = 636, .y = 240 }, // Networks live in stock settings
     .{ .icon = .bluetooth, .hit = .none, .x = 954, .y = 240 }, // Not wired up yet
     .{ .icon = .sync, .hit = .sync, .x = 477, .y = 430 },
-    .{ .icon = .gear, .hit = .settings, .x = 795, .y = 430 },
+    .{ .icon = .kindle, .hit = .kindle, .x = 795, .y = 430 }, // Back to the Kindle's own home
 };
 
 fn rowSlider(row: Row) slider.Slider {
@@ -95,7 +95,7 @@ fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
         .wifi => icons.wifi(page, x, y - 4, 0.8, if (quick.wifi_on) quick.wifi_bars else 0),
         .bluetooth => icons.bluetooth(page, x, y),
         .sync => icons.sync(page, x, y),
-        .gear => icons.gear(page, x, y),
+        .kindle => icons.smile(page, x, y),
     }
     if (isOn(s, quick)) page.invertDisc(s.x, s.y, icon_radius - 1);
 }
@@ -115,7 +115,7 @@ fn label(s: Shortcut, quick: *const quick_model.Quick) []const u8 {
         .wifi => if (quick.wifi_on) "Connected" else "Wi-Fi Off",
         .bluetooth => "Off",
         .sync => if (quick.syncing) "Syncing" else "Sync",
-        .gear => "All Settings",
+        .kindle => "Kindle",
     };
 }
 
@@ -152,7 +152,7 @@ test "panel maps taps like the stock layout" {
     try std.testing.expectEqual(Hit.settings, hit(636, 240)); // Wi-Fi
     try std.testing.expectEqual(Hit.none, hit(954, 240)); // Bluetooth
     try std.testing.expectEqual(Hit.sync, hit(477, 430));
-    try std.testing.expectEqual(Hit.settings, hit(795, 430));
+    try std.testing.expectEqual(Hit.kindle, hit(795, 430));
     try std.testing.expectEqual(Hit.none, hit(954, 430));
     try std.testing.expectEqual(Hit.dimmer, hit(90, 680));
     try std.testing.expectEqual(Hit.brighter, hit(1180, 680));
