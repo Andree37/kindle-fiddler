@@ -31,6 +31,7 @@ pub fn scale(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: us
 /// onto its neighbours (Floyd-Steinberg). Without it the panel rounds by itself,
 /// and dark areas flatten into one murky gray.
 pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
+    if (w == 0) return;
     const errs = try alloc.alloc(i16, 2 * (w + 2));
     defer alloc.free(errs);
     @memset(errs, 0);
@@ -65,6 +66,7 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
     const sw: usize = @intCast(w);
     const sh: usize = @intCast(h);
     const fit = fitted(sw, sh, width_px, height_px);
+    if (fit.w == 0 or fit.h == 0) return false; // A sliver too thin to show
     const scaled = alloc.alloc(u8, fit.w * fit.h) catch return false;
     defer alloc.free(scaled);
     scale(pixels[0 .. sw * sh], sw, sh, scaled, fit.w, fit.h);
@@ -135,4 +137,10 @@ test "dithering keeps only panel grays and the overall tone" {
     }
     const diff = @as(i64, before) - @as(i64, after);
     try std.testing.expect(@abs(diff) < 64 * 64 * 2);
+}
+
+test "a sliver of an image fits to nothing, and dithering nothing is safe" {
+    try std.testing.expectEqual(@as(usize, 0), fitted(1, 10000, 1272, 1696).w);
+    var none: [0]u8 = .{};
+    try dither(std.testing.allocator, &none, 0);
 }
