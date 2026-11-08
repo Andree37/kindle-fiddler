@@ -37,14 +37,18 @@ pub fn toggle(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *c
 }
 
 /// The first place on a page that Amazon numbers. Pages can open on a heading
-/// or image it doesn't, so look further down the page.
+/// or image it doesn't, so look further down the page, but never onto the next one.
 fn firstPosition(s: *const sess.Session, index: usize) ?struct { para: u32, byte: u32 } {
     const from = s.pages[index];
-    const end_para = if (s.pageEnd(index)) |e| e.para else s.paragraphs.len - 1;
+    const to = s.pageEnd(index);
     var para = from.para;
-    while (para <= end_para and para < s.paragraphs.len) : (para += 1) {
-        if (s.paragraphs[para].position == 0) continue;
+    while (para < s.paragraphs.len) : (para += 1) {
         const byte: usize = if (para == from.para) from.byte else 0;
+        // Stop where the next page begins: at its paragraph, unless this page holds its start.
+        if (to) |e| {
+            if (para > e.para or (para == e.para and byte >= e.byte)) return null;
+        }
+        if (s.paragraphs[para].position == 0) continue;
         return .{ .para = @intCast(para), .byte = @intCast(byte) };
     }
     return null;

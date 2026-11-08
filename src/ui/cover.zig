@@ -110,14 +110,6 @@ pub fn placeGray(alloc: std.mem.Allocator, pixels: []const u8, sw: usize, sh: us
     return true;
 }
 
-const Size = struct { w: usize, h: usize };
-
-/// Largest size with the source's shape that fits the target.
-pub fn fitted(sw: usize, sh: usize, dw: usize, dh: usize) Size {
-    if (sw * dh > sh * dw) return .{ .w = dw, .h = sh * dw / sw };
-    return .{ .w = sw * dh / sh, .h = dh };
-}
-
 /// Returns a grayscale cover at the given size, or null if it can't be read.
 pub fn load(alloc: std.mem.Allocator, path: [*:0]const u8, dw: usize, dh: usize) ?[]u8 {
     const data = file.map(path) catch return null;
@@ -148,12 +140,6 @@ test "scaling up repeats" {
     try std.testing.expectEqualSlices(u8, &[_]u8{ 10, 10, 20, 20 }, &dst);
 }
 
-test "covers keep their shape on screen" {
-    try std.testing.expectEqual(Size{ .w = 1272, .h = 1696 }, fitted(600, 800, 1272, 1696));
-    try std.testing.expectEqual(Size{ .w = 1060, .h = 1696 }, fitted(500, 800, 1272, 1696));
-    try std.testing.expectEqual(Size{ .w = 1272, .h = 636 }, fitted(800, 400, 1272, 1696));
-}
-
 test "dithering keeps only panel grays and the overall tone" {
     var pixels: [64 * 64]u8 = undefined;
     for (&pixels, 0..) |*p, i| p.* = @intCast((i % 64) * 4);
@@ -169,8 +155,9 @@ test "dithering keeps only panel grays and the overall tone" {
     try std.testing.expect(@abs(diff) < 64 * 64 * 2);
 }
 
-test "a sliver of an image fits to nothing, and dithering nothing is safe" {
-    try std.testing.expectEqual(@as(usize, 0), fitted(1, 10000, 1272, 1696).w);
+test "a sliver of an image still crops to something, and dithering nothing is safe" {
+    try std.testing.expect(cropToFill(1, 10000, 1272, 1696).h >= 1);
+    try std.testing.expect(cropToFill(10000, 1, 1272, 1696).w >= 1);
     var none: [0]u8 = .{};
     try dither(std.testing.allocator, &none, 0);
 }

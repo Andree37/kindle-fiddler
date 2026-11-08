@@ -86,7 +86,7 @@ pub fn render(fonts: Fonts, page: text.Page, e: *const catalog.Entry, list: []co
     const x: f32 = left + 48;
     const avail: f32 = width - 96;
     try library.drawClipped(fonts.title, page, x, @intCast(card_top + 76), e.title, avail);
-    var read_buf: [96]u8 = undefined;
+    var read_buf: [320]u8 = undefined; // Room for long or many authors
     var time_buf: [32]u8 = undefined;
     const line = if (confirming)
         "It stays in your Amazon library."
