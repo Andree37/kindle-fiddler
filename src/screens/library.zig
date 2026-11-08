@@ -1,5 +1,6 @@
 //! The home screen: the library, a book's actions, and opening books.
 const std = @import("std");
+const card = @import("../ui/card.zig");
 const catalog = @import("../model/catalog.zig");
 const os = @import("../linux/os.zig");
 const file = @import("../linux/file.zig");
@@ -93,39 +94,15 @@ pub const Change = enum { none, downloading, other };
 pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change {
     std.debug.print("sheet: {s}\n", .{e.title});
     var confirming = false;
-    var list_buf: [3]book_actions.Option = undefined;
     while (true) {
+        var list_buf: [3]book_actions.Option = undefined;
+        var row_buf: [3]card.Row = undefined;
+        var subtitle_buf: [320]u8 = undefined;
         const list = book_actions.options(e, confirming, &list_buf);
-        @memcpy(a.overlay, background);
-        try book_actions.render(a.ui, a.page(a.overlay), e, list, confirming);
-        @memcpy(a.screen.pixels, a.overlay);
-        const area = book_actions.region();
-        const top = book_actions.top(list.len) - 8;
-        try a.showRect(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16);
-
-        const chosen: ?book_actions.Option = while (true) {
-            switch (a.input.next()) {
-                .tap => |t| {
-                    const index = book_actions.hit(t.x, t.y, list.len) orelse break null;
-                    if (index < list.len) break list[index];
-                },
-                .lock => {
-                    a.input.stashed = .lock;
-                    break null;
-                },
-                .power, .idle, .stop => {
-                    a.input.stashed = .power;
-                    break null;
-                },
-                else => {},
-            }
-        };
-        switch (chosen orelse .cancel) {
-            .cancel => {
-                @memcpy(a.screen.pixels, background);
-                try a.showRect(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16);
-                return .none;
-            },
+        const subtitle = book_actions.subtitle(&subtitle_buf, e, confirming);
+        const picked = try app.chooseFromCard(a, background, e.title, subtitle, book_actions.rows(list, &row_buf)) orelse return .none;
+        switch (list[picked]) {
+            .cancel => return .none,
             .remove => confirming = true,
             .confirm_remove => {
                 store.removeDownload(e.key, e.kind);

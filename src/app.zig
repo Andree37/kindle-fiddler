@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const card = @import("ui/card.zig");
 const memory = @import("base/memory.zig");
 const fonts_db = @import("kindle/fonts.zig");
 const settings_model = @import("model/settings.zig");
@@ -188,6 +189,35 @@ pub const App = struct {
         try a.screen.waitComplete(try a.screen.update(wf, mode));
     }
 };
+
+/// Shows a card over `background` and waits for a row to be tapped. Null when the
+/// tap lands outside the card, or the Kindle locks or quits (which is passed on to
+/// the caller's loop). What was under the card is put back either way.
+pub fn chooseFromCard(a: *App, background: []const u8, title: []const u8, subtitle: []const u8, rows: []const card.Row) !?usize {
+    @memcpy(a.overlay, background);
+    try card.render(a.ui, a.page(a.overlay), title, subtitle, rows);
+    @memcpy(a.screen.pixels, a.overlay);
+    const top = card.top(rows.len) - 8;
+    const height = card.height(rows.len) + 16;
+    try a.showRect(card.left - 8, top, card.width + 16, height);
+    const chosen: ?usize = while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .tap => |t| {
+                const index = card.hit(t.x, t.y, rows.len) orelse break null;
+                if (index < rows.len) break index;
+            },
+            .lock, .power, .idle, .stop => {
+                a.input.stashed = action;
+                break null;
+            },
+            else => {},
+        }
+    };
+    @memcpy(a.screen.pixels, background);
+    try a.showRect(card.left - 8, top, card.width + 16, height);
+    return chosen;
+}
 
 pub const notice_ms = 1800;
 

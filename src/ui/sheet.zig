@@ -1,23 +1,29 @@
-//! Actions for one book, opened from the three dots beside its cover.
+//! Actions for one book, opened from the three dots beside its cover. Shown as a card.
 const std = @import("std");
 const Page = @import("../gfx/page.zig").Page;
 const stats = @import("../model/stats.zig");
-const draw = @import("draw.zig");
-const style = @import("style.zig");
 const catalog = @import("../model/catalog.zig");
-const Fonts = @import("fonts.zig").Fonts;
+const card = @import("card.zig");
 const cover = @import("../gfx/image.zig");
 const library = @import("library.zig");
 
 pub const Option = enum { download, remove, mark_read, mark_unread, confirm_remove, cancel };
 
-const left = 136;
-const width = 1000;
-const header = 196;
-const row = 112;
-const screen_height = style.screen_height;
-
 /// What a book offers. `confirming` swaps the list for the removal question.
+/// The card's rows for a list of options.
+pub fn rows(list: []const Option, out: []card.Row) []card.Row {
+    for (list, out[0..list.len]) |o, *r| r.* = .{ .label = label(o), .quiet = o == .cancel };
+    return out[0..list.len];
+}
+
+/// The line under the title: the author and time read, or what removal means.
+pub fn subtitle(buf: []u8, e: *const catalog.Entry, confirming: bool) []const u8 {
+    if (confirming) return "It stays in your Amazon library.";
+    if (e.seconds_read < 60) return e.author;
+    var time_buf: [32]u8 = undefined;
+    return std.fmt.bufPrint(buf, "{s}  \u{b7}  read for {s}", .{ e.author, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch e.author;
+}
+
 pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Option {
     if (confirming) {
         out[0] = .confirm_remove;
@@ -44,7 +50,7 @@ pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Opt
     return out[0 .. n + 1];
 }
 
-fn label(o: Option) []const u8 {
+pub fn label(o: Option) []const u8 {
     return switch (o) {
         .download => "Download",
         .remove => "Remove download",
@@ -53,56 +59,6 @@ fn label(o: Option) []const u8 {
         .confirm_remove => "Remove from this Kindle",
         .cancel => "Cancel",
     };
-}
-
-pub fn height(rows: usize) u32 {
-    return header + @as(u32, @intCast(rows)) * row;
-}
-
-pub fn top(rows: usize) u32 {
-    return (screen_height - height(rows)) / 2;
-}
-
-pub fn region() struct { x: u32, w: u32 } {
-    return .{ .x = left, .w = width };
-}
-
-/// Which option a tap lands on, or null when it falls outside the card.
-pub fn hit(x: i32, y: i32, rows: usize) ?usize {
-    const card_top: i32 = @intCast(top(rows));
-    if (x < left or x >= left + width or y < card_top) return null;
-    const first = card_top + header;
-    if (y >= first + @as(i32, @intCast(rows)) * row) return null;
-    if (y < first) return rows; // On the card, not on an option
-    return @intCast(@divTrunc(y - first, row));
-}
-
-pub fn render(fonts: Fonts, page: Page, e: *const catalog.Entry, list: []const Option, confirming: bool) !void {
-    const card_top = top(list.len);
-    const h = height(list.len);
-    page.fillRect(left - 6, card_top - 6, width + 12, h + 12, 0xff);
-    draw.box(page, left, card_top, width, h);
-
-    const x: f32 = left + 48;
-    const avail: f32 = width - 96;
-    try draw.clipped(fonts.title, page, x, @intCast(card_top + 76), e.title, avail);
-    var read_buf: [320]u8 = undefined; // Room for long or many authors
-    var time_buf: [32]u8 = undefined;
-    const line = if (confirming)
-        "It stays in your Amazon library."
-    else if (e.seconds_read >= 60)
-        std.fmt.bufPrint(&read_buf, "{s}  \u{b7}  read for {s}", .{ e.author, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch e.author
-    else
-        e.author;
-    try draw.clipped(fonts.caption, page, x, @intCast(card_top + 128), line, avail);
-    page.tint(left + 48, card_top + 100, width - 96, 44, 0x50);
-
-    for (list, 0..) |o, i| {
-        const y = card_top + header + @as(u32, @intCast(i)) * row;
-        page.fillRect(left + 3, y, width - 6, 1, 0xb0);
-        const font = if (o == .cancel) fonts.small else fonts.title;
-        try font.draw(page, x, @intCast(y + 70), label(o));
-    }
 }
 
 fn entry(a: catalog.Availability, percent: u32) catalog.Entry {
@@ -127,11 +83,3 @@ test "removal asks first" {
     try std.testing.expectEqualSlices(Option, &.{ .confirm_remove, .cancel }, options(&local, true, &out));
 }
 
-test "taps map to rows and outside closes" {
-    const y0: i32 = @intCast(top(3) + header);
-    try std.testing.expectEqual(@as(usize, 0), hit(600, y0 + 10, 3).?);
-    try std.testing.expectEqual(@as(usize, 2), hit(600, y0 + 2 * row + 10, 3).?);
-    try std.testing.expectEqual(@as(usize, 3), hit(600, y0 - 20, 3).?);
-    try std.testing.expect(hit(50, y0, 3) == null);
-    try std.testing.expect(hit(600, 40, 3) == null);
-}

@@ -122,7 +122,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
         var list: [3]sheet.Option = undefined;
         const confirming = argv.len > 2;
         const opts = sheet.options(&entries[visible[0]], confirming, &list);
-        try sheet.render(fonts, page, &entries[visible[0]], opts, confirming);
+        var row_buf: [3]core.card.Row = undefined;
+        var subtitle_buf: [320]u8 = undefined;
+        const e = &entries[visible[0]];
+        try core.card.render(fonts, page, e.title, sheet.subtitle(&subtitle_buf, e, confirming), sheet.rows(opts, &row_buf));
         writeImage(buf, w, h);
         return;
     }
