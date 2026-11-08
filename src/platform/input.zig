@@ -8,6 +8,16 @@ const touch_zones = @import("touch.zig");
 const failed = os.failed;
 const nowUs = os.nowUs;
 const idle_quit_ms = 30 * 60 * 1000;
+const watcher_retry_ms = 5000;
+const key_power = 116;
+
+/// True when the events include the power key going down.
+pub fn powerPressed(events: []const InputEvent) bool {
+    for (events) |e| {
+        if (e.kind == ev_key and e.code == key_power and e.value == 1) return true;
+    }
+    return false;
+}
 
 const touch_device = "/dev/input/event1";
 const power_device = "/dev/input/event0";
@@ -111,6 +121,7 @@ pub const Input = struct {
     last_input: u64 = 0,
     stashed: ?Action = null,
     locked: bool = false, // Nothing to check on a timer, so sleep until an event
+    watcher_retry_us: u64 = 0, // When to restart a power-event watcher that died
 
     /// Follows the finger of the last tap until it lifts.
     pub fn beginDrag(in: *Input) void {
@@ -200,11 +211,22 @@ pub const Input = struct {
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
             };
-            const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) -1 else 1000;
+            // Locked with no watcher, wake now and then to start a new one.
+            const sleep_ms: i32 = if (in.power_events < 0) watcher_retry_ms else -1;
+            const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) sleep_ms else 1000;
             _ = linux.poll(&fds, fds.len, wait);
 
+            // powerd acts on the key itself. Read only so it can't pile up, except
+            // while locked without a watcher, when a press is the only way to unlock.
             var drained: [16]InputEvent = undefined;
-            _ = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained))); // powerd acts on the key
+            const keys = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained)));
+            if (in.locked and in.power_events < 0 and !failed(keys) and powerPressed(drained[0 .. keys / @sizeOf(InputEvent)])) return .unlock;
+
+            if (in.power_events < 0 and nowUs() >= in.watcher_retry_us) {
+                in.watcher_retry_us = nowUs() + watcher_retry_ms * 1000;
+                in.power_events = system.watchPowerEvents() orelse -1;
+                std.debug.print("power watcher restarted: {}\n", .{in.power_events >= 0});
+            }
 
             if (in.power_events >= 0) {
                 var line: [512]u8 = undefined;
@@ -213,6 +235,12 @@ pub const Input = struct {
                     // The watcher died. Without this the closed pipe wakes poll forever.
                     _ = linux.close(in.power_events);
                     in.power_events = -1;
+                    in.watcher_retry_us = nowUs() + watcher_retry_ms * 1000;
+                    var status: i32 = 0;
+                    while (true) {
+                        const reaped = linux.waitpid(-1, &status, linux.W.NOHANG);
+                        if (reaped == 0 or failed(reaped)) break;
+                    }
                 } else if (!failed(got)) {
                     if (touch_zones.lastPowerEvent(line[0..got])) |event| {
                         return if (event == .lock) .lock else .unlock;
@@ -393,3 +421,9 @@ test "a second finger taps while a thumb rests" {
     try std.testing.expectEqual(@as(i32, 800), press(&in, 1, 800, 800, true).?.tap.x);
 }
 
+test "only a power key press counts" {
+    try std.testing.expect(powerPressed(&.{ ev(0, 0, 0), ev(ev_key, key_power, 1) }));
+    try std.testing.expect(!powerPressed(&.{ev(ev_key, key_power, 0)})); // Release
+    try std.testing.expect(!powerPressed(&.{ev(ev_key, 30, 1)}));
+    try std.testing.expect(!powerPressed(&.{}));
+}
