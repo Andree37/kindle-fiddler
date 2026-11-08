@@ -36,15 +36,23 @@ pub fn insertSql(buf: []u8, h: Highlight) ![]const u8 {
 
 const action_delete = 3;
 
+/// SQL that is true for rows of one book. Its records are named "<key>-<type>-<guid>-1".
+/// An exact prefix compare, since LIKE would read `_` in a key as a wildcard.
+pub fn bookMatch(buf: []u8, key: []const u8) ![]const u8 {
+    return std.fmt.bufPrint(buf, "substr(dataset_id, 1, {d}) = '{s}-'", .{ key.len + 1, key });
+}
+
 /// Deletes a highlight the way stock does. An unsent one just loses its row. A
 /// sent one gets a delete row: Amazon's own record, with a new modified time.
 pub fn deleteSql(buf: []u8, id: []const u8, key: []const u8, now_ms: u64) ![]const u8 {
+    var match_buf: [128]u8 = undefined;
+    const book = try bookMatch(&match_buf, key);
     return std.fmt.bufPrint(buf,
         \\begin;
-        \\delete from local_edit where annotation_id='{s}' and dataset_id like '{s}-%';
-        \\insert into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) select annotation_id, {d}, dataset, dataset_id, json_set(serialized_payload, '$.last_modified', {d}), 0, created_time, {d}, 0, '' from server_view where annotation_id='{s}' and dataset_id like '{s}-%' and dataset=1;
+        \\delete from local_edit where annotation_id='{s}' and {s};
+        \\insert into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) select annotation_id, {d}, dataset, dataset_id, json_set(serialized_payload, '$.last_modified', {d}), 0, created_time, {d}, 0, '' from server_view where annotation_id='{s}' and {s} and dataset=1;
         \\commit;
-    , .{ id, key, action_delete, now_ms, now_ms, id, key });
+    , .{ id, book, action_delete, now_ms, now_ms, id, book });
 }
 
 test "long positions match what the Kindle stores" {
@@ -79,9 +87,14 @@ test "row matches the one the stock reader wrote" {
 test "delete clears any unsent row, then queues Amazon's record" {
     var buf: [900]u8 = undefined;
     const sql = try deleteSql(&buf, "kindle.highlight-382334", "BOOKKEY", 1794053974114);
-    const first = std.mem.indexOf(u8, sql, "delete from local_edit where annotation_id='kindle.highlight-382334' and dataset_id like 'BOOKKEY-%';").?;
+    const first = std.mem.indexOf(u8, sql, "delete from local_edit where annotation_id='kindle.highlight-382334' and substr(dataset_id, 1, 8) = 'BOOKKEY-';").?;
     const second = std.mem.indexOf(u8, sql, "select annotation_id, 3, dataset").?;
     try std.testing.expect(first < second);
     try std.testing.expect(std.mem.indexOf(u8, sql, "json_set(serialized_payload, '$.last_modified', 1794053974114)") != null);
-    try std.testing.expect(std.mem.indexOf(u8, sql, "from server_view where annotation_id='kindle.highlight-382334' and dataset_id like 'BOOKKEY-%' and dataset=1;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sql, "from server_view where annotation_id='kindle.highlight-382334' and substr(dataset_id, 1, 8) = 'BOOKKEY-' and dataset=1;") != null);
+}
+
+test "a book matches by exact key, never by wildcard" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("substr(dataset_id, 1, 6) = 'AB_CD-'", try bookMatch(&buf, "AB_CD"));
 }
