@@ -9,6 +9,7 @@
 //!   layout  Setting text into pages. Imports layout, model and gfx.
 //!   ui      Drawing screens and mapping taps. Imports ui, model, layout and gfx.
 //!   kindle  Everything that knows Amazon. Imports kindle, linux and model.
+//!   epub    The open EPUB format, read into our model. Imports epub and model.
 //!   screens, and files at the top of src/: may import anything.
 //! Every folder may import base.
 const std = @import("std");
@@ -23,6 +24,7 @@ const rules = [_]Rule{
     .{ .folder = "layout", .allowed = &.{ "layout", "model", "gfx" } },
     .{ .folder = "ui", .allowed = &.{ "ui", "model", "layout", "gfx" } },
     .{ .folder = "kindle", .allowed = &.{ "kindle", "linux", "model" } },
+    .{ .folder = "epub", .allowed = &.{ "epub", "model" } },
 };
 
 /// The top-level folder of a path inside src/, or "" for files at the top.
