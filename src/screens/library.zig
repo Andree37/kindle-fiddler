@@ -83,8 +83,11 @@ pub fn forgetFinished(a: *app.App, e: *const catalog.Entry) !void {
     state.save(path, saved);
 }
 
-/// Shows a book's actions. True means the library changed and should be reloaded.
-pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !bool {
+/// What a book's actions changed, which decides what the library does next.
+pub const Change = enum { none, downloading, other };
+
+/// Shows a book's actions.
+pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change {
     std.debug.print("sheet: {s}\n", .{e.title});
     var confirming = false;
     var list_buf: [3]book_actions.Option = undefined;
@@ -118,25 +121,25 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !bool {
             .cancel => {
                 @memcpy(a.screen.pixels, background);
                 try a.showRect(area.x - 8, top, area.w + 16, book_actions.height(list.len) + 16);
-                return false;
+                return .none;
             },
             .remove => confirming = true,
             .confirm_remove => {
                 system.removeDownload(e.key, e.kind);
                 std.debug.print("removed download: {s}\n", .{e.title});
-                return true;
+                return .other;
             },
             .download => {
                 system.downloadBook(e.key, e.kind);
                 std.debug.print("download requested: {s}\n", .{e.title});
-                return true;
+                return .downloading;
             },
             .mark_read, .mark_unread => |choice| {
                 const done = choice == .mark_read;
                 system.markRead(e.key, e.kind, done);
                 e.finished = done;
                 if (!done and e.isLocal()) forgetFinished(a, e) catch {};
-                return true;
+                return .other;
             },
         }
     }
@@ -268,9 +271,10 @@ pub fn runLibrary(a: *app.App) !void {
                 break :browse;
             }
             if (acting) |entry| {
-                const was_cloud = entry.availability == .cloud;
-                if (try bookSheet(a, entry, buf)) {
-                    if (was_cloud) watch_until = nowUs() + download_watch_us;
+                const change = try bookSheet(a, entry, buf);
+                if (change != .none) {
+                    // Only a download needs watching; nothing else finishes later.
+                    if (change == .downloading) watch_until = nowUs() + download_watch_us;
                     system.exportLibrary();
                     var fresh = loadLibrary(a) catch break :browse;
                     lib.deinit();
