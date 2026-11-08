@@ -109,7 +109,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const data = try file.map(argv[2]);
         const jpeg = kfx.coverImage(data) orelse return error.NoCover;
         std.debug.print("jpeg {d} bytes\n", .{jpeg.len});
-        if (!cover.fillScreen(alloc, jpeg, buf, w, h)) return error.DecodeFailed;
+        if (!cover.fillScreen(alloc, jpeg, buf, w, h, w)) return error.DecodeFailed;
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
         write(buf);
         return;

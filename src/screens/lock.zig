@@ -22,13 +22,13 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry) !void {
         if (e.isLocal()) {
             if (file.map(e.path)) |data| {
                 defer file.unmap(data);
-                if (kfx.coverImage(data)) |jpeg| drawn = cover.fillScreen(a.alloc, jpeg, target, a.screen.width, a.screen.height);
+                if (kfx.coverImage(data)) |jpeg| drawn = cover.fillScreen(a.alloc, jpeg, target, a.screen.width, a.screen.height, a.screen.stride);
             } else |_| {}
         }
         if (!drawn and e.thumbnail.len > 0) {
             if (file.map(e.thumbnail)) |data| {
                 defer file.unmap(data);
-                drawn = cover.fillScreen(a.alloc, data, target, a.screen.width, a.screen.height);
+                drawn = cover.fillScreen(a.alloc, data, target, a.screen.width, a.screen.height, a.screen.stride);
             } else |_| {}
         }
     }

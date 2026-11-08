@@ -55,7 +55,8 @@ pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
 }
 
 /// Decodes a JPEG and draws it as large as fits, centred on black.
-pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_px: usize, height_px: usize) bool {
+/// `stride` is bytes per row in `buf`, which can be more than the visible width.
+pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_px: usize, height_px: usize, stride: usize) bool {
     var w: c_int = 0;
     var h: c_int = 0;
     const pixels = img_gray(jpeg.ptr, @intCast(jpeg.len), &w, &h) orelse return false;
@@ -72,7 +73,7 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
     const left = (width_px - fit.w) / 2;
     const top = (height_px - fit.h) / 2;
     for (0..fit.h) |row| {
-        @memcpy(buf[(top + row) * width_px + left ..][0..fit.w], scaled[row * fit.w..][0..fit.w]);
+        @memcpy(buf[(top + row) * stride + left ..][0..fit.w], scaled[row * fit.w..][0..fit.w]);
     }
     return true;
 }
