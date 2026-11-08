@@ -79,5 +79,5 @@ pub fn build(b: *std.Build) void {
 
 fn addFontAndImageCode(b: *std.Build, module: *std.Build.Module) void {
     module.addIncludePath(b.path("third_party"));
-    module.addCSourceFile(.{ .file = b.path("src/platform/stb_shim.c"), .flags = &.{"-O2"} });
+    module.addCSourceFile(.{ .file = b.path("src/gfx/stb_shim.c"), .flags = &.{"-O2"} });
 }

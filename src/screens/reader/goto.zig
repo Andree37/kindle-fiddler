@@ -2,8 +2,8 @@
 //! Returns the page to jump to, if any.
 const std = @import("std");
 const goto = @import("../../ui/goto.zig");
-const highlights = @import("../../book/highlights.zig");
-const kfx = @import("../../book/kfx.zig");
+const highlights = @import("../../model/highlights.zig");
+const kfx = @import("../../kindle/kfx.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
 

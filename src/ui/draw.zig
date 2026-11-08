@@ -1,6 +1,6 @@
 //! Small drawing pieces several screens use.
 const std = @import("std");
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
 

@@ -8,8 +8,8 @@ const icons = @import("icons.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const slider = @import("slider.zig");
-const system = @import("../platform/system.zig");
-const text = @import("../book/text.zig");
+const system = @import("../kindle/system.zig");
+const text = @import("../layout/text.zig");
 
 pub const top_height = 228;
 pub const bottom_top = 1410;

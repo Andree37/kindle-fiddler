@@ -1,7 +1,7 @@
 //! Book thumbnails, decoded once and scaled to library size.
 const std = @import("std");
-const file = @import("../platform/file.zig");
-const text = @import("../book/text.zig");
+const file = @import("../linux/file.zig");
+const text = @import("../layout/text.zig");
 
 extern fn img_gray(data: [*]const u8, len: c_int, w: *c_int, h: *c_int) ?[*]u8;
 extern fn img_free(p: [*]u8) void;

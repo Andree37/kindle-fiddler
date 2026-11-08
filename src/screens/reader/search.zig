@@ -4,7 +4,7 @@ const std = @import("std");
 const goto = @import("../../ui/goto.zig");
 const keyboard = @import("../../ui/keyboard.zig");
 const search_ui = @import("../../ui/search.zig");
-const search = @import("../../book/search.zig");
+const search = @import("../../model/search.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
 

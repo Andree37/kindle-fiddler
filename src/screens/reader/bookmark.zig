@@ -1,9 +1,9 @@
 //! The toolbar's bookmark button: marks the page, or unmarks it.
 const std = @import("std");
-const annotations = @import("../../book/annotations.zig");
-const bookmarks = @import("../../book/bookmarks.zig");
-const catalog = @import("../../book/catalog.zig");
-const system = @import("../../platform/system.zig");
+const annotations = @import("../../kindle/annotations.zig");
+const bookmarks = @import("../../model/bookmarks.zig");
+const catalog = @import("../../model/catalog.zig");
+const system = @import("../../kindle/system.zig");
 const app = @import("../../app.zig");
 const records = @import("records.zig");
 const sess = @import("session.zig");

@@ -1,13 +1,13 @@
 //! Actions for one book, opened from the three dots beside its cover.
 const std = @import("std");
-const stats = @import("../book/stats.zig");
+const stats = @import("../model/stats.zig");
 const draw = @import("draw.zig");
 const style = @import("style.zig");
-const catalog = @import("../book/catalog.zig");
+const catalog = @import("../model/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
-const cover = @import("cover.zig");
+const cover = @import("../gfx/image.zig");
 const library = @import("library.zig");
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 
 pub const Option = enum { download, remove, mark_read, mark_unread, confirm_remove, cancel };
 

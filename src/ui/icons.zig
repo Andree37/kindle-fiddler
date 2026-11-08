@@ -1,6 +1,6 @@
 //! Panel icons, drawn as smooth vector shapes.
 const std = @import("std");
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 
 const Pen = struct {
     page: text.Page,

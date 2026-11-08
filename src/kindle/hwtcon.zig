@@ -120,4 +120,4 @@ pub const Screen = struct {
     }
 };
 
-const failed = @import("os.zig").failed;
+const failed = @import("../linux/os.zig").failed;

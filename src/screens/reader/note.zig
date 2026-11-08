@@ -1,8 +1,8 @@
 //! Notes shown in a panel over the page, from a tapped reference.
 const std = @import("std");
-const kfx = @import("../../book/kfx.zig");
+const kfx = @import("../../kindle/kfx.zig");
 const notes = @import("../../ui/notes.zig");
-const text = @import("../../book/text.zig");
+const text = @import("../../layout/text.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
 

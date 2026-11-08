@@ -2,7 +2,7 @@
 const std = @import("std");
 const library = @import("../ui/library.zig");
 const menu = @import("../ui/menu.zig");
-const system = @import("../platform/system.zig");
+const system = @import("../kindle/system.zig");
 const app = @import("../app.zig");
 
 /// Draws the quick panel over `background` and shows it.

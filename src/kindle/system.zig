@@ -1,8 +1,8 @@
 //! Device settings, changed through Amazon's lipc command line tools.
 const std = @import("std");
 const linux = std.os.linux;
-const os = @import("os.zig");
-const annotations = @import("../book/annotations.zig");
+const os = @import("../linux/os.zig");
+const annotations = @import("annotations.zig");
 
 const lipc_get: [*:0]const u8 = "/usr/bin/lipc-get-prop";
 const lipc_set: [*:0]const u8 = "/usr/bin/lipc-set-prop";

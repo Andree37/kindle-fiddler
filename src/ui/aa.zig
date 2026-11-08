@@ -6,7 +6,7 @@ const Fonts = @import("fonts.zig").Fonts;
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const slider = @import("slider.zig");
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 
 const top = 228; // Under the toolbar
 const tabs_height = 92;

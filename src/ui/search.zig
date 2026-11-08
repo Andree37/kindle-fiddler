@@ -3,7 +3,7 @@ const std = @import("std");
 const draw = @import("draw.zig");
 const goto = @import("goto.zig");
 const style = @import("style.zig");
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const field_top = goto.top + 14;

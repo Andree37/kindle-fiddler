@@ -1,6 +1,6 @@
 //! Glyph cache and page layout for 8-bit grayscale pages.
 const std = @import("std");
-const Paragraph = @import("kfx.zig").Paragraph;
+const Paragraph = @import("../kindle/kfx.zig").Paragraph;
 
 extern fn ft_open(ttf: [*]const u8) ?*anyopaque;
 extern fn ft_scale(f: *anyopaque, px: f32) f32;
@@ -415,7 +415,7 @@ pub const Layout = struct {
 
 const max_words = 96;
 
-const kfx = @import("kfx.zig");
+const kfx = @import("../kindle/kfx.zig");
 const Link = kfx.Link;
 
 fn findReference(links: []const Link, paras: []const Paragraph, start: usize, len: usize) ?Link {

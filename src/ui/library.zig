@@ -3,11 +3,11 @@
 const std = @import("std");
 const draw = @import("draw.zig");
 const style = @import("style.zig");
-const cover = @import("cover.zig");
+const cover = @import("../gfx/image.zig");
 const icons = @import("icons.zig");
-const system = @import("../platform/system.zig");
-const text = @import("../book/text.zig");
-const catalog = @import("../book/catalog.zig");
+const system = @import("../kindle/system.zig");
+const text = @import("../layout/text.zig");
+const catalog = @import("../model/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const margin = style.margin;

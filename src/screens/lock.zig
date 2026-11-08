@@ -1,10 +1,10 @@
 //! The lock screen: the book's cover while the Kindle sleeps.
 const std = @import("std");
-const catalog = @import("../book/catalog.zig");
-const os = @import("../platform/os.zig");
-const cover = @import("../ui/cover.zig");
-const file = @import("../platform/file.zig");
-const kfx = @import("../book/kfx.zig");
+const catalog = @import("../model/catalog.zig");
+const os = @import("../linux/os.zig");
+const cover = @import("../gfx/image.zig");
+const file = @import("../linux/file.zig");
+const kfx = @import("../kindle/kfx.zig");
 const library = @import("../ui/library.zig");
 const nowUs = os.nowUs;
 const app = @import("../app.zig");

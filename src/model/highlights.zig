@@ -1,7 +1,7 @@
 //! Highlights in a book: where they sit in the text, and how they map to a page.
 const std = @import("std");
-const kfx = @import("kfx.zig");
-const text = @import("text.zig");
+const kfx = @import("../kindle/kfx.zig");
+const text = @import("../layout/text.zig");
 
 /// A highlight, plus the Amazon ID that keeps edits on the same record.
 pub const Highlight = struct { mark: text.Mark, id: []const u8 };

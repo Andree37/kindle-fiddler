@@ -1,6 +1,6 @@
 //! Text selection on a page: which words a finger covers, and how they look.
 const std = @import("std");
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 
 /// The word exactly under a point, if any.
 pub fn wordUnder(words: []const text.Word, x: i32, y: i32) ?text.Word {

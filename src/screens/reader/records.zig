@@ -1,10 +1,10 @@
 //! Writing and deleting synced records (highlights and bookmarks) for an open book.
 const std = @import("std");
-const annotations = @import("../../book/annotations.zig");
-const catalog = @import("../../book/catalog.zig");
-const kfx = @import("../../book/kfx.zig");
-const os = @import("../../platform/os.zig");
-const system = @import("../../platform/system.zig");
+const annotations = @import("../../kindle/annotations.zig");
+const catalog = @import("../../model/catalog.zig");
+const kfx = @import("../../kindle/kfx.zig");
+const os = @import("../../linux/os.zig");
+const system = @import("../../kindle/system.zig");
 const sess = @import("session.zig");
 
 /// Amazon's position for a place in the text. Null for paragraphs it doesn't number.

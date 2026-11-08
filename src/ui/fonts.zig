@@ -1,5 +1,5 @@
 //! The interface fonts every screen draws with.
-const text = @import("../book/text.zig");
+const text = @import("../layout/text.zig");
 
 pub const Fonts = struct {
     title: *text.Font, // UI bold

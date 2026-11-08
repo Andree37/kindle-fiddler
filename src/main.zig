@@ -8,13 +8,13 @@
 //! same place. All Settings leaves for the stock UI.
 const std = @import("std");
 const Fonts = @import("ui/fonts.zig").Fonts;
-const file = @import("platform/file.zig");
-const hwtcon = @import("platform/hwtcon.zig");
+const file = @import("linux/file.zig");
+const hwtcon = @import("kindle/hwtcon.zig");
 const library = @import("ui/library.zig");
 const menu = @import("ui/menu.zig");
-const system = @import("platform/system.zig");
-const text = @import("book/text.zig");
-const input_mod = @import("platform/input.zig");
+const system = @import("kindle/system.zig");
+const text = @import("layout/text.zig");
+const input_mod = @import("kindle/input.zig");
 const app = @import("app.zig");
 const library_screen = @import("screens/library.zig");
 

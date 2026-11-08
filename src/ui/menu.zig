@@ -4,9 +4,9 @@ const Fonts = @import("fonts.zig").Fonts;
 const icons = @import("icons.zig");
 const library = @import("library.zig");
 const slider = @import("slider.zig");
-const state = @import("../platform/state.zig");
-const system = @import("../platform/system.zig");
-const text = @import("../book/text.zig");
+const state = @import("../linux/state.zig");
+const system = @import("../kindle/system.zig");
+const text = @import("../layout/text.zig");
 
 pub const height = 960;
 

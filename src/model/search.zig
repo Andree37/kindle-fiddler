@@ -1,7 +1,7 @@
 //! Finding words in a book. Matching ignores case and accents, so "acao" finds
 //! "Ação", the way people type on a small keyboard.
 const std = @import("std");
-const kfx = @import("kfx.zig");
+const kfx = @import("../kindle/kfx.zig");
 
 pub const Match = struct { para: u32, byte: u32 };
 

@@ -1,8 +1,8 @@
 //! Bookmarks: a single position marking a page.
 const std = @import("std");
 const highlights = @import("highlights.zig");
-const kfx = @import("kfx.zig");
-const text = @import("text.zig");
+const kfx = @import("../kindle/kfx.zig");
+const text = @import("../layout/text.zig");
 
 pub const Bookmark = struct { id: []const u8, para: u32, byte: u32 };
 
