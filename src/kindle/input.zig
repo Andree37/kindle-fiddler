@@ -12,6 +12,13 @@ const heartbeat_every_us = 30 * 1000 * 1000;
 const heartbeat_path = "/tmp/noface-alive"; // In RAM: device/noface.sh's watchdog reads it
 const watcher_retry_ms = 5000;
 const activity_every_us = 60 * 1000 * 1000;
+const activity_fresh_us = 5 * 1000 * 1000;
+
+/// Tell powerd about activity at most once a minute, and only just after a touch:
+/// later the Kindle may already be locking, and powerd refuses the call then.
+pub fn shouldTellPowerd(locked: bool, now: u64, last_touch: u64, last_told: u64) bool {
+    return !locked and now -| last_touch < activity_fresh_us and last_touch > last_told + activity_every_us;
+}
 const key_power = 116;
 
 /// True when the events include the power key going down.
@@ -240,7 +247,7 @@ pub const Input = struct {
 
             // Touches are grabbed, so powerd can't see them and would lock the Kindle
             // 10 minutes into reading. Tell it, while there's nothing else to do anyway.
-            if (!in.locked and in.last_input > in.told_powerd_us + activity_every_us) {
+            if (shouldTellPowerd(in.locked, nowUs(), in.last_input, in.told_powerd_us)) {
                 in.told_powerd_us = in.last_input;
                 lipc.stillActive();
             }
@@ -477,4 +484,12 @@ test "only a power key press counts" {
     try std.testing.expect(!powerPressed(&.{ev(ev_key, key_power, 0)})); // Release
     try std.testing.expect(!powerPressed(&.{ev(ev_key, 30, 1)}));
     try std.testing.expect(!powerPressed(&.{}));
+}
+
+test "powerd hears about touches only while they're fresh" {
+    const min = 60 * 1000 * 1000;
+    try std.testing.expect(shouldTellPowerd(false, 10 * min, 10 * min - 1000, 8 * min));
+    try std.testing.expect(!shouldTellPowerd(false, 10 * min, 9 * min, 7 * min)); // Touch a minute old
+    try std.testing.expect(!shouldTellPowerd(false, 10 * min, 10 * min, 10 * min - 1000)); // Told just now
+    try std.testing.expect(!shouldTellPowerd(true, 10 * min, 10 * min, 0)); // Locked
 }
