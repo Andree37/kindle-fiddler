@@ -7,9 +7,10 @@ restore() {
     lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
     lipc-set-prop com.lab126.blanket load screensaver 2>/dev/null
     # Only noface's own power watcher, in case noface died before ending it. Stock
-    # has listeners of its own that must keep running.
+    # has listeners of its own that must keep running. lipc-wait-event splits its
+    # event list in place, so the comma shows up as a separate word here.
     for p in $(pidof lipc-wait-event); do
-        grep -q "goingToScreenSaver,outOfScreenSaver" "/proc/$p/cmdline" 2>/dev/null && kill "$p"
+        tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "-m com.lab126.powerd goingToScreenSaver outOfScreenSaver" && kill "$p"
     done
 }
 trap restore EXIT
