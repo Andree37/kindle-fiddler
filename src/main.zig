@@ -7,6 +7,8 @@
 //! The power button locks, showing the current book's cover. Waking returns to the
 //! same place. All Settings leaves for the stock UI.
 const std = @import("std");
+const memory = @import("base/memory.zig");
+const c_memory = @import("gfx/c_memory.zig");
 const Font = @import("gfx/font.zig").Font;
 const Fonts = @import("ui/fonts.zig").Fonts;
 const file = @import("linux/file.zig");
@@ -20,7 +22,12 @@ const library_screen = @import("screens/library.zig");
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
     if (argv.len != 7) return error.Usage;
-    const alloc = std.heap.page_allocator;
+    // Everything that lives as long as the app: screen buffers, fonts, picture cache.
+    var app_budget = memory.Budget{ .name = "app", .child = std.heap.smp_allocator, .limit = 96 << 20 };
+    const alloc = app_budget.allocator();
+    // Glyph bitmaps and decoded pictures from the stb C libraries.
+    var stb_budget = memory.Budget{ .name = "stb", .child = std.heap.smp_allocator, .limit = 128 << 20 };
+    c_memory.use(&stb_budget);
 
     const state_dir = std.mem.sliceTo(argv[6], 0);
 
@@ -76,6 +83,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .library_path = argv[1],
         .settings_path = settings_path,
         .speed_path = speed_path,
+        .app_budget = &app_budget,
+        .stb_budget = &stb_budget,
         .speed = app.loadSpeed(speed_path),
         .utc_offset = clock.utcOffset(),
         .settings = app.loadSettings(settings_path),

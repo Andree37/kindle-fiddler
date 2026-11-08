@@ -2,6 +2,7 @@
 //! Run with `zig build check`. Usage: boundaries <src dir>
 //!
 //! Who may import whom, by top-level folder of src/:
+//!   base    Building blocks for everything: memory budgets, checks. Imports only base.
 //!   linux   Linux itself: files, processes, time. Imports only linux.
 //!   model   Our data: books, settings, library. Imports only model.
 //!   gfx     Pixels and fonts. Imports gfx and linux.
@@ -9,11 +10,13 @@
 //!   ui      Drawing screens and mapping taps. Imports ui, model, layout and gfx.
 //!   kindle  Everything that knows Amazon. Imports kindle, linux and model.
 //!   screens, and files at the top of src/: may import anything.
+//! Every folder may import base.
 const std = @import("std");
 
 const Rule = struct { folder: []const u8, allowed: []const []const u8 };
 
 const rules = [_]Rule{
+    .{ .folder = "base", .allowed = &.{"base"} },
     .{ .folder = "linux", .allowed = &.{"linux"} },
     .{ .folder = "model", .allowed = &.{"model"} },
     .{ .folder = "gfx", .allowed = &.{ "gfx", "linux" } },
@@ -56,7 +59,7 @@ pub fn check(file: []const u8, source: []const u8, out: *std.ArrayList(u8), allo
         var buf: [256]u8 = undefined;
         const resolved = resolve(&buf, file, target) orelse continue;
         const to = folderOf(resolved);
-        const ok = for (rule.allowed) |a| {
+        const ok = std.mem.eql(u8, to, "base") or for (rule.allowed) |a| {
             if (std.mem.eql(u8, a, to)) break true;
         } else false;
         if (!ok) {

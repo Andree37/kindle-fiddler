@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const memory = @import("base/memory.zig");
 const fonts_db = @import("kindle/fonts.zig");
 const settings_model = @import("model/settings.zig");
 const Page = @import("gfx/page.zig").Page;
@@ -34,7 +35,9 @@ pub const clock_width = 160;
 pub const Slot = struct { page: i64 = -1, buf: []u8, hits: text.Hits = .{} };
 
 pub const App = struct {
-    alloc: std.mem.Allocator,
+    alloc: std.mem.Allocator, // Lives as long as the app, counted by app_budget
+    app_budget: *memory.Budget,
+    stb_budget: *memory.Budget,
     screen: *hwtcon.Screen,
     input: *Input,
     body: *Font,

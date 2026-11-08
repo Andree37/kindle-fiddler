@@ -1,4 +1,14 @@
 // Thin wrapper so Zig does not depend on translating stb_truetype.h.
+#include <stddef.h>
+/* stb's memory comes from noface's budgets: see gfx/c_memory.zig. */
+void *noface_malloc(size_t size);
+void noface_free(void *p);
+void *noface_realloc(void *p, size_t size);
+#define STBTT_malloc(x, u) ((void)(u), noface_malloc(x))
+#define STBTT_free(x, u) ((void)(u), noface_free(x))
+#define STBI_MALLOC(size) noface_malloc(size)
+#define STBI_REALLOC(p, size) noface_realloc(p, size)
+#define STBI_FREE(p) noface_free(p)
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 #define STB_IMAGE_IMPLEMENTATION
@@ -9,10 +19,10 @@
 #include <stdlib.h>
 
 void *ft_open(const unsigned char *ttf) {
-    stbtt_fontinfo *f = malloc(sizeof *f);
+    stbtt_fontinfo *f = noface_malloc(sizeof *f);
     if (!f) return 0;
     if (!stbtt_InitFont(f, ttf, stbtt_GetFontOffsetForIndex(ttf, 0))) {
-        free(f);
+        noface_free(f);
         return 0;
     }
     return f;

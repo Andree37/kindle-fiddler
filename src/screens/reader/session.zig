@@ -50,6 +50,7 @@ pub const Session = struct {
     note_next: ?book_model.Pos = null,
     highlights: std.ArrayList(highlights.Highlight) = .empty,
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
+    marks: std.ArrayList(book_model.Mark) = .empty, // What layout shades, rebuilt from highlights
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const book_model.Chapter = &.{},
     text_before: []const u64 = &.{}, // Bytes of text before each paragraph, for time left

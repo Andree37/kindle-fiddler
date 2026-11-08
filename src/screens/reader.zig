@@ -1,5 +1,6 @@
 //! Reading a book: page turns, and routing taps to the toolbar, panel, notes and highlights.
 const std = @import("std");
+const memory = @import("../base/memory.zig");
 const book_model = @import("../model/book.zig");
 const catalog = @import("../model/catalog.zig");
 const os = @import("../linux/os.zig");
@@ -38,10 +39,23 @@ pub const Outcome = enum { library, quit };
 pub const View = enum { page, toolbar, sheet, panel, note, highlight };
 
 pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    defer a.pictures.clear(a.alloc); // Its keys point into this book's memory
+    // The open book: parsed text, pages, highlights. All freed together on close.
+    var book_budget = memory.Budget{ .name = "book", .child = std.heap.smp_allocator, .limit = 128 << 20 };
+    var arena = std.heap.ArenaAllocator.init(book_budget.allocator());
+    // What one action needs, like a Go To list or search results. Emptied after each.
+    var scratch_budget = memory.Budget{ .name = "scratch", .child = std.heap.smp_allocator, .limit = 32 << 20 };
+    var scratch_arena = std.heap.ArenaAllocator.init(scratch_budget.allocator());
+    defer {
+        a.pictures.clear(a.alloc); // Its keys point into this book's memory
+        scratch_arena.deinit();
+        arena.deinit();
+        book_budget.report();
+        scratch_budget.report();
+        a.app_budget.report();
+        a.stb_budget.report();
+    }
     const alloc = arena.allocator();
+    const scratch = scratch_arena.allocator();
 
     const t0 = nowUs();
     const data = try file.map(entry.path);
@@ -87,6 +101,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     defer a.input.deferred = false;
     defer a.input.edge_zones = true;
     while (true) {
+        _ = scratch_arena.reset(.retain_capacity); // Nothing from the last action is still needed
         // The reading clock runs only while the page itself is in front of the reader.
         if (view == .page) session.resumeClock() else session.pauseClock();
         a.input.deferred = view == .page;
@@ -173,7 +188,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     switch (toolbar.hit(t.x, t.y, sheet)) {
                         .stay, .more => {},
                         .search => {
-                            if (try search.run(a, &session, alloc)) |target| {
+                            if (try search.run(a, &session, scratch)) |target| {
                                 view = .page;
                                 a.input.grips = true;
                                 try session.show(target, null, true);
@@ -186,7 +201,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                             try controls.drawToolbar(a, &session, entry.title, sheet, true);
                         },
                         .goto => {
-                            if (try goto.run(a, &session, alloc, book.chapters)) |target| {
+                            if (try goto.run(a, &session, scratch, book.chapters)) |target| {
                                 view = .page;
                                 a.input.grips = true;
                                 try session.show(target, null, true);
@@ -207,7 +222,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                             try controls.drawToolbar(a, &session, entry.title, view == .sheet, sheet);
                         },
                         .chapter_prev, .chapter_next => |direction| {
-                            const sections = try alloc.alloc(u32, session.pages.len);
+                            const sections = try scratch.alloc(u32, session.pages.len);
                             for (session.pages, sections) |p, *out| out.* = session.paragraphs[p.para].section;
                             session.setPage(toolbar.chapterTarget(sections, session.current, direction == .chapter_next));
                             try controls.drawToolbar(a, &session, entry.title, sheet, true);

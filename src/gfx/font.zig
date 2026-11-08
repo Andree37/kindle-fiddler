@@ -2,6 +2,10 @@
 const std = @import("std");
 const Page = @import("page.zig").Page;
 
+comptime {
+    _ = @import("c_memory.zig"); // stb's malloc and free, which the C shim calls
+}
+
 extern fn ft_open(ttf: [*]const u8) ?*anyopaque;
 extern fn ft_scale(f: *anyopaque, px: f32) f32;
 extern fn ft_vmetrics(f: *anyopaque, asc: *c_int, desc: *c_int, gap: *c_int) void;

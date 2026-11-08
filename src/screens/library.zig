@@ -56,7 +56,7 @@ pub fn isCompleteBook(path: [:0]const u8) bool {
 }
 
 pub fn loadLibrary(a: *app.App) !Library {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
     errdefer arena.deinit();
     const alloc = arena.allocator();
     const data = try file.map(a.library_path);

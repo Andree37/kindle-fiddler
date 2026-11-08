@@ -27,9 +27,9 @@ pub fn pageWords(a: *app.App, s: *const sess.Session) []const book_model.Word {
 
 /// Rebuilds the marks drawn on pages, after highlights change.
 pub fn refreshMarks(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator) !void {
-    const marks = try alloc.alloc(book_model.Mark, s.highlights.items.len);
-    for (s.highlights.items, marks) |h, *m| m.* = h.mark;
-    a.layout.marks = marks;
+    s.marks.clearRetainingCapacity(); // One list, reused, rather than a new one each time
+    for (s.highlights.items) |h| try s.marks.append(alloc, h.mark);
+    a.layout.marks = s.marks.items;
     a.forgetPages();
 }
 
