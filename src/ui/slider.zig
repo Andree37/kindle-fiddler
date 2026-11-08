@@ -1,7 +1,7 @@
 //! The one slider used everywhere. Pure black and white with pixel-aligned edges,
 //! so it looks the same at rest and under the fast waveform used while dragging.
 const std = @import("std");
-const text = @import("text.zig");
+const text = @import("../book/text.zig");
 
 pub const Slider = struct { left: u32, right: u32, y: u32 };
 

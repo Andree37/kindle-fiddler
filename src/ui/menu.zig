@@ -3,9 +3,9 @@ const std = @import("std");
 const icons = @import("icons.zig");
 const library = @import("library.zig");
 const slider = @import("slider.zig");
-const state = @import("state.zig");
-const system = @import("system.zig");
-const text = @import("text.zig");
+const state = @import("../platform/state.zig");
+const system = @import("../platform/system.zig");
+const text = @import("../book/text.zig");
 
 pub const height = 960;
 

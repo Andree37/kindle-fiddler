@@ -1,8 +1,8 @@
 //! Note popup, anchored to the bottom of the page.
 const std = @import("std");
-const kfx = @import("kfx.zig");
+const kfx = @import("../book/kfx.zig");
 const library = @import("library.zig");
-const text = @import("text.zig");
+const text = @import("../book/text.zig");
 
 pub const max_parts = 8;
 const header = 84;

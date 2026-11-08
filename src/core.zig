@@ -1,13 +1,13 @@
 //! Shared by the app and the tools in tools/, which can't reach into src/ directly.
-pub const aa = @import("aa.zig");
-pub const cover = @import("cover.zig");
-pub const file = @import("file.zig");
-pub const hwtcon = @import("hwtcon.zig");
-pub const kfx = @import("kfx.zig");
-pub const library = @import("library.zig");
-pub const menu = @import("menu.zig");
-pub const notes = @import("notes.zig");
-pub const sheet = @import("sheet.zig");
-pub const system = @import("system.zig");
-pub const text = @import("text.zig");
-pub const toolbar = @import("toolbar.zig");
+pub const aa = @import("ui/aa.zig");
+pub const cover = @import("ui/cover.zig");
+pub const file = @import("platform/file.zig");
+pub const hwtcon = @import("platform/hwtcon.zig");
+pub const kfx = @import("book/kfx.zig");
+pub const library = @import("ui/library.zig");
+pub const menu = @import("ui/menu.zig");
+pub const notes = @import("ui/notes.zig");
+pub const sheet = @import("ui/sheet.zig");
+pub const system = @import("platform/system.zig");
+pub const text = @import("book/text.zig");
+pub const toolbar = @import("ui/toolbar.zig");

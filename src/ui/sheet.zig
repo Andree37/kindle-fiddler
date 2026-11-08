@@ -2,7 +2,7 @@
 const std = @import("std");
 const cover = @import("cover.zig");
 const library = @import("library.zig");
-const text = @import("text.zig");
+const text = @import("../book/text.zig");
 
 pub const Option = enum { download, remove, mark_read, mark_unread, confirm_remove, cancel };
 

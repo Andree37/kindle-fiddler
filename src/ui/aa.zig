@@ -3,7 +3,7 @@ const std = @import("std");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const slider = @import("slider.zig");
-const text = @import("text.zig");
+const text = @import("../book/text.zig");
 
 const top = 228; // Under the toolbar
 const tabs_height = 92;

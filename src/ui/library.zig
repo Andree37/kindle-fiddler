@@ -3,8 +3,8 @@
 const std = @import("std");
 const cover = @import("cover.zig");
 const icons = @import("icons.zig");
-const system = @import("system.zig");
-const text = @import("text.zig");
+const system = @import("../platform/system.zig");
+const text = @import("../book/text.zig");
 
 pub const Availability = enum { local, cloud, downloading };
 
