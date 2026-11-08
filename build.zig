@@ -42,6 +42,19 @@ pub fn build(b: *std.Build) void {
     jxr.root_module.addCSourceFile(.{ .file = b.path("device/jxr/jxr2pgm.c"), .flags = &.{"-O2"} });
     b.installArtifact(jxr);
 
+    // Ownership boundaries: `zig build check` fails when a file imports across one.
+    const host = b.graph.host;
+    const boundaries = b.addExecutable(.{
+        .name = "boundaries",
+        .root_module = b.createModule(.{ .root_source_file = b.path("tools/check/boundaries.zig"), .target = host }),
+    });
+    const run_boundaries = b.addRunArtifact(boundaries);
+    run_boundaries.addArg("src");
+    const check_step = b.step("check", "Check that files only import what their folder may use");
+    check_step.dependOn(&run_boundaries.step);
+    const boundary_tests = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("tools/check/boundaries.zig"), .target = host }) });
+    check_step.dependOn(&b.addRunArtifact(boundary_tests).step);
+
     // Development tools, kept out of the app. Built with `zig build tools`.
     const core = b.createModule(.{
         .root_source_file = b.path("src/core.zig"),

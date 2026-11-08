@@ -1,14 +1,14 @@
 //! Notes shown in a panel over the page, from a tapped reference.
 const std = @import("std");
+const book_model = @import("../../model/book.zig");
 const Page = @import("../../gfx/page.zig").Page;
 const note_rules = @import("../../model/notes.zig");
 const notes = @import("../../ui/notes.zig");
-const text = @import("../../layout/text.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
 
 /// Shows a note, or the next part of a long one.
-pub fn showNote(a: *app.App, s: *sess.Session, start: text.Pos, fixed: ?u32) !void {
+pub fn showNote(a: *app.App, s: *sess.Session, start: book_model.Pos, fixed: ?u32) !void {
     const font = a.note_font;
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
     const stride = a.screen.stride;

@@ -6,7 +6,6 @@ const Fonts = @import("fonts.zig").Fonts;
 const draw = @import("draw.zig");
 const icons = @import("icons.zig");
 const slider = @import("slider.zig");
-const state = @import("../linux/state.zig");
 const quick_model = @import("../model/quick.zig");
 
 pub const height = 960;

@@ -1,0 +1,101 @@
+//! Fails when a source file imports across an ownership boundary.
+//! Run with `zig build check`. Usage: boundaries <src dir>
+//!
+//! Who may import whom, by top-level folder of src/:
+//!   linux   Linux itself: files, processes, time. Imports only linux.
+//!   model   Our data: books, settings, library. Imports only model.
+//!   gfx     Pixels and fonts. Imports gfx and linux.
+//!   layout  Setting text into pages. Imports layout, model and gfx.
+//!   ui      Drawing screens and mapping taps. Imports ui, model, layout and gfx.
+//!   kindle  Everything that knows Amazon. Imports kindle, linux and model.
+//!   screens, and files at the top of src/: may import anything.
+const std = @import("std");
+
+const Rule = struct { folder: []const u8, allowed: []const []const u8 };
+
+const rules = [_]Rule{
+    .{ .folder = "linux", .allowed = &.{"linux"} },
+    .{ .folder = "model", .allowed = &.{"model"} },
+    .{ .folder = "gfx", .allowed = &.{ "gfx", "linux" } },
+    .{ .folder = "layout", .allowed = &.{ "layout", "model", "gfx" } },
+    .{ .folder = "ui", .allowed = &.{ "ui", "model", "layout", "gfx" } },
+    .{ .folder = "kindle", .allowed = &.{ "kindle", "linux", "model" } },
+};
+
+/// The top-level folder of a path inside src/, or "" for files at the top.
+fn folderOf(path: []const u8) []const u8 {
+    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return "";
+    return path[0..slash];
+}
+
+/// Where an import in `file` points, relative to src/, or null if it leaves src/.
+fn resolve(buf: []u8, file: []const u8, target: []const u8) ?[]const u8 {
+    const dir = std.fs.path.dirname(file) orelse "";
+    const joined = std.fs.path.resolvePosix(std.heap.page_allocator, &.{ "/src", dir, target }) catch return null;
+    if (!std.mem.startsWith(u8, joined, "/src/")) return null;
+    const rel = joined["/src/".len..];
+    if (rel.len > buf.len) return null;
+    @memcpy(buf[0..rel.len], rel);
+    return buf[0..rel.len];
+}
+
+/// Problems in one file, as "file: imports target" lines. Returns how many.
+pub fn check(file: []const u8, source: []const u8, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !usize {
+    const from = folderOf(file);
+    const rule = for (rules) |r| {
+        if (std.mem.eql(u8, r.folder, from)) break r;
+    } else return 0;
+    var found: usize = 0;
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, source, at, "@import(\"")) |start| {
+        const name_start = start + "@import(\"".len;
+        const end = std.mem.indexOfScalarPos(u8, source, name_start, '"') orelse break;
+        at = end;
+        const target = source[name_start..end];
+        if (!std.mem.endsWith(u8, target, ".zig")) continue; // std and other modules
+        var buf: [256]u8 = undefined;
+        const resolved = resolve(&buf, file, target) orelse continue;
+        const to = folderOf(resolved);
+        const ok = for (rule.allowed) |a| {
+            if (std.mem.eql(u8, a, to)) break true;
+        } else false;
+        if (!ok) {
+            found += 1;
+            try out.print(alloc, "{s}: imports {s} ({s} may not use {s})\n", .{ file, resolved, from, if (to.len == 0) "top-level files" else to });
+        }
+    }
+    return found;
+}
+
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(alloc);
+    if (args.len != 2) return error.Usage;
+    const io = init.io;
+    var dir = try std.Io.Dir.cwd().openDir(io, args[1], .{ .iterate = true });
+    defer dir.close(io);
+    var walker = try dir.walk(alloc);
+    var out: std.ArrayList(u8) = .empty;
+    var problems: usize = 0;
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const source = try dir.readFileAlloc(io, entry.path, alloc, .limited(4 << 20));
+        problems += try check(entry.path, source, &out, alloc);
+    }
+    if (problems > 0) {
+        std.debug.print("{s}{d} imports cross a boundary\n", .{ out.items, problems });
+        std.process.exit(1);
+    }
+    std.debug.print("boundaries ok\n", .{});
+}
+
+test "imports are judged by folder" {
+    const alloc = std.testing.allocator;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 0), try check("model/a.zig", "const b = @import(\"b.zig\");", &out, alloc));
+    try std.testing.expectEqual(@as(usize, 1), try check("model/a.zig", "const k = @import(\"../kindle/kfx.zig\");", &out, alloc));
+    try std.testing.expectEqual(@as(usize, 0), try check("screens/a.zig", "const k = @import(\"../kindle/kfx.zig\");", &out, alloc));
+    try std.testing.expectEqual(@as(usize, 1), try check("ui/a.zig", "const p = @import(\"../linux/os.zig\");", &out, alloc));
+    try std.testing.expectEqual(@as(usize, 0), try check("ui/a.zig", "const std = @import(\"std\");", &out, alloc));
+}

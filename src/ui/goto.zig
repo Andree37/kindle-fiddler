@@ -5,7 +5,6 @@ const Page = @import("../gfx/page.zig").Page;
 const book_model = @import("../model/book.zig");
 const draw = @import("draw.zig");
 const icons = @import("icons.zig");
-const library = @import("library.zig");
 const style = @import("style.zig");
 const text = @import("../layout/text.zig");
 const Fonts = @import("fonts.zig").Fonts;
@@ -102,7 +101,7 @@ pub fn renderList(fonts: Fonts, page: Page, list: []const Row, reading: ?usize, 
             left += mark_width;
         }
         const font = if (here) fonts.title else fonts.small;
-        try library.drawClipped(font, page, left, baseline, r.label, right - page_label_width - left);
+        try draw.clipped(font, page, left, baseline, r.label, right - page_label_width - left);
         if (here) page.fillRect(style.margin - 28, y + 22, 8, 56, style.black);
         var label: [16]u8 = undefined;
         const number = std.fmt.bufPrint(&label, "{d}", .{r.page + 1}) catch "";

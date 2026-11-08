@@ -8,15 +8,11 @@ const Paragraph = @import("../model/book.zig").Paragraph;
 /// Where a note reference landed on a page.
 pub const Hit = struct { x: i32, y: i32, w: i32, h: i32, target: u32 };
 
-/// A word on a page and where it came from, for selection.
-pub const Word = struct { x: i32, y: i32, w: i32, h: i32, para: u32, start: u32, end: u32 };
 
-/// Part of a paragraph with a highlight on it.
-pub const Mark = struct { para: u32, start: u32, end: u32 };
 
 const mark_shade = 0xe4; // Very faint, so highlighted text reads like any other
 
-fn isMarked(marks: []const Mark, para: usize, start: usize, end: usize) bool {
+fn isMarked(marks: []const book_model.Mark, para: usize, start: usize, end: usize) bool {
     for (marks) |m| {
         if (m.para == para and start < m.end and end > m.start) return true;
     }
@@ -26,7 +22,7 @@ fn isMarked(marks: []const Mark, para: usize, start: usize, end: usize) bool {
 pub const Hits = struct {
     items: [32]Hit = undefined,
     len: usize = 0,
-    words: [1024]Word = undefined,
+    words: [1024]book_model.Word = undefined,
     word_count: usize = 0,
 
     pub fn clear(h: *Hits) void {
@@ -34,7 +30,7 @@ pub const Hits = struct {
         h.word_count = 0;
     }
 
-    fn addWord(h: *Hits, word: Word) void {
+    fn addWord(h: *Hits, word: book_model.Word) void {
         if (h.word_count == h.words.len) return;
         h.words[h.word_count] = word;
         h.word_count += 1;
@@ -63,7 +59,6 @@ test "tap near a reference finds it" {
     try std.testing.expect(hits.find(300, 200) == null);
 }
 
-pub const Pos = struct { para: usize = 0, byte: usize = 0 };
 
 /// Where layout gets the font for a weight, slant and size. Without one, every
 /// word uses the base font.
@@ -86,7 +81,7 @@ pub const Layout = struct {
     margin_bottom: i32,
     indent: f32,
     reference: ?*Font = null, // Smaller font for note references
-    marks: []const Mark = &.{},
+    marks: []const book_model.Mark = &.{},
     justify: bool = true,
 };
 
@@ -135,7 +130,7 @@ fn spaceLines(tenths: u8, base: *Font) i32 {
 
 /// Lay out one page and return where the next page starts.
 /// With `page` null this only measures, which is how the book gets paginated.
-pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: Pos, l: Layout, hits: ?*Hits) !Pos {
+pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: book_model.Pos, l: Layout, hits: ?*Hits) !book_model.Pos {
     if (maybe_page) |p| @memset(p.buf, 0xff);
     const page = geometry;
     const line_width: f32 = @floatFromInt(@as(i32, @intCast(page.width)) - 2 * l.margin_x);
@@ -295,7 +290,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
     return pos;
 }
 
-pub fn renderPage(font: *Font, page: Page, paras: []const Paragraph, start: Pos, l: Layout, hits: ?*Hits) !Pos {
+pub fn renderPage(font: *Font, page: Page, paras: []const Paragraph, start: book_model.Pos, l: Layout, hits: ?*Hits) !book_model.Pos {
     return layoutPage(font, page, page, paras, start, l, hits);
 }
 

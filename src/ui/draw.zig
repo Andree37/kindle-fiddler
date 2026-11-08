@@ -10,6 +10,18 @@ pub fn centered(font: *Font, page: Page, center_x: f32, y: i32, s: []const u8) !
     try font.draw(page, center_x - try font.measure(s) / 2, y, s);
 }
 
+pub fn clipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
+    const w = try font.measure(s);
+    if (w <= avail) return font.draw(page, x, y, s);
+    const dots = "...";
+    const cut = try font.fit(s, avail - try font.measure(dots));
+    var buf: [256]u8 = undefined;
+    const part = std.mem.trimEnd(u8, s[0..@min(cut, buf.len - dots.len)], " ");
+    @memcpy(buf[0..part.len], part);
+    @memcpy(buf[part.len..][0..dots.len], dots);
+    try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
+}
+
 /// A white box with a thin black outline.
 pub fn box(page: Page, x: u32, y: u32, w: u32, h: u32) void {
     page.fillRect(x, y, w, h, style.black);

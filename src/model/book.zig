@@ -127,3 +127,12 @@ test "saved positions count text paragraphs only" {
     try std.testing.expectEqual(@as(usize, 2), fromTextIndex(&paras, 1));
     try std.testing.expectEqual(@as(usize, 0), fromTextIndex(&paras, 0));
 }
+
+/// A place in a book: a paragraph, and a byte within its text.
+pub const Pos = struct { para: usize = 0, byte: usize = 0 };
+
+/// A word as laid out on a page: where it is on screen and where it came from.
+pub const Word = struct { x: i32, y: i32, w: i32, h: i32, para: u32, start: u32, end: u32 };
+
+/// Part of a paragraph with a highlight on it.
+pub const Mark = struct { para: u32, start: u32, end: u32 };

@@ -22,7 +22,6 @@ const text = @import("layout/text.zig");
 const os = @import("linux/os.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
-const panel = @import("screens/panel.zig");
 
 pub const page_waveform: hwtcon.Waveform = .reagl;
 

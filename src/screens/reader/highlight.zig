@@ -1,5 +1,6 @@
 //! Making, extending and deleting highlights on the page.
 const std = @import("std");
+const book_model = @import("../../model/book.zig");
 const draw = @import("../../ui/draw.zig");
 const catalog = @import("../../model/catalog.zig");
 const os = @import("../../linux/os.zig");
@@ -7,7 +8,6 @@ const highlights = @import("../../model/highlights.zig");
 const selection = @import("../../ui/selection.zig");
 const annotation_db = @import("../../kindle/annotation_db.zig");
 const lipc = @import("../../kindle/lipc.zig");
-const text = @import("../../layout/text.zig");
 const failed = os.failed;
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
@@ -20,14 +20,14 @@ pub fn saveHighlight(s: *sess.Session, entry: *const catalog.Entry, id: []const 
     return records.write(entry, .highlight, id, start, end);
 }
 
-pub fn pageWords(a: *app.App, s: *const sess.Session) []const text.Word {
+pub fn pageWords(a: *app.App, s: *const sess.Session) []const book_model.Word {
     const slot = a.slotFor(s.current) orelse return &.{};
     return slot.hits.words[0..slot.hits.word_count];
 }
 
 /// Rebuilds the marks drawn on pages, after highlights change.
 pub fn refreshMarks(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator) !void {
-    const marks = try alloc.alloc(text.Mark, s.highlights.items.len);
+    const marks = try alloc.alloc(book_model.Mark, s.highlights.items.len);
     for (s.highlights.items, marks) |h, *m| m.* = h.mark;
     a.layout.marks = marks;
     a.forgetPages();
@@ -81,14 +81,14 @@ pub fn inDeleteBubble(a: *app.App, top: usize, x: i32, y: i32) bool {
 }
 
 /// Follows a finger, keeping `fixed` in place, and returns where it stopped.
-pub fn dragSelection(a: *app.App, words: []const text.Word, fixed: usize, moving: usize) !usize {
+pub fn dragSelection(a: *app.App, words: []const book_model.Word, fixed: usize, moving: usize) !usize {
     var head = moving;
     @memcpy(a.lock_cover, a.screen.pixels);
     a.page(a.lock_cover).threshold(0, a.screen.height); // Pure black and white for A2
     var previous = try paintSelection(a, words, fixed, head, .{ .top = 0, .height = 0 });
     const Follow = struct {
         a: *app.App,
-        words: []const text.Word,
+        words: []const book_model.Word,
         fixed: usize,
         head: *usize,
         previous: *selection.Band,
@@ -105,7 +105,7 @@ pub fn dragSelection(a: *app.App, words: []const text.Word, fixed: usize, moving
 }
 
 /// Underlines from `first` to `last`, redrawing the band the old and new selections cover.
-fn paintSelection(a: *app.App, list: []const text.Word, first: usize, last: usize, old: selection.Band) !selection.Band {
+fn paintSelection(a: *app.App, list: []const book_model.Word, first: usize, last: usize, old: selection.Band) !selection.Band {
     const lo = @min(first, last);
     const hi = @max(first, last);
     const chosen = list[lo .. hi + 1];

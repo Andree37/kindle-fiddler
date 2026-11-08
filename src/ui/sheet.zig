@@ -85,7 +85,7 @@ pub fn render(fonts: Fonts, page: Page, e: *const catalog.Entry, list: []const O
 
     const x: f32 = left + 48;
     const avail: f32 = width - 96;
-    try library.drawClipped(fonts.title, page, x, @intCast(card_top + 76), e.title, avail);
+    try draw.clipped(fonts.title, page, x, @intCast(card_top + 76), e.title, avail);
     var read_buf: [320]u8 = undefined; // Room for long or many authors
     var time_buf: [32]u8 = undefined;
     const line = if (confirming)
@@ -94,7 +94,7 @@ pub fn render(fonts: Fonts, page: Page, e: *const catalog.Entry, list: []const O
         std.fmt.bufPrint(&read_buf, "{s}  \u{b7}  read for {s}", .{ e.author, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch e.author
     else
         e.author;
-    try library.drawClipped(fonts.caption, page, x, @intCast(card_top + 128), line, avail);
+    try draw.clipped(fonts.caption, page, x, @intCast(card_top + 128), line, avail);
     page.tint(left + 48, card_top + 100, width - 96, 44, 0x50);
 
     for (list, 0..) |o, i| {

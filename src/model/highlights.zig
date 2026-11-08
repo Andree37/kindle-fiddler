@@ -1,10 +1,9 @@
 //! Highlights in a book: where they sit in the text, and how they map to a page.
 const std = @import("std");
 const book_model = @import("book.zig");
-const text = @import("../layout/text.zig");
 
 /// A highlight, plus the Amazon ID that keeps edits on the same record.
-pub const Highlight = struct { mark: text.Mark, id: []const u8 };
+pub const Highlight = struct { mark: book_model.Mark, id: []const u8 };
 
 /// Where a highlight starts and ends, which may be on other pages.
 pub const Span = struct {
@@ -13,7 +12,7 @@ pub const Span = struct {
     last_para: u32,
     last_byte: u32,
 
-    pub fn of(lo: text.Word, hi: text.Word) Span {
+    pub fn of(lo: book_model.Word, hi: book_model.Word) Span {
         return .{ .first_para = lo.para, .first_byte = lo.start, .last_para = hi.para, .last_byte = hi.end };
     }
 };
@@ -41,7 +40,7 @@ pub fn extent(list: []const Highlight, id: []const u8) ?Span {
 /// The range after dragging one end to `head`. The other end stays where it
 /// was, even off this page, unless the drag crossed `fixed`, the on-page word
 /// that end sits on.
-pub fn dragged(whole: Span, fixed: text.Word, head: text.Word, grab_start: bool, crossed: bool) Span {
+pub fn dragged(whole: Span, fixed: book_model.Word, head: book_model.Word, grab_start: bool, crossed: bool) Span {
     if (crossed) return if (grab_start) Span.of(fixed, head) else Span.of(head, fixed);
     var out = whole;
     if (grab_start) {
@@ -105,7 +104,7 @@ pub fn parse(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph,
     return out.toOwnedSlice(alloc);
 }
 
-fn overlaps(m: text.Mark, w: text.Word) bool {
+fn overlaps(m: book_model.Mark, w: book_model.Word) bool {
     return w.para == m.para and w.start < m.end and w.end > m.start;
 }
 
@@ -143,7 +142,7 @@ pub fn remove(list: *std.ArrayList(Highlight), id: []const u8) void {
 }
 
 /// First and last word of a highlight on this page.
-pub fn wordRange(words: []const text.Word, list: []const Highlight, id: []const u8) ?struct { lo: usize, hi: usize } {
+pub fn wordRange(words: []const book_model.Word, list: []const Highlight, id: []const u8) ?struct { lo: usize, hi: usize } {
     var lo: ?usize = null;
     var hi: usize = 0;
     for (words, 0..) |w, i| {
@@ -158,7 +157,7 @@ pub fn wordRange(words: []const text.Word, list: []const Highlight, id: []const 
 }
 
 /// The ID of the highlight containing a word, if any.
-pub fn atWord(list: []const Highlight, w: text.Word) ?[]const u8 {
+pub fn atWord(list: []const Highlight, w: book_model.Word) ?[]const u8 {
     for (list) |h| {
         if (overlaps(h.mark, w)) return h.id;
     }
@@ -193,7 +192,7 @@ test "database lines become marks, split across paragraphs" {
 }
 
 test "words map to a highlight" {
-    const words = [_]text.Word{
+    const words = [_]book_model.Word{
         .{ .x = 0, .y = 0, .w = 10, .h = 10, .para = 0, .start = 0, .end = 3 },
         .{ .x = 20, .y = 0, .w = 10, .h = 10, .para = 0, .start = 4, .end = 7 },
         .{ .x = 40, .y = 0, .w = 10, .h = 10, .para = 0, .start = 8, .end = 11 },
@@ -212,7 +211,7 @@ test "a highlight crossing paragraphs covers both and stays one highlight" {
     defer arena.deinit();
     const alloc = arena.allocator();
     const paras = [_]book_model.Paragraph{ sample("first para text here", 100), sample("second para", 121) };
-    const words = [_]text.Word{
+    const words = [_]book_model.Word{
         .{ .x = 0, .y = 0, .w = 10, .h = 10, .para = 0, .start = 11, .end = 15 },
         .{ .x = 0, .y = 20, .w = 10, .h = 10, .para = 0, .start = 16, .end = 20 },
         .{ .x = 0, .y = 40, .w = 10, .h = 10, .para = 1, .start = 0, .end = 6 },
@@ -239,8 +238,8 @@ test "dragging keeps an end that sits on another page" {
     try std.testing.expectEqual(whole, extent(&list, "h").?);
     try std.testing.expect(extent(&list, "none") == null);
 
-    const fixed = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 7, .start = 0, .end = 4 };
-    const head = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 8, .start = 50, .end = 55 };
+    const fixed = book_model.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 7, .start = 0, .end = 4 };
+    const head = book_model.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 8, .start = 50, .end = 55 };
     const longer = dragged(whole, fixed, head, false, false);
     try std.testing.expectEqual(@as(u32, 3), longer.first_para);
     try std.testing.expectEqual(@as(u32, 10), longer.first_byte);
@@ -249,8 +248,8 @@ test "dragging keeps an end that sits on another page" {
 
 test "dragging past the other end swaps the ends" {
     const whole = Span{ .first_para = 2, .first_byte = 10, .last_para = 2, .last_byte = 20 };
-    const fixed = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 2, .start = 10, .end = 14 };
-    const head = text.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 2, .start = 2, .end = 6 };
+    const fixed = book_model.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 2, .start = 10, .end = 14 };
+    const head = book_model.Word{ .x = 0, .y = 0, .w = 1, .h = 1, .para = 2, .start = 2, .end = 6 };
     const swapped = dragged(whole, fixed, head, false, true);
     try std.testing.expectEqual(@as(u32, 2), swapped.first_byte);
     try std.testing.expectEqual(@as(u32, 14), swapped.last_byte);
@@ -259,7 +258,7 @@ test "dragging past the other end swaps the ends" {
 test "a new highlight never takes an ID in use" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const mark = text.Mark{ .para = 0, .start = 0, .end = 1 };
+    const mark = book_model.Mark{ .para = 0, .start = 0, .end = 1 };
     const list = [_]Highlight{ .{ .mark = mark, .id = "kindle.highlight-100" }, .{ .mark = mark, .id = "kindle.highlight-101" } };
     try std.testing.expectEqualStrings("kindle.highlight-99", try freeId(arena.allocator(), &list, 99));
     try std.testing.expectEqualStrings("kindle.highlight-102", try freeId(arena.allocator(), &list, 100));

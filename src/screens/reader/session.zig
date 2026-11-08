@@ -41,13 +41,13 @@ pub const Query = struct {
 pub const Session = struct {
     app: *app.App,
     paragraphs: []const book_model.Paragraph,
-    pages: []const text.Pos,
+    pages: []const book_model.Pos,
     current: usize,
-    anchor: text.Pos, // What the reader is at. Settings changes keep to this, not the page edge
+    anchor: book_model.Pos, // What the reader is at. Settings changes keep to this, not the page edge
     note_parts: [note_rules.max_note_parts]book_model.Paragraph = undefined,
     note_len: usize = 0,
     note_top: u32 = 0,
-    note_next: ?text.Pos = null,
+    note_next: ?book_model.Pos = null,
     highlights: std.ArrayList(highlights.Highlight) = .empty,
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
     query: Query = .{}, // The last search, kept while the book is open
@@ -57,7 +57,7 @@ pub const Session = struct {
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
 
     /// Bytes of text from the start of the book to a position.
-    pub fn textAt(s: *const Session, p: text.Pos) u64 {
+    pub fn textAt(s: *const Session, p: book_model.Pos) u64 {
         return s.text_before[p.para] + p.byte;
     }
 
@@ -108,7 +108,7 @@ pub const Session = struct {
     }
 
     /// Where a page ends: the next page's start, or null on the last page.
-    pub fn pageEnd(s: *const Session, index: usize) ?text.Pos {
+    pub fn pageEnd(s: *const Session, index: usize) ?book_model.Pos {
         return if (index + 1 < s.pages.len) s.pages[index + 1] else null;
     }
 
@@ -215,10 +215,10 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) voi
 }
 
 /// Lays out the whole book so going backwards is exact.
-pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph) ![]const text.Pos {
+pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph) ![]const book_model.Pos {
     const geometry = a.page(&.{});
-    var pages: std.ArrayList(text.Pos) = .empty;
-    var pos = text.Pos{};
+    var pages: std.ArrayList(book_model.Pos) = .empty;
+    var pos = book_model.Pos{};
     while (pos.para < paragraphs.len) {
         try pages.append(alloc, pos);
         const next = try text.layoutPage(a.body, null, geometry, paragraphs, pos, a.layout, null);
@@ -228,7 +228,7 @@ pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const book_
     return pages.items;
 }
 
-pub fn pageContaining(pages: []const text.Pos, para: usize, byte: usize) usize {
+pub fn pageContaining(pages: []const book_model.Pos, para: usize, byte: usize) usize {
     var found: usize = 0;
     for (pages, 0..) |p, i| {
         if (p.para < para or (p.para == para and p.byte <= byte)) found = i;

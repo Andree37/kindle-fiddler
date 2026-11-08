@@ -122,17 +122,6 @@ pub fn bookRect(index: usize, page: usize) Rect {
     return .{ .x = margin + column * cell_step, .y = top + row * row_height, .w = cover.width, .h = cover.height };
 }
 
-pub fn drawClipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
-    const w = try font.measure(s);
-    if (w <= avail) return font.draw(page, x, y, s);
-    const dots = "...";
-    const cut = try font.fit(s, avail - try font.measure(dots));
-    var buf: [256]u8 = undefined;
-    const part = std.mem.trimEnd(u8, s[0..@min(cut, buf.len - dots.len)], " ");
-    @memcpy(buf[0..part.len], part);
-    @memcpy(buf[part.len..][0..dots.len], dots);
-    try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
-}
 
 /// Bytes of `s` that fit on one line, breaking at a space when possible.
 fn lineBreak(font: *Font, s: []const u8, avail: f32) !usize {
@@ -151,7 +140,7 @@ fn drawWrapped(font: *Font, page: Page, x: f32, y: i32, step: i32, s: []const u8
     while (rest.len > 0 and line < lines) : (line += 1) {
         const row = y + @as(i32, @intCast(line)) * step;
         if (line + 1 == lines) {
-            try drawClipped(font, page, x, row, rest, avail);
+            try draw.clipped(font, page, x, row, rest, avail);
             return line + 1;
         }
         const n = try lineBreak(font, rest, avail);
@@ -178,7 +167,7 @@ fn typeCover(fonts: Fonts, page: Page, x: u32, y: u32, w: u32, h: u32, e: *const
     const top: i32 = @intCast(y + 72);
     const used = try drawWrapped(fonts.cover, page, left, top, 44, e.title, avail, 5);
     page.fillRect(x + 28, y + 72 + used * 44, 48, 3, 0x00);
-    try drawClipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
+    try draw.clipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
 }
 
 fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, x: u32, y: u32) !void {
@@ -213,7 +202,7 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
 
     const used = try drawWrapped(fonts.hero, page, left, hero_top + 104, 66, e.title, avail, 3);
     const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
-    try drawClipped(fonts.small, page, left, author_y, e.author, avail);
+    try draw.clipped(fonts.small, page, left, author_y, e.author, avail);
     page.tint(left_px, @intCast(author_y - 30), @intFromFloat(avail), 44, 0x50);
 
     const bar_y = hero_top + cover.hero_height - 40;

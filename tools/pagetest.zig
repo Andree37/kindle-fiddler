@@ -1,6 +1,7 @@
 //! Shows real book pages in each e-ink waveform so they can be compared by eye.
 //! Saves the screen first and restores it when done.
 const std = @import("std");
+const book_model = core.book;
 const Page = core.page.Page;
 const Font = core.font.Font;
 const core = @import("core");
@@ -68,7 +69,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const page_b = Page{ .buf = b, .width = screen.width, .height = screen.height, .stride = screen.stride };
 
     // Skip front matter: start in the first long text block.
-    var start: text.Pos = .{};
+    var start: book_model.Pos = .{};
     for (book.paragraphs, 0..) |p, i| {
         if (p.text.len > 2000) {
             start.para = i;

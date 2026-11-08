@@ -7,7 +7,6 @@ const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const aa = @import("aa.zig");
 const icons = @import("icons.zig");
-const library = @import("library.zig");
 const slider = @import("slider.zig");
 const quick_model = @import("../model/quick.zig");
 const text = @import("../layout/text.zig");
@@ -102,7 +101,7 @@ pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: 
     icons.dots(page, tools[4].x, 118);
 
     page.fillRect(0, tool_row + 12, page.width, 1, 0xb0);
-    try library.drawClipped(fonts.caption, page, margin, tool_row + 54, title, w - 2 * margin);
+    try draw.clipped(fonts.caption, page, margin, tool_row + 54, title, w - 2 * margin);
     page.tint(margin, tool_row + 20, page.width - 2 * margin, 46, 0x50);
     page.fillRect(0, top_height - 4, page.width, 4, 0x00);
     if (sheet) |tab| try aa.render(fonts, page, tab, chosen);

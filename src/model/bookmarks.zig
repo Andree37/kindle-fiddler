@@ -2,7 +2,6 @@
 const std = @import("std");
 const book_model = @import("book.zig");
 const highlights = @import("highlights.zig");
-const text = @import("../layout/text.zig");
 
 pub const Bookmark = struct { id: []const u8, para: u32, byte: u32 };
 
@@ -21,18 +20,18 @@ pub fn parse(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph,
     return out.toOwnedSlice(alloc);
 }
 
-fn atOrAfter(b: Bookmark, pos: text.Pos) bool {
+fn atOrAfter(b: Bookmark, pos: book_model.Pos) bool {
     return b.para > pos.para or (b.para == pos.para and b.byte >= pos.byte);
 }
 
 /// True when bookmark `b` falls on the page from `from` up to `to` (the next page's start).
-pub fn isOnPage(b: Bookmark, from: text.Pos, to: ?text.Pos) bool {
+pub fn isOnPage(b: Bookmark, from: book_model.Pos, to: ?book_model.Pos) bool {
     if (!atOrAfter(b, from)) return false;
     const end = to orelse return true;
     return !atOrAfter(b, end);
 }
 
-pub fn anyOnPage(list: []const Bookmark, from: text.Pos, to: ?text.Pos) bool {
+pub fn anyOnPage(list: []const Bookmark, from: book_model.Pos, to: ?book_model.Pos) bool {
     for (list) |b| {
         if (isOnPage(b, from, to)) return true;
     }
