@@ -79,6 +79,12 @@ pub fn read(previous: quick_model.Quick) quick_model.Quick {
 }
 
 /// Whether the Kindle is showing its lock screen. Null when powerd can't be asked.
+/// Tells powerd the reader is active, so it doesn't lock while they read. noface holds
+/// the touchscreen, so powerd never sees the touches itself.
+pub fn stillActive() void {
+    set("com.lab126.powerd", "touchScreenSaverTimeout", 1);
+}
+
 pub fn inScreenSaver() ?bool {
     var buf: [32]u8 = undefined;
     const state = getText("com.lab126.powerd", "state", &buf, lipcDeadline());

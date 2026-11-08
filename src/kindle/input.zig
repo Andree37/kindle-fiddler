@@ -9,6 +9,7 @@ const failed = os.failed;
 const nowUs = os.nowUs;
 const idle_quit_ms = 30 * 60 * 1000;
 const watcher_retry_ms = 5000;
+const activity_every_us = 60 * 1000 * 1000;
 const key_power = 116;
 
 /// True when the events include the power key going down.
@@ -120,6 +121,7 @@ pub const Input = struct {
     stashed: ?Action = null,
     locked: bool = false, // Nothing to check on a timer, so sleep until an event
     watcher_retry_us: u64 = 0, // When to restart a power-event watcher that died
+    told_powerd_us: u64 = 0, // When powerd last heard the reader is active
 
     /// Starts listening for lock and unlock from powerd.
     fn startWatcher(in: *Input) void {
@@ -218,6 +220,13 @@ pub const Input = struct {
                 .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = key_fd, .events = linux.POLL.IN, .revents = 0 },
             };
+            // Touches are grabbed, so powerd can't see them and would lock the Kindle
+            // 10 minutes into reading. Tell it, while there's nothing else to do anyway.
+            if (!in.locked and in.last_input > in.told_powerd_us + activity_every_us) {
+                in.told_powerd_us = in.last_input;
+                lipc.stillActive();
+            }
+
             // Locked with no watcher, wake now and then to start a new one.
             const sleep_ms: i32 = if (in.power_events < 0) watcher_retry_ms else -1;
             const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) sleep_ms else 1000;

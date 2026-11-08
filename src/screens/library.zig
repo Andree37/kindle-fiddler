@@ -159,6 +159,10 @@ pub fn logPage(lib: *const Library, index: usize, count: usize) void {
 pub fn runLibrary(a: *app.App) !void {
     var lib = try loadLibrary(a);
     defer lib.deinit();
+    // Started while the Kindle is locked: the "going to lock" event has passed, so
+    // show the lock screen now, as if it had just arrived. Otherwise the library
+    // would sit under a locked Kindle with touch switched off.
+    if (lipc.inScreenSaver() == true) a.input.stashed = .lock;
     var filter: catalog.Filter = .all;
     var order: catalog.Order = .recent;
     var message: []const u8 = "";
