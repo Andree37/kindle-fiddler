@@ -9,7 +9,7 @@ const sess = @import("session.zig");
 /// Draws the toolbar over the current page.
 pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, whole_page: bool) !void {
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
-    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, if (sheet) a.tab else null, a.settings);
+    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, s.pages.len, &a.quick, if (sheet) a.tab else null, a.settings, s.isBookmarked(s.current));
     @memcpy(a.screen.pixels, a.overlay);
     if (whole_page) {
         try a.showBand(0, a.screen.height);

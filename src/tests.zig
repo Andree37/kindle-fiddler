@@ -1,4 +1,5 @@
 test {
+    _ = @import("book/bookmarks.zig");
     _ = @import("ui/contents.zig");
     _ = @import("ui/draw.zig");
     _ = @import("book/catalog.zig");

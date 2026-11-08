@@ -239,16 +239,16 @@ pub fn dryRun() bool {
     return true;
 }
 
-/// Fetches a book's highlights as "id|start|end" lines.
-pub fn readHighlights(key: []const u8, out: []u8) []const u8 {
+/// Fetches a book's highlights or bookmarks as "id|start|end" lines.
+pub fn readAnnotations(key: []const u8, kind: annotations.Kind, out: []u8) []const u8 {
     if (!safeId(key)) return "";
     var match_buf: [128]u8 = undefined;
     const book = annotations.bookMatch(&match_buf, key) catch return "";
     var buf: [1000]u8 = undefined;
     const fields = "annotation_id, json_extract(serialized_payload, '$.start_position.shortPosition'), json_extract(serialized_payload, '$.end_position.shortPosition')";
     const command = std.fmt.bufPrintSentinel(&buf,
-        \\sqlite3 -separator '|' "file:$(ls /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db)?mode=ro" "select {s} from server_view where dataset=1 and {s} and annotation_id not in (select annotation_id from local_edit where {s}) union select {s} from local_edit where dataset=1 and action != 3 and {s}"
-    , .{ fields, book, book, fields, book }, 0) catch return "";
+        \\sqlite3 -separator '|' "file:$(ls /mnt/us/system/ksdk/.annotations/*/ksdk_annotation_v1.db)?mode=ro" "select {s} from server_view where dataset={d} and {s} and annotation_id not in (select annotation_id from local_edit where {s}) union select {s} from local_edit where dataset={d} and action != 3 and {s}"
+    , .{ fields, kind.dataset(), book, book, fields, kind.dataset(), book }, 0) catch return "";
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
     const n = run(&argv, out) orelse return "";
     return completeLines(out[0..n], n == out.len);

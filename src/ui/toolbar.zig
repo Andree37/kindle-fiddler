@@ -83,7 +83,7 @@ pub fn drawScrub(fonts: Fonts, page: text.Page, index: usize, total: usize, mono
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }
 
-pub fn render(fonts: Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const system.Quick, sheet: ?aa.Tab, chosen: menu.Settings) !void {
+pub fn render(fonts: Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const system.Quick, sheet: ?aa.Tab, chosen: menu.Settings, bookmarked: bool) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, top_height, 0xff);
 
@@ -96,7 +96,7 @@ pub fn render(fonts: Fonts, page: text.Page, title: []const u8, index: usize, to
     try fonts.small.draw(page, margin + 56, 130, "Home");
     try fonts.title.draw(page, tools[0].x - 34, 132, "Aa");
     icons.lines(page, tools[1].x, 118);
-    icons.bookmark(page, tools[2].x, 118);
+    if (bookmarked) icons.bookmarkFilled(page, tools[2].x, 118) else icons.bookmark(page, tools[2].x, 118);
     icons.search(page, tools[3].x, 118);
     icons.dots(page, tools[4].x, 118);
 

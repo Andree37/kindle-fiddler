@@ -17,6 +17,8 @@ const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
+const bookmark = @import("reader/bookmark.zig");
+const bookmarks = @import("../book/bookmarks.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const sess = @import("reader/session.zig");
@@ -57,7 +59,9 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};
     var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start] };
-    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, system.readHighlights(entry.key, stored)));
+    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, system.readAnnotations(entry.key, .highlight, stored)));
+    try session.bookmarks.appendSlice(alloc, try bookmarks.parse(alloc, book.paragraphs, system.readAnnotations(entry.key, .bookmark, stored)));
+    std.debug.print("{d} bookmarks loaded\n", .{session.bookmarks.items.len});
     std.debug.print("{d} highlights loaded\n", .{session.highlights.items.len});
     try hl.refreshMarks(a, &session, alloc);
     try session.show(start, null, true);
@@ -156,7 +160,11 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 .toolbar, .sheet => {
                     const sheet = view == .sheet;
                     switch (toolbar.hit(t.x, t.y, sheet)) {
-                        .stay, .bookmark, .search, .more => {},
+                        .stay, .search, .more => {},
+                        .bookmark => {
+                            try bookmark.toggle(a, &session, alloc, entry);
+                            try controls.drawToolbar(a, &session, entry.title, sheet, true);
+                        },
                         .goto => {
                             if (try goto.run(a, &session, alloc, book.chapters)) |target| {
                                 view = .page;

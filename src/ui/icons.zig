@@ -132,6 +132,27 @@ pub fn lines(page: text.Page, cx: f32, cy: f32) void {
     }
 }
 
+/// The toolbar's bookmark, filled when the page has one.
+pub fn bookmarkFilled(page: text.Page, cx: f32, cy: f32) void {
+    const left: u32 = @intFromFloat(cx - 17);
+    const top: u32 = @intFromFloat(cy - 24);
+    page.fillRect(left, top, 34, 33, 0x00);
+    // Below that, the notch opens up from the centre, leaving two points.
+    var row: u32 = 0;
+    while (row < 15) : (row += 1) {
+        const gap: u32 = (row + 1) * 17 / 15;
+        const side: u32 = 17 - @min(gap, 17);
+        page.fillRect(left, top + 33 + row, side, 1, 0x00);
+        page.fillRect(left + 34 - side, top + 33 + row, side, 1, 0x00);
+    }
+}
+
+/// The ribbon in a bookmarked page's top-right corner.
+pub fn ribbon(page: text.Page, screen_width: u32) void {
+    const right: f32 = @floatFromInt(screen_width - 60);
+    bookmarkFilled(page, right, 24);
+}
+
 pub fn bookmark(page: text.Page, cx: f32, cy: f32) void {
     page.stroke(cx - 15, cy - 22, cx + 15, cy - 22, 4);
     page.stroke(cx - 15, cy - 22, cx - 15, cy + 22, 4);

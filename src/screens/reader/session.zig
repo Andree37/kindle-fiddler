@@ -1,5 +1,7 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const bookmarks = @import("../../book/bookmarks.zig");
+const icons = @import("../../ui/icons.zig");
 const catalog = @import("../../book/catalog.zig");
 const os = @import("../../platform/os.zig");
 const cache = @import("../../platform/cache.zig");
@@ -25,6 +27,16 @@ pub const Session = struct {
     note_top: u32 = 0,
     note_next: ?text.Pos = null,
     highlights: std.ArrayList(highlights.Highlight) = .empty,
+    bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
+
+    /// Where a page ends: the next page's start, or null on the last page.
+    pub fn pageEnd(s: *const Session, index: usize) ?text.Pos {
+        return if (index + 1 < s.pages.len) s.pages[index + 1] else null;
+    }
+
+    pub fn isBookmarked(s: *const Session, index: usize) bool {
+        return bookmarks.anyOnPage(s.bookmarks.items, s.pages[index], s.pageEnd(index));
+    }
 
     pub fn setPage(s: *Session, index: usize) void {
         s.current = index;
@@ -52,6 +64,7 @@ pub const Session = struct {
         const counter = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, s.pages.len }) catch "";
         const x = @as(f32, @floatFromInt(a.screen.width)) / 2 - 50;
         try a.footer.draw(page, x, @intCast(a.screen.height - 60), counter);
+        if (s.isBookmarked(index)) icons.ribbon(page, a.screen.width);
 
         a.slots[victim].page = @intCast(index);
         return buf;

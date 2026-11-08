@@ -14,30 +14,13 @@ const unixTime = os.unixTime;
 const failed = os.failed;
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
+const records = @import("records.zig");
 
-pub fn pointFor(s: *sess.Session, para: u32, byte: u32) ?annotations.Point {
-    const p = s.paragraphs[para];
-    if (p.position == 0) return null;
-    const chars = kfx.charOffset(p.text, byte);
-    return .{ .element = p.element, .offset = chars, .short = p.position + chars };
-}
 
 pub fn saveHighlight(s: *sess.Session, entry: *const catalog.Entry, id: []const u8, span: highlights.Span) bool {
-    if (system.dryRun()) return true;
-    if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id) or !system.safeGuid(entry.guid)) return false;
-    const start = pointFor(s, span.first_para, span.first_byte) orelse return false;
-    const end = pointFor(s, span.last_para, span.last_byte) orelse return false;
-    var buf: [1200]u8 = undefined;
-    const sql = annotations.insertSql(&buf, .{
-        .id = id,
-        .key = entry.key,
-        .content_type = entry.kind,
-        .guid = entry.guid,
-        .start = start,
-        .end = end,
-        .now_ms = unixTime() * 1000,
-    }) catch return false;
-    return system.runAnnotationSql(sql);
+    const start = records.pointFor(s, span.first_para, span.first_byte) orelse return false;
+    const end = records.pointFor(s, span.last_para, span.last_byte) orelse return false;
+    return records.write(entry, .highlight, id, start, end);
 }
 
 pub fn pageWords(a: *app.App, s: *const sess.Session) []const text.Word {
@@ -146,7 +129,7 @@ pub fn newHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, ent
     const head = try dragSelection(a, words, fixed, fixed);
     const lo = words[@min(fixed, head)];
     const hi = words[@max(fixed, head)];
-    const start = pointFor(s, lo.para, lo.start) orelse {
+    const start = records.pointFor(s, lo.para, lo.start) orelse {
         try highlightNotSaved(a, s);
         return null;
     };
@@ -187,10 +170,7 @@ pub fn extendHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, 
 /// Deletes a highlight here and, through sync, everywhere.
 pub fn removeHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, id: []const u8) !void {
     if (!system.dryRun()) {
-        var buf: [900]u8 = undefined;
-        const safe = system.safeId(id) and system.safeId(entry.key);
-        const sql: ?[]const u8 = if (safe) annotations.deleteSql(&buf, .highlight, id, entry.key, unixTime() * 1000) catch null else null;
-        const removed = if (sql) |q| system.runAnnotationSql(q) else false;
+        const removed = records.delete(entry, .highlight, id);
         std.debug.print("highlight removed: {}\n", .{removed});
         if (!removed) return app.showNotice(a, "This highlight couldn't be deleted.");
         system.syncNow();
