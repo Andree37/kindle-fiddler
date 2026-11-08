@@ -27,3 +27,47 @@ pub fn choice(fonts: Fonts, page: text.Page, x: f32, align_to: Align, y: i32, la
     if (chosen) page.fillRect(@intFromFloat(left), underline_y, @intFromFloat(w), style.underline, style.black);
 
 }
+
+/// The "1 of 4" row with back and forward arrows, under a list shown a page at a time.
+pub const Pager = struct {
+    top: u32,
+    bottom: u32,
+
+    const button = 200;
+    const prev_left = 340;
+    const next_left = 732;
+
+    pub const Hit = enum { prev, next };
+
+    pub fn hit(p: Pager, x: i32, y: i32) ?Hit {
+        if (y < p.top or y >= p.bottom) return null;
+        if (x >= prev_left and x < prev_left + button) return .prev;
+        if (x >= next_left and x < next_left + button) return .next;
+        return null;
+    }
+
+    pub fn render(p: Pager, fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
+        const y: i32 = @intCast((p.top + p.bottom) / 2 + 12);
+        var label: [32]u8 = undefined;
+        const count = std.fmt.bufPrint(&label, "{d} of {d}", .{ index + 1, pages }) catch "";
+        try centered(fonts.small, page, @floatFromInt(page.width / 2), y, count);
+        const mid: f32 = @floatFromInt(y - 11);
+        const prev_x: f32 = prev_left + button / 2;
+        const next_x: f32 = next_left + button / 2;
+        page.stroke(prev_x + 9, mid - 18, prev_x - 9, mid, 4);
+        page.stroke(prev_x - 9, mid, prev_x + 9, mid + 18, 4);
+        page.stroke(next_x - 9, mid - 18, next_x + 9, mid, 4);
+        page.stroke(next_x + 9, mid, next_x - 9, mid + 18, 4);
+        // Faded when there's nowhere to go.
+        if (index == 0) page.tint(prev_left, p.top, button, p.bottom - p.top, 0xc8);
+        if (index + 1 >= pages) page.tint(next_left, p.top, button, p.bottom - p.top, 0xc8);
+    }
+};
+
+test "pager arrows sit either side of the count" {
+    const p = Pager{ .top = 100, .bottom = 200 };
+    try std.testing.expectEqual(Pager.Hit.prev, p.hit(400, 150).?);
+    try std.testing.expectEqual(Pager.Hit.next, p.hit(800, 150).?);
+    try std.testing.expect(p.hit(600, 150) == null);
+    try std.testing.expect(p.hit(400, 250) == null);
+}

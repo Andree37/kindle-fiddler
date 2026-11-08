@@ -11,54 +11,31 @@ const catalog = @import("../book/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const margin = style.margin;
-
 const gutter = 40;
-
 const columns = 4;
-
 const cell_step = cover.width + gutter;
-
 const row_height = 410;
-
 const status_height = 96;
 
 // Page one always leads with the current book, on every tab and sort.
 const hero_top = 112;
-
 const hero_bottom = 500;
-
 const hero_tabs_top = 516;
-
 const hero_grid_top = 622;
-
 const plain_tabs_top = 100;
-
 const plain_grid_top = 206;
-
 const tabs_height = 84;
-
 const hero_rows = 2;
-
 const plain_rows = 3;
 
 const Tab = struct { filter: catalog.Filter, label: []const u8, left: i32, right: i32 };
-
 const tabs = [_]Tab{
     .{ .filter = .all, .label = "All", .left = 72, .right = 170 },
     .{ .filter = .unread, .label = "Unread", .left = 170, .right = 352 },
     .{ .filter = .read, .label = "Read", .left = 352, .right = 500 },
 };
 
-const footer_top = 1450;
-
-const footer_bottom = 1570;
-
-const prev_left = 340;
-
-const next_left = 732;
-
-const footer_button = 200;
-
+const footer = draw.Pager{ .top = 1450, .bottom = 1570 };
 const sort_left = 860;
 
 pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, tab: catalog.Filter };
@@ -109,11 +86,11 @@ pub fn hit(x: i32, y: i32, page: usize, books: usize) Hit {
         }
         return .none;
     }
-    if (y >= footer_top and y < footer_bottom) {
-        if (x >= prev_left and x < prev_left + footer_button) return .prev;
-        if (x >= next_left and x < next_left + footer_button) return .next;
-        return .none;
-    }
+    if (footer.hit(x, y)) |h| return switch (h) {
+        .prev => .prev,
+        .next => .next,
+    };
+    if (y >= footer.top and y < footer.bottom) return .none;
     const top = gridTop(hero);
     if (y < top or x < margin) return .none;
     const column: usize = @intCast(@divTrunc(x - margin, cell_step));
@@ -291,20 +268,7 @@ fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: catalog.Filter, ord
 }
 
 fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
-    const centre = @as(f32, @floatFromInt(page.width)) / 2;
-    const y = (footer_top + footer_bottom) / 2 + 12;
-    var label: [32]u8 = undefined;
-    const count = std.fmt.bufPrint(&label, "{d} of {d}", .{ index + 1, pages }) catch "";
-    try draw.centered(fonts.small, page, centre, y, count);
-    const mid: f32 = @floatFromInt(y - 11);
-    const prev_x: f32 = prev_left + footer_button / 2;
-    const next_x: f32 = next_left + footer_button / 2;
-    page.stroke(prev_x + 9, mid - 18, prev_x - 9, mid, 4);
-    page.stroke(prev_x - 9, mid, prev_x + 9, mid + 18, 4);
-    page.stroke(next_x - 9, mid - 18, next_x + 9, mid, 4);
-    page.stroke(next_x + 9, mid, next_x - 9, mid + 18, 4);
-    if (index == 0) page.tint(prev_left, footer_top, footer_button, footer_bottom - footer_top, 0xc8);
-    if (index + 1 >= pages) page.tint(next_left, footer_top, footer_button, footer_bottom - footer_top, 0xc8);
+    try footer.render(fonts, page, index, pages);
 }
 
 pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const system.Quick) !void {
