@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const noface = b.addExecutable(.{
         .name = "noface",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/noface.zig"),
+            .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = .ReleaseFast,
             .strip = true,
@@ -59,5 +59,5 @@ pub fn build(b: *std.Build) void {
 
 fn addFontAndImageCode(b: *std.Build, module: *std.Build.Module) void {
     module.addIncludePath(b.path("third_party"));
-    module.addCSourceFile(.{ .file = b.path("src/stb_shim.c"), .flags = &.{"-O2"} });
+    module.addCSourceFile(.{ .file = b.path("src/platform/stb_shim.c"), .flags = &.{"-O2"} });
 }
