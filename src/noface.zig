@@ -1385,12 +1385,14 @@ fn loadLibrary(a: *App) !Library {
 }
 
 /// Saves the book as unread, so the reload that follows doesn't bring back 100%.
+/// Dated just after the last time it was opened anywhere: newer than stock's
+/// percent, so it wins, without moving the book up in recent order.
 fn forgetFinished(a: *App, e: *const library.Entry) !void {
     var path_buf: [320]u8 = undefined;
     const path = try state.pathFor(&path_buf, a.state_dir, e.path);
     var saved = state.load(path);
     saved.percent = 0;
-    saved.opened = unixTime();
+    saved.opened = @max(saved.opened, e.kindle_last) + 1;
     state.save(path, saved);
 }
 
