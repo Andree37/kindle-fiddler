@@ -30,17 +30,21 @@ pub const Quick = struct {
 const failed = @import("os.zig").failed;
 
 /// Runs a program and returns how many bytes of its output landed in `out`.
-/// Longest any command may take. A stuck lipc or sqlite call must not freeze the reader.
-const command_timeout_ms = 15_000;
+const Child = struct { pid: i32, out: i32 };
 
-/// Runs a command, collecting what it prints. Null when it can't start or runs too long,
-/// in which case it is killed.
-fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
+/// Starts a program with its output on a pipe, in a process group of its own so
+/// everything it starts can be killed together.
+fn spawn(argv: [*:null]const ?[*:0]const u8) ?Child {
     var fds: [2]i32 = undefined;
     if (failed(linux.pipe(&fds))) return null;
     const pid = linux.fork();
-    if (failed(pid)) return null;
+    if (failed(pid)) {
+        _ = linux.close(fds[0]);
+        _ = linux.close(fds[1]);
+        return null;
+    }
     if (pid == 0) {
+        _ = linux.setpgid(0, 0);
         _ = linux.dup2(fds[1], 1);
         _ = linux.close(fds[0]);
         _ = linux.close(fds[1]);
@@ -49,6 +53,18 @@ fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
         linux.exit(127);
     }
     _ = linux.close(fds[1]);
+    return .{ .pid = @intCast(pid), .out = fds[0] };
+}
+
+/// Longest any command may take. A stuck lipc or sqlite call must not freeze the reader.
+const command_timeout_ms = 15_000;
+
+/// Runs a command, collecting what it prints. Null when it can't start or runs too long,
+/// in which case it is killed.
+fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
+    const child = spawn(argv) orelse return null;
+    const pid = child.pid;
+    const fds = [2]i32{ child.out, -1 };
     const deadline = os.nowUs() + command_timeout_ms * 1000;
     var total: usize = 0;
     var timed_out = false;
@@ -72,11 +88,12 @@ fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
     // Closing first means a child with more to say gets SIGPIPE instead of blocking.
     _ = linux.close(fds[0]);
     if (timed_out) {
-        _ = linux.kill(@intCast(pid), linux.SIG.KILL);
+        // The whole group: for `sh -c`, the stuck program is the shell's child.
+        _ = linux.kill(-pid, linux.SIG.KILL);
         std.debug.print("command timed out: {s}\n", .{std.mem.sliceTo(argv[0].?, 0)});
     }
     var status: i32 = 0;
-    _ = linux.waitpid(@intCast(pid), &status, 0);
+    _ = linux.waitpid(pid, &status, 0);
     return if (timed_out) null else total;
 }
 
