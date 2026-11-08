@@ -127,3 +127,30 @@ pub fn showNotice(a: *App, message: []const u8) !void {
 pub fn cleanBand(a: *App, top: u32, height: u32) !void {
     try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, height, .gc16, .full));
 }
+
+/// Follows the dragged finger until it lifts. `follow.moved(x, y)` redraws for a
+/// new position and returns the update to wait on, or null when nothing changed.
+/// Only one update runs at a time: overlapping ones smear on the panel.
+pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
+    var marker = first;
+    while (true) {
+        const action = a.input.next();
+        switch (action) {
+            .drag => |x0| {
+                if (marker) |m| {
+                    try a.screen.waitComplete(m);
+                    marker = null;
+                }
+                const x = a.input.latestDrag() orelse x0;
+                marker = try follow.moved(x, a.input.drag_y);
+            },
+            .drag_end => break,
+            .tap, .hold, .pull, .tick, .unlock => {},
+            .lock, .power, .idle, .stop => {
+                a.input.stashed = action;
+                break;
+            },
+        }
+    }
+    if (marker) |m| try a.screen.waitComplete(m);
+}

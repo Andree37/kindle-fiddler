@@ -106,53 +106,40 @@ pub fn inDeleteBubble(a: *app.App, top: usize, x: i32, y: i32) bool {
 /// Follows a finger, keeping `fixed` in place, and returns where it stopped.
 pub fn dragSelection(a: *app.App, words: []const text.Word, fixed: usize, moving: usize) !usize {
     var head = moving;
-    const screen_page = a.page(a.screen.pixels);
     @memcpy(a.lock_cover, a.screen.pixels);
     a.page(a.lock_cover).threshold(0, a.screen.height); // Pure black and white for A2
-
-    const paint = struct {
-        fn run(ap: *app.App, target: text.Page, list: []const text.Word, first: usize, last: usize, old: selection.Band) !selection.Band {
-            const lo = @min(first, last);
-            const hi = @max(first, last);
-            const chosen = list[lo .. hi + 1];
-            const now = selection.band(chosen);
-            const top = if (old.height == 0) now.top else @min(old.top, now.top);
-            const bottom = @min(@max(old.top + old.height, now.top + now.height), ap.screen.height);
-            const stride = ap.screen.stride;
-            @memcpy(ap.screen.pixels[top * stride..bottom * stride], ap.lock_cover[top * stride..bottom * stride]);
-            selection.draw(target, chosen);
-            _ = try ap.screen.updateRegion(0, top, ap.screen.width, bottom - top, .a2, .partial);
-            return now;
+    var previous = try paintSelection(a, words, fixed, head, .{ .top = 0, .height = 0 });
+    const Follow = struct {
+        a: *app.App,
+        words: []const text.Word,
+        fixed: usize,
+        head: *usize,
+        previous: *selection.Band,
+        pub fn moved(f: @This(), x: i32, y: i32) !?u32 {
+            const next = selection.wordAt(f.words, x, y) orelse return null;
+            if (next == f.head.*) return null;
+            f.head.* = next;
+            f.previous.* = try paintSelection(f.a, f.words, f.fixed, next, f.previous.*);
+            return f.a.screen.next_marker - 1;
         }
-    }.run;
-    var previous = try paint(a, screen_page, words, fixed, head, .{ .top = 0, .height = 0 });
-    var marker: ?u32 = a.screen.next_marker - 1;
-
-    while (true) {
-        const action = a.input.next();
-        switch (action) {
-            .drag => |first| {
-                if (marker) |m| {
-                    try a.screen.waitComplete(m);
-                    marker = null;
-                }
-                const x = a.input.latestDrag() orelse first;
-                const next = selection.wordAt(words, x, a.input.drag_y) orelse continue;
-                if (next == head) continue;
-                head = next;
-                previous = try paint(a, screen_page, words, fixed, head, previous);
-                marker = a.screen.next_marker - 1;
-            },
-            .drag_end => break,
-            .tap, .hold, .pull, .tick, .unlock => {},
-            .lock, .power, .idle, .stop => {
-                a.input.stashed = action;
-                break;
-            },
-        }
-    }
-    if (marker) |m| try a.screen.waitComplete(m);
+    };
+    try app.followDrag(a, a.screen.next_marker - 1, Follow{ .a = a, .words = words, .fixed = fixed, .head = &head, .previous = &previous });
     return head;
+}
+
+/// Underlines from `first` to `last`, redrawing the band the old and new selections cover.
+fn paintSelection(a: *app.App, list: []const text.Word, first: usize, last: usize, old: selection.Band) !selection.Band {
+    const lo = @min(first, last);
+    const hi = @max(first, last);
+    const chosen = list[lo .. hi + 1];
+    const now = selection.band(chosen);
+    const top = if (old.height == 0) now.top else @min(old.top, now.top);
+    const bottom = @min(@max(old.top + old.height, now.top + now.height), a.screen.height);
+    const stride = a.screen.stride;
+    @memcpy(a.screen.pixels[top * stride .. bottom * stride], a.lock_cover[top * stride .. bottom * stride]);
+    selection.draw(a.page(a.screen.pixels), chosen);
+    _ = try a.screen.updateRegion(0, top, a.screen.width, bottom - top, .a2, .partial);
+    return now;
 }
 
 /// Press and hold: makes a new highlight from what the finger covers.

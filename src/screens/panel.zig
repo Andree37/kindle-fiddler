@@ -35,32 +35,18 @@ pub fn setRowValue(a: *app.App, row: menu.Row, level: u32) void {
 /// Follows a finger along a panel slider until it lifts.
 pub fn dragRow(a: *app.App, background: []const u8, row: menu.Row) !void {
     a.input.beginDrag();
-    const screen_page = a.page(a.screen.pixels);
-    var marker: ?u32 = null;
-    while (true) {
-        const action = a.input.next();
-        switch (action) {
-            .drag => |first| {
-                // One update at a time: overlapping ones smear on the panel.
-                if (marker) |m| {
-                    try a.screen.waitComplete(m);
-                    marker = null;
-                }
-                const level = menu.levelAt(row, a.input.latestDrag() orelse first);
-                if (level == rowValue(a, row)) continue;
-                setRowValue(a, row, level);
-                try menu.drawSlider(a.ui, screen_page, row, level, true);
-                marker = try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .a2, .partial);
-            },
-            .drag_end => break,
-            .tap, .hold, .pull, .tick, .unlock => {},
-            .lock, .power, .idle, .stop => {
-                a.input.stashed = action;
-                break;
-            },
+    const Follow = struct {
+        a: *app.App,
+        row: menu.Row,
+        pub fn moved(f: @This(), x: i32, _: i32) !?u32 {
+            const level = menu.levelAt(f.row, x);
+            if (level == rowValue(f.a, f.row)) return null;
+            setRowValue(f.a, f.row, level);
+            try menu.drawSlider(f.a.ui, f.a.page(f.a.screen.pixels), f.row, level, true);
+            return try f.a.screen.updateRegion(0, menu.bandTop(f.row), f.a.screen.width, menu.band_height, .a2, .partial);
         }
-    }
-    if (marker) |m| try a.screen.waitComplete(m);
+    };
+    try app.followDrag(a, null, Follow{ .a = a, .row = row });
     try drawMenu(a, background);
     try app.cleanBand(a, menu.bandTop(row), menu.band_height);
 }

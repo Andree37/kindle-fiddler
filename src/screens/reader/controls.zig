@@ -32,35 +32,24 @@ pub fn closeToolbar(a: *app.App, s: *sess.Session, sheet: bool) !void {
 /// Follows a finger along the page scrubber, then jumps there.
 pub fn dragScrub(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, first_x: i32) !void {
     a.input.beginDrag();
-    const screen_page = a.page(a.screen.pixels);
-    var target = toolbar.pageAt(first_x, s.pages.len);
-    var marker: ?u32 = null;
     const band = a.screen.height - toolbar.scrub_top;
-    try toolbar.drawScrub(a.ui, screen_page, target, s.pages.len, true);
-    marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
-    while (true) {
-        const action = a.input.next();
-        switch (action) {
-            .drag => |first| {
-                if (marker) |m| {
-                    try a.screen.waitComplete(m);
-                    marker = null;
-                }
-                const next = toolbar.pageAt(a.input.latestDrag() orelse first, s.pages.len);
-                if (next == target) continue;
-                target = next;
-                try toolbar.drawScrub(a.ui, screen_page, target, s.pages.len, true);
-                marker = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
-            },
-            .drag_end => break,
-            .tap, .hold, .pull, .tick, .unlock => {},
-            .lock, .power, .idle, .stop => {
-                a.input.stashed = action;
-                break;
-            },
+    const Follow = struct {
+        a: *app.App,
+        pages: usize,
+        band: u32,
+        target: *usize,
+        pub fn moved(f: @This(), x: i32, _: i32) !?u32 {
+            const next = toolbar.pageAt(x, f.pages);
+            if (next == f.target.*) return null;
+            f.target.* = next;
+            try toolbar.drawScrub(f.a.ui, f.a.page(f.a.screen.pixels), next, f.pages, true);
+            return try f.a.screen.updateRegion(0, toolbar.scrub_top, f.a.screen.width, f.band, .a2, .partial);
         }
-    }
-    if (marker) |m| try a.screen.waitComplete(m);
+    };
+    var target = toolbar.pageAt(first_x, s.pages.len);
+    try toolbar.drawScrub(a.ui, a.page(a.screen.pixels), target, s.pages.len, true);
+    const first = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
+    try app.followDrag(a, first, Follow{ .a = a, .pages = s.pages.len, .band = band, .target = &target });
     s.setPage(target);
     try drawToolbar(a, s, title, sheet, true);
     try app.cleanBand(a, toolbar.scrub_top, band);
@@ -79,32 +68,21 @@ pub fn dragSetting(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, titl
     var value = aa.stepAt(row, first_x);
     const started = rowSetting(a, row).*;
     a.input.beginDrag();
-    const screen_page = a.page(a.screen.pixels);
-    try aa.drawRow(a.ui, screen_page, row, value, true);
-    var marker: ?u32 = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, .a2, .partial);
-    while (true) {
-        const action = a.input.next();
-        switch (action) {
-            .drag => |first| {
-                if (marker) |m| {
-                    try a.screen.waitComplete(m);
-                    marker = null;
-                }
-                const next = aa.stepAt(row, a.input.latestDrag() orelse first);
-                if (next == value) continue;
-                value = next;
-                try aa.drawRow(a.ui, screen_page, row, value, true);
-                marker = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, .a2, .partial);
-            },
-            .drag_end => break,
-            .tap, .hold, .pull, .tick, .unlock => {},
-            .lock, .power, .idle, .stop => {
-                a.input.stashed = action;
-                break;
-            },
+    try aa.drawRow(a.ui, a.page(a.screen.pixels), row, value, true);
+    const first = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, .a2, .partial);
+    const Follow = struct {
+        a: *app.App,
+        row: aa.Row,
+        value: *usize,
+        pub fn moved(f: @This(), x: i32, _: i32) !?u32 {
+            const next = aa.stepAt(f.row, x);
+            if (next == f.value.*) return null;
+            f.value.* = next;
+            try aa.drawRow(f.a.ui, f.a.page(f.a.screen.pixels), f.row, next, true);
+            return try f.a.screen.updateRegion(0, f.row.top, f.a.screen.width, aa.row_height, .a2, .partial);
         }
-    }
-    if (marker) |m| try a.screen.waitComplete(m);
+    };
+    try app.followDrag(a, first, Follow{ .a = a, .row = row, .value = &value });
     if (value != started) {
         rowSetting(a, row).* = value;
         try sess.relayout(a, alloc, s);
