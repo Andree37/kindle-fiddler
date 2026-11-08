@@ -317,22 +317,55 @@ const f_position_rows = 181;
 const f_section_name = 174;
 const f_section_start = 184;
 
-/// The book's first embedded JPEG, which is its cover in converted books.
-pub fn coverImage(data: []const u8) ?[]const u8 {
-    if (data.len < 18 or !std.mem.eql(u8, data[0..4], "CONT")) return null;
+/// A KFX container: its header info, the entity index (24-byte rows), and the
+/// body the index points into.
+const Container = struct { info: ion.Value, index: []const u8, body: []const u8 };
+
+fn openContainer(data: []const u8) !Container {
+    if (data.len < 18 or !std.mem.eql(u8, data[0..4], "CONT")) return error.NotKfx;
     const header_len = std.mem.readInt(u32, data[6..10], .little);
     const info_off = std.mem.readInt(u32, data[10..14], .little);
     const info_len = std.mem.readInt(u32, data[14..18], .little);
-    if (info_off > data.len or info_len > data.len - info_off or header_len > data.len) return null;
-    const info = ion.parse(data[info_off..][0..info_len]) catch return null;
-    const idx_off = (info.get(f_index_offset) orelse return null).int;
-    const idx_len = (info.get(f_index_length) orelse return null).int;
-    if (idx_off > data.len or idx_len > data.len - idx_off) return null;
-    const body = data[header_len..];
-    var row_at: usize = @intCast(idx_off);
-    const end: usize = @intCast(idx_off + idx_len);
-    while (row_at + 24 <= end) : (row_at += 24) {
-        const row = data[row_at..][0..24];
+    if (info_off > data.len or info_len > data.len - info_off or header_len > data.len) return error.Truncated;
+    const info = try ion.parse(data[info_off..][0..info_len]);
+    const idx_off = (info.get(f_index_offset) orelse return error.BadHeader).int;
+    const idx_len = (info.get(f_index_length) orelse return error.BadHeader).int;
+    if (idx_off > data.len or idx_len > data.len - idx_off) return error.Truncated;
+    return .{ .info = info, .index = data[@intCast(idx_off)..][0..@intCast(idx_len)], .body = data[header_len..] };
+}
+
+/// An index row: entity id, type, and where its bytes sit in the body.
+const Row = struct { id: u32, kind: u32, off: u64, len: u64 };
+
+fn readRow(row: *const [24]u8) Row {
+    return .{
+        .id = std.mem.readInt(u32, row[0..4], .little),
+        .kind = std.mem.readInt(u32, row[4..8], .little),
+        .off = std.mem.readInt(u64, row[8..16], .little),
+        .len = std.mem.readInt(u64, row[16..24], .little),
+    };
+}
+
+/// True when every entity the index lists is inside the file. A download still in
+/// progress fails this, and checking it is far cheaper than parsing the book.
+pub fn isComplete(data: []const u8) bool {
+    const c = openContainer(data) catch return false;
+    if (c.index.len < 24) return false;
+    var at: usize = 0;
+    while (at + 24 <= c.index.len) : (at += 24) {
+        const r = readRow(c.index[at..][0..24]);
+        if (r.off > c.body.len or r.len > c.body.len - r.off) return false;
+    }
+    return true;
+}
+
+/// The book's first embedded JPEG, which is its cover in converted books.
+pub fn coverImage(data: []const u8) ?[]const u8 {
+    const c = openContainer(data) catch return null;
+    const body = c.body;
+    var at: usize = 0;
+    while (at + 24 <= c.index.len) : (at += 24) {
+        const row = c.index[at..][0..24];
         if (std.mem.readInt(u32, row[4..8], .little) != t_raw_media) continue;
         const off = std.mem.readInt(u64, row[8..16], .little);
         const len = std.mem.readInt(u64, row[16..24], .little);
@@ -347,34 +380,16 @@ pub fn coverImage(data: []const u8) ?[]const u8 {
 }
 
 pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
-    if (data.len < 18 or !std.mem.eql(u8, data[0..4], "CONT")) return error.NotKfx;
-    const header_len = std.mem.readInt(u32, data[6..10], .little);
-    const info_off = std.mem.readInt(u32, data[10..14], .little);
-    const info_len = std.mem.readInt(u32, data[14..18], .little);
-    if (info_off > data.len or info_len > data.len - info_off) return error.Truncated;
-
-    const info = try ion.parse(data[info_off..][0..info_len]);
-    if ((info.get(f_compression) orelse return error.BadHeader).int != 0) return error.Compressed;
-    if ((info.get(f_drm) orelse return error.BadHeader).int != 0) return error.Encrypted;
-    const idx_off64 = (info.get(f_index_offset) orelse return error.BadHeader).int;
-    const idx_len64 = (info.get(f_index_length) orelse return error.BadHeader).int;
-    if (idx_off64 > data.len or idx_len64 > data.len - idx_off64) return error.Truncated;
-    if (header_len > data.len) return error.Truncated;
-    const idx_off: usize = @intCast(idx_off64);
-    const idx_len: usize = @intCast(idx_len64);
-    const body_len = data.len - header_len;
+    const c = try openContainer(data);
+    if ((c.info.get(f_compression) orelse return error.BadHeader).int != 0) return error.Compressed;
+    if ((c.info.get(f_drm) orelse return error.BadHeader).int != 0) return error.Encrypted;
 
     var p = Parser{ .alloc = alloc };
-    var e: usize = 0;
-    while (e + 24 <= idx_len) : (e += 24) {
-        const row = data[idx_off + e..][0..24];
-        const id = std.mem.readInt(u32, row[0..4], .little);
-        const kind = std.mem.readInt(u32, row[4..8], .little);
-        const off64 = std.mem.readInt(u64, row[8..16], .little);
-        const len64 = std.mem.readInt(u64, row[16..24], .little);
-        if (off64 > body_len or len64 > body_len - off64) return error.Truncated;
-        const off: usize = @intCast(off64);
-        try p.index.put(alloc, .{ .id = id, .kind = kind }, data[header_len + off..][0..@intCast(len64)]);
+    var at: usize = 0;
+    while (at + 24 <= c.index.len) : (at += 24) {
+        const r = readRow(c.index[at..][0..24]);
+        if (r.off > c.body.len or r.len > c.body.len - r.off) return error.Truncated;
+        try p.index.put(alloc, .{ .id = r.id, .kind = r.kind }, c.body[@intCast(r.off)..][0..@intCast(r.len)]);
     }
 
     const doc = findDocument(&p) orelse return error.NoReadingOrder;
@@ -533,4 +548,12 @@ test "position map finds element 80 where the Kindle stored it" {
     for (rows) |r| last = walker.next(r);
     try std.testing.expectEqual(@as(u32, 80), last.element);
     try std.testing.expectEqual(@as(u32, 377338), last.position);
+}
+
+test "a book cut short is not complete" {
+    var d = std.mem.zeroes([32]u8);
+    try std.testing.expect(!isComplete(&d));
+    @memcpy(d[0..4], "CONT");
+    std.mem.writeInt(u32, d[6..10], 40, .little); // Header longer than the file
+    try std.testing.expect(!isComplete(&d));
 }

@@ -45,15 +45,12 @@ pub const Library = struct {
 };
 
 /// The catalog's downloading flag can stay set long after a download ended, so
-/// the file decides: a partial book fails to parse.
+/// the file decides: a partial book points past its own end.
 pub fn isCompleteBook(path: [:0]const u8) bool {
     if (path.len == 0) return false;
     const data = file.map(path) catch return false;
     defer file.unmap(data);
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const book = kfx.parse(arena.allocator(), data) catch return false;
-    return book.paragraphs.len > 0;
+    return kfx.isComplete(data);
 }
 
 pub fn loadLibrary(a: *app.App) !Library {
