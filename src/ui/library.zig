@@ -1,6 +1,8 @@
 //! Book list, read from the tab-separated file start.sh exports from the
 //! Kindle's own database: path, title, author, percent, last opened.
 const std = @import("std");
+const draw = @import("draw.zig");
+const style = @import("style.zig");
 const cover = @import("cover.zig");
 const icons = @import("icons.zig");
 const system = @import("../platform/system.zig");
@@ -8,7 +10,7 @@ const text = @import("../book/text.zig");
 const catalog = @import("../book/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
-const margin = 72;
+const margin = style.margin;
 
 const gutter = 40;
 
@@ -270,8 +272,7 @@ fn drawStatus(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
     icons.menu(page, margin, centre - 14);
     const clock = quick.clockText();
     const time = clock[0 .. std.mem.indexOfScalar(u8, clock, ' ') orelse clock.len];
-    const tw = try fonts.caption.measure(time);
-    try fonts.caption.draw(page, w / 2 - tw / 2, baseline, time);
+    try draw.centered(fonts.caption, page, w / 2, baseline, time);
     try icons.statusCluster(page, fonts.caption, w - margin, centre, baseline, quick, false);
 }
 
@@ -280,19 +281,13 @@ fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: catalog.Filter, ord
     for (tabs) |t| {
         const left: u32 = @intCast(t.left);
         const active = t.filter == filter;
-        const font = if (active) fonts.title else fonts.small;
-        try font.draw(page, @floatFromInt(left), y, t.label);
-        if (active) {
-            const width: u32 = @intFromFloat(try font.measure(t.label));
-            page.fillRect(left, @intCast(top + tabs_height - 8), width, 5, 0x00);
-        } else {
-            page.tint(left, @intCast(top + 16), @intCast(t.right - t.left - 4), 50, 0x50);
-        }
+        try draw.choice(fonts, page, @floatFromInt(left), .left, y, t.label, active, @intCast(top + tabs_height - 8));
+        if (!active) page.tint(left, @intCast(top + 16), @intCast(t.right - t.left - 4), 50, style.faded);
     }
     const right: f32 = @floatFromInt(page.width - margin);
     const sort_w = try fonts.small.measure(order.label());
     try fonts.small.draw(page, right - sort_w, y, order.label());
-    page.fillRect(margin, @intCast(top + tabs_height - 4), page.width - 2 * margin, 1, 0xb0);
+    page.fillRect(margin, @intCast(top + tabs_height - 4), page.width - 2 * margin, 1, style.rule);
 }
 
 fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
@@ -300,8 +295,7 @@ fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
     const y = (footer_top + footer_bottom) / 2 + 12;
     var label: [32]u8 = undefined;
     const count = std.fmt.bufPrint(&label, "{d} of {d}", .{ index + 1, pages }) catch "";
-    const w = try fonts.small.measure(count);
-    try fonts.small.draw(page, centre - w / 2, y, count);
+    try draw.centered(fonts.small, page, centre, y, count);
     const mid: f32 = @floatFromInt(y - 11);
     const prev_x: f32 = prev_left + footer_button / 2;
     const next_x: f32 = next_left + footer_button / 2;

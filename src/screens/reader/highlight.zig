@@ -1,5 +1,6 @@
 //! Making, extending and deleting highlights on the page.
 const std = @import("std");
+const draw = @import("../../ui/draw.zig");
 const catalog = @import("../../book/catalog.zig");
 const os = @import("../../platform/os.zig");
 const annotations = @import("../../book/annotations.zig");
@@ -88,11 +89,8 @@ pub fn drawDeleteBubble(a: *app.App, band: selection.Band) !usize {
     const top: u32 = if (below + bubble_height < a.screen.height - 130) below else band.top -| (bubble_height + 12);
     const left = (a.screen.width - bubble_width) / 2;
     screen_page.fillRect(left - 4, top - 4, bubble_width + 8, bubble_height + 8, 0xff);
-    screen_page.fillRect(left, top, bubble_width, bubble_height, 0x00);
-    screen_page.fillRect(left + 3, top + 3, bubble_width - 6, bubble_height - 6, 0xff);
-    const label = "Delete";
-    const width = try a.ui.small.measure(label);
-    try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(a.screen.width)) / 2 - width / 2, @intCast(top + 62), label);
+    draw.box(screen_page, left, top, bubble_width, bubble_height);
+    try draw.centered(a.ui.small, screen_page, @floatFromInt(a.screen.width / 2), @intCast(top + 62), "Delete");
     return top;
 }
 

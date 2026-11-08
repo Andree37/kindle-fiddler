@@ -1,5 +1,7 @@
 //! Actions for one book, opened from the three dots beside its cover.
 const std = @import("std");
+const draw = @import("draw.zig");
+const style = @import("style.zig");
 const catalog = @import("../book/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const cover = @import("cover.zig");
@@ -12,7 +14,7 @@ const left = 136;
 const width = 1000;
 const header = 196;
 const row = 112;
-const screen_height = 1696;
+const screen_height = style.screen_height;
 
 /// What a book offers. `confirming` swaps the list for the removal question.
 pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Option {
@@ -78,8 +80,7 @@ pub fn render(fonts: Fonts, page: text.Page, e: *const catalog.Entry, list: []co
     const card_top = top(list.len);
     const h = height(list.len);
     page.fillRect(left - 6, card_top - 6, width + 12, h + 12, 0xff);
-    page.fillRect(left, card_top, width, h, 0x00);
-    page.fillRect(left + 3, card_top + 3, width - 6, h - 6, 0xff);
+    draw.box(page, left, card_top, width, h);
 
     const x: f32 = left + 48;
     const avail: f32 = width - 96;

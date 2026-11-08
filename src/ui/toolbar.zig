@@ -1,5 +1,7 @@
 //! Reading toolbar: a single tap at the top of a page opens it.
 const std = @import("std");
+const draw = @import("draw.zig");
+const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const aa = @import("aa.zig");
 const icons = @import("icons.zig");
@@ -12,8 +14,8 @@ const text = @import("../book/text.zig");
 pub const top_height = 228;
 pub const bottom_top = 1410;
 pub const scrub_top = 1500;
-const screen_height = 1696;
-const margin = 72;
+const screen_height = style.screen_height;
+const margin = style.margin;
 const status_row = 66;
 const tool_row = 156;
 const scrub = slider.Slider{ .left = 110, .right = 1162, .y = 1610 };
@@ -76,8 +78,7 @@ pub fn drawScrub(fonts: Fonts, page: text.Page, index: usize, total: usize, mono
     page.fillRect(0, scrub_top, page.width, screen_height - scrub_top, 0xff);
     var label: [32]u8 = undefined;
     const s = std.fmt.bufPrint(&label, "Page {d} of {d}", .{ index + 1, total }) catch "";
-    const w = try fonts.small.measure(s);
-    try fonts.small.draw(page, @as(f32, @floatFromInt(page.width)) / 2 - w / 2, scrub_top + 56, s);
+    try draw.centered(fonts.small, page, @floatFromInt(page.width / 2), scrub_top + 56, s);
     slider.draw(page, scrub, slider.knobAt(scrub, @intCast(index), @intCast(@max(total, 1) - 1)));
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }

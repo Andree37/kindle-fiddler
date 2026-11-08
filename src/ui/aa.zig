@@ -1,5 +1,7 @@
 //! The Aa sheet: reading settings, in four tabs.
 const std = @import("std");
+const draw = @import("draw.zig");
+const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const library = @import("library.zig");
 const menu = @import("menu.zig");
@@ -9,8 +11,8 @@ const text = @import("../book/text.zig");
 const top = 228; // Under the toolbar
 const tabs_height = 92;
 pub const height = 760; // Where the sheet ends on screen
-const margin = 72;
-const screen_width = 1272;
+const margin = style.margin;
+const screen_width = style.screen_width;
 const content_top = top + tabs_height + 16;
 
 pub const Tab = enum { themes, font, layout, more };
@@ -112,8 +114,7 @@ fn drawToggle(fonts: Fonts, page: text.Page, y: u32, label: []const u8, on: bool
     const h: u32 = 48;
     const x: u32 = page.width - margin - w;
     const box = y + 14;
-    page.fillRect(x, box, w, h, 0x00);
-    if (!on) page.fillRect(x + 3, box + 3, w - 6, h - 6, 0xff);
+    if (on) page.fillRect(x, box, w, h, style.black) else draw.box(page, x, box, w, h);
     const knob_x: i32 = @intCast(if (on) x + w - h / 2 else x + h / 2);
     const knob_y: i32 = @intCast(box + h / 2);
     page.disc(knob_x, knob_y, 18, 0, 0xff);
@@ -136,17 +137,10 @@ fn drawTabs(fonts: Fonts, page: text.Page, tab: Tab) !void {
     for (tab_labels, 0..) |label, i| {
         const left: u32 = @as(u32, @intCast(i)) * cell;
         const active = i == @intFromEnum(tab);
-        const font = if (active) fonts.title else fonts.small;
-        const w = try font.measure(label);
-        const x = @as(f32, @floatFromInt(left + cell / 2)) - w / 2;
-        try font.draw(page, x, top + 60, label);
-        if (active) {
-            page.fillRect(@intFromFloat(x), top + 78, @intFromFloat(w), 5, 0x00);
-        } else {
-            page.tint(left + 8, top + 20, cell - 16, 54, 0x50);
-        }
+        try draw.choice(fonts, page, @floatFromInt(left + cell / 2), .center, top + 60, label, active, top + 78);
+        if (!active) page.tint(left + 8, top + 20, cell - 16, 54, style.faded);
     }
-    page.fillRect(0, top + tabs_height - 2, page.width, 1, 0xb0);
+    page.fillRect(0, top + tabs_height - 2, page.width, 1, style.rule);
 }
 
 fn drawThemes(fonts: Fonts, page: text.Page, chosen: menu.Settings) !void {
@@ -164,8 +158,7 @@ fn drawThemes(fonts: Fonts, page: text.Page, chosen: menu.Settings) !void {
         while (y < theme_top + 204) : (y += gap + thick) {
             page.fillRect(left + inset, y, theme_width - 2 * inset, thick, 0x60);
         }
-        const w = try fonts.small.measure(t.label);
-        try fonts.small.draw(page, @as(f32, @floatFromInt(left + theme_width / 2)) - w / 2, theme_top + 264, t.label);
+        try draw.centered(fonts.small, page, @floatFromInt(left + theme_width / 2), theme_top + 264, t.label);
     }
 }
 
@@ -174,10 +167,7 @@ fn drawFont(fonts: Fonts, page: text.Page, chosen: menu.Settings) !void {
         const row: u32 = @intCast(i / 2);
         const left: u32 = margin + @as(u32, @intCast(i % 2)) * family_width;
         const y = family_top + row * family_height;
-        const active = i == chosen.font;
-        const font = if (active) fonts.title else fonts.small;
-        try font.draw(page, @floatFromInt(left), @intCast(y + 56), f.label);
-        if (active) page.fillRect(left, y + 70, @intFromFloat(try font.measure(f.label)), 5, 0x00);
+        try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), f.label, i == chosen.font, y + 70);
     }
     try drawToggle(fonts, page, bold_top, "Bold", chosen.bold);
     try drawRow(fonts, page, size_row, chosen.size, false);

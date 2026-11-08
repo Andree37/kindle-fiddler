@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const draw = @import("ui/draw.zig");
 const state = @import("platform/state.zig");
 const Fonts = @import("ui/fonts.zig").Fonts;
 const input_mod = @import("platform/input.zig");
@@ -88,9 +89,7 @@ pub const App = struct {
         target.fillRect(left, clock_top, clock_width, clock_height, 0xff);
         var buf: [8]u8 = undefined;
         const time = system.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
-        const width = a.ui.caption.measure(time) catch return;
-        const x = @as(f32, @floatFromInt(a.screen.width)) / 2 - width / 2;
-        a.ui.caption.draw(target, x, clock_top + 38, time) catch {};
+        draw.centered(a.ui.caption, target, @floatFromInt(a.screen.width / 2), clock_top + 38, time) catch {};
         a.clock_minute = unixTime() / 60;
     }
 
@@ -145,10 +144,8 @@ pub fn showNotice(a: *App, message: []const u8) !void {
     const height: u32 = 100;
     const left = (a.screen.width - width) / 2;
     const top = a.screen.height - 260;
-    screen_page.fillRect(left, top, width, height, 0x00);
-    screen_page.fillRect(left + 3, top + 3, width - 6, height - 6, 0xff);
-    const label = try a.ui.small.measure(message);
-    try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(left + width / 2)) - label / 2, @intCast(top + 62), message);
+    draw.box(screen_page, left, top, width, height);
+    try draw.centered(a.ui.small, screen_page, @floatFromInt(left + width / 2), @intCast(top + 62), message);
     try a.showRect(left, top, width, height);
     os.sleepMs(notice_ms);
 }
