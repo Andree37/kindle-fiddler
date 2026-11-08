@@ -57,18 +57,13 @@ pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
     }
 }
 
-/// The part of a `sw` x `sh` picture that fills a `dw` x `dh` screen when scaled:
-/// the centre, with the overflowing sides (or top and bottom) cut off.
-pub fn cropToFill(sw: usize, sh: usize, dw: usize, dh: usize) struct { x: usize, y: usize, w: usize, h: usize } {
-    if (sw * dh > sh * dw) {
-        const w = @max(1, sh * dw / dh);
-        return .{ .x = (sw - w) / 2, .y = 0, .w = w, .h = sh };
-    }
-    const h = @max(1, sw * dh / dw);
-    return .{ .x = 0, .y = (sh - h) / 2, .w = sw, .h = h };
+/// The largest size with a picture's shape that fits inside a `dw` x `dh` box.
+pub fn fitted(sw: usize, sh: usize, dw: usize, dh: usize) struct { w: usize, h: usize } {
+    if (sw * dh > sh * dw) return .{ .w = dw, .h = @max(1, sh * dw / sw) };
+    return .{ .w = @max(1, sw * dh / sh), .h = dh };
 }
 
-/// Decodes a cover and fills the whole screen with it, cropping what overflows.
+/// Decodes a cover and shows all of it, as large as fits, centred on black.
 /// `stride` is bytes per row in `buf`, which can be more than the visible width.
 pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_px: usize, height_px: usize, stride: usize) bool {
     var w: c_int = 0;
@@ -78,15 +73,13 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
     if (w <= 0 or h <= 0) return false;
     const sw: usize = @intCast(w);
     const sh: usize = @intCast(h);
-    const crop = cropToFill(sw, sh, width_px, height_px);
-    const part = alloc.alloc(u8, crop.w * crop.h) catch return false;
-    defer alloc.free(part);
-    for (0..crop.h) |row| @memcpy(part[row * crop.w ..][0..crop.w], pixels[(crop.y + row) * sw + crop.x ..][0..crop.w]);
-    const scaled = alloc.alloc(u8, width_px * height_px) catch return false;
-    defer alloc.free(scaled);
-    scale(part, crop.w, crop.h, scaled, width_px, height_px);
-    dither(alloc, scaled, width_px) catch return false;
-    for (0..height_px) |row| @memcpy(buf[row * stride ..][0..width_px], scaled[row * width_px ..][0..width_px]);
+    const fit = fitted(sw, sh, width_px, height_px);
+    const ready = prepare(alloc, pixels[0 .. sw * sh], sw, sh, fit.w, fit.h) orelse return false;
+    defer alloc.free(ready);
+    for (0..height_px) |row| @memset(buf[row * stride ..][0..width_px], 0x00);
+    const left = (width_px - fit.w) / 2;
+    const top = (height_px - fit.h) / 2;
+    for (0..fit.h) |row| @memcpy(buf[(top + row) * stride + left ..][0..fit.w], ready[row * fit.w ..][0..fit.w]);
     return true;
 }
 
@@ -166,21 +159,18 @@ test "dithering keeps only panel grays and the overall tone" {
 }
 
 test "a sliver of an image still crops to something, and dithering nothing is safe" {
-    try std.testing.expect(cropToFill(1, 10000, 1272, 1696).h >= 1);
-    try std.testing.expect(cropToFill(10000, 1, 1272, 1696).w >= 1);
+    try std.testing.expect(fitted(1, 10000, 1272, 1696).w >= 1);
+    try std.testing.expect(fitted(10000, 1, 1272, 1696).h >= 1);
     var none: [0]u8 = .{};
     try dither(std.testing.allocator, &none, 0);
 }
 
-test "covers fill the screen, cropping the overflow evenly" {
-    // A wide cover keeps its full height and loses equal strips at the sides.
-    const wide = cropToFill(1000, 1000, 1272, 1696);
-    try std.testing.expectEqual(@as(usize, 1000), wide.h);
-    try std.testing.expectEqual(@as(usize, 750), wide.w);
-    try std.testing.expectEqual(@as(usize, 125), wide.x);
-    // A tall one keeps its full width and loses top and bottom.
-    const tall = cropToFill(600, 1200, 1272, 1696);
-    try std.testing.expectEqual(@as(usize, 600), tall.w);
-    try std.testing.expectEqual(@as(usize, 800), tall.h);
-    try std.testing.expectEqual(@as(usize, 200), tall.y);
+test "covers keep their shape on screen" {
+    const screen_w = 1272;
+    const screen_h = 1696;
+    try std.testing.expectEqual(@as(usize, 1272), fitted(600, 800, screen_w, screen_h).w);
+    const narrow = fitted(500, 800, screen_w, screen_h);
+    try std.testing.expectEqual(@as(usize, 1060), narrow.w);
+    try std.testing.expectEqual(@as(usize, 1696), narrow.h);
+    try std.testing.expectEqual(@as(usize, 636), fitted(800, 400, screen_w, screen_h).h);
 }
