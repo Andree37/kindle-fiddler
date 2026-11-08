@@ -8,14 +8,15 @@ pub fn build(b: *std.Build) void {
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a7 },
     });
 
-    // The app. `-Dsafe=true` builds it with Zig's own bounds and overflow checks on.
-    const safe = b.option(bool, "safe", "Build the app with Zig's runtime safety checks") orelse false;
+    // The app, with Zig's own bounds and overflow checks on: they cost page turns
+    // nothing measurable. `-Dfast=true` builds without them.
+    const fast = b.option(bool, "fast", "Build the app without Zig's runtime safety checks") orelse false;
     const noface = b.addExecutable(.{
         .name = "noface",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
-            .optimize = if (safe) .ReleaseSafe else .ReleaseFast,
+            .optimize = if (fast) .ReleaseFast else .ReleaseSafe,
             .strip = true,
             .link_libc = true,
         }),
