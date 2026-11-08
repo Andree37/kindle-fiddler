@@ -16,6 +16,11 @@ lipc-set-prop com.lab126.blanket unload screensaver 2>/dev/null
 lipc-set-prop com.lab126.pillow disableEnablePillow disable
 killall -STOP awesome
 
+# Keep the log small: start over once it passes 512 KB, keeping one old copy.
+if [ "$(wc -c < "$DIR/noface.log" 2>/dev/null || echo 0)" -gt 524288 ]; then
+    mv "$DIR/noface.log" "$DIR/noface.log.old"
+fi
+
 # Background plus wait, so a signal reaches noface instead of waiting on it.
 "$DIR/noface" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$FONTS/Amazon-Ember-Regular.ttf" "$FONTS/Amazon-Ember-Bold.ttf" "$DIR" >> "$DIR/noface.log" 2>&1 &
 pid=$!

@@ -1,6 +1,7 @@
 //! Device settings, changed through Amazon's lipc command line tools.
 const std = @import("std");
 const linux = std.os.linux;
+const os = @import("os.zig");
 
 const lipc_get: [*:0]const u8 = "/usr/bin/lipc-get-prop";
 const lipc_set: [*:0]const u8 = "/usr/bin/lipc-set-prop";
@@ -29,6 +30,11 @@ pub const Quick = struct {
 const failed = @import("os.zig").failed;
 
 /// Runs a program and returns how many bytes of its output landed in `out`.
+/// Longest any command may take. A stuck lipc or sqlite call must not freeze the reader.
+const command_timeout_ms = 15_000;
+
+/// Runs a command, collecting what it prints. Null when it can't start or runs too long,
+/// in which case it is killed.
 fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
     var fds: [2]i32 = undefined;
     if (failed(linux.pipe(&fds))) return null;
@@ -43,16 +49,35 @@ fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
         linux.exit(127);
     }
     _ = linux.close(fds[1]);
+    const deadline = os.nowUs() + command_timeout_ms * 1000;
     var total: usize = 0;
+    var timed_out = false;
     while (total < out.len) {
+        const now = os.nowUs();
+        if (now >= deadline) {
+            timed_out = true;
+            break;
+        }
+        var ready = [_]linux.pollfd{.{ .fd = fds[0], .events = linux.POLL.IN, .revents = 0 }};
+        const waited = linux.poll(&ready, 1, @intCast((deadline - now) / 1000 + 1));
+        if (failed(waited)) continue; // Interrupted by a signal
+        if (waited == 0) {
+            timed_out = true;
+            break;
+        }
         const n = linux.read(fds[0], out[total..].ptr, out.len - total);
         if (failed(n) or n == 0) break;
         total += n;
     }
+    // Closing first means a child with more to say gets SIGPIPE instead of blocking.
     _ = linux.close(fds[0]);
+    if (timed_out) {
+        _ = linux.kill(@intCast(pid), linux.SIG.KILL);
+        std.debug.print("command timed out: {s}\n", .{std.mem.sliceTo(argv[0].?, 0)});
+    }
     var status: i32 = 0;
     _ = linux.waitpid(@intCast(pid), &status, 0);
-    return total;
+    return if (timed_out) null else total;
 }
 
 pub fn parseInt(output: []const u8) ?u32 {
