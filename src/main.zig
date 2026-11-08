@@ -7,6 +7,7 @@
 //! The power button locks, showing the current book's cover. Waking returns to the
 //! same place. All Settings leaves for the stock UI.
 const std = @import("std");
+const Fonts = @import("ui/fonts.zig").Fonts;
 const file = @import("platform/file.zig");
 const hwtcon = @import("platform/hwtcon.zig");
 const library = @import("ui/library.zig");
@@ -56,7 +57,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     var settings_buf: [320]u8 = undefined;
     const settings_path = try std.fmt.bufPrintSentinel(&settings_buf, "{s}/settings", .{state_dir}, 0);
-    const ui = library.Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
+    const ui = Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
 
     var shared = app.App{
         .alloc = alloc,

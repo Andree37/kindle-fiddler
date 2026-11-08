@@ -1,5 +1,6 @@
 //! The Aa sheet: reading settings, in four tabs.
 const std = @import("std");
+const Fonts = @import("fonts.zig").Fonts;
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const slider = @import("slider.zig");
@@ -105,7 +106,7 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
     return .none;
 }
 
-fn drawToggle(fonts: library.Fonts, page: text.Page, y: u32, label: []const u8, on: bool) !void {
+fn drawToggle(fonts: Fonts, page: text.Page, y: u32, label: []const u8, on: bool) !void {
     try fonts.small.draw(page, margin, @intCast(y + 50), label);
     const w: u32 = 100;
     const h: u32 = 48;
@@ -120,7 +121,7 @@ fn drawToggle(fonts: library.Fonts, page: text.Page, y: u32, label: []const u8, 
 }
 
 /// One slider row, redrawn alone while dragging.
-pub fn drawRow(fonts: library.Fonts, page: text.Page, r: Row, value: usize, mono: bool) !void {
+pub fn drawRow(fonts: Fonts, page: text.Page, r: Row, value: usize, mono: bool) !void {
     page.fillRect(0, r.top, page.width, row_height, 0xff);
     try fonts.small.draw(page, margin, @intCast(r.top + 48), r.label);
     const bar = rowSlider(r);
@@ -130,7 +131,7 @@ pub fn drawRow(fonts: library.Fonts, page: text.Page, r: Row, value: usize, mono
     if (mono) page.threshold(r.top, row_height);
 }
 
-fn drawTabs(fonts: library.Fonts, page: text.Page, tab: Tab) !void {
+fn drawTabs(fonts: Fonts, page: text.Page, tab: Tab) !void {
     const cell: u32 = page.width / tab_labels.len;
     for (tab_labels, 0..) |label, i| {
         const left: u32 = @as(u32, @intCast(i)) * cell;
@@ -148,7 +149,7 @@ fn drawTabs(fonts: library.Fonts, page: text.Page, tab: Tab) !void {
     page.fillRect(0, top + tabs_height - 2, page.width, 1, 0xb0);
 }
 
-fn drawThemes(fonts: library.Fonts, page: text.Page, chosen: menu.Settings) !void {
+fn drawThemes(fonts: Fonts, page: text.Page, chosen: menu.Settings) !void {
     for (themes, 0..) |t, i| {
         const left: u32 = margin + @as(u32, @intCast(i)) * (theme_width + theme_gap);
         const active = chosen.size == t.size and chosen.spacing == t.spacing and chosen.margin == t.margin;
@@ -168,7 +169,7 @@ fn drawThemes(fonts: library.Fonts, page: text.Page, chosen: menu.Settings) !voi
     }
 }
 
-fn drawFont(fonts: library.Fonts, page: text.Page, chosen: menu.Settings) !void {
+fn drawFont(fonts: Fonts, page: text.Page, chosen: menu.Settings) !void {
     for (menu.families, 0..) |f, i| {
         const row: u32 = @intCast(i / 2);
         const left: u32 = margin + @as(u32, @intCast(i % 2)) * family_width;
@@ -182,7 +183,7 @@ fn drawFont(fonts: library.Fonts, page: text.Page, chosen: menu.Settings) !void 
     try drawRow(fonts, page, size_row, chosen.size, false);
 }
 
-pub fn render(fonts: library.Fonts, page: text.Page, tab: Tab, chosen: menu.Settings) !void {
+pub fn render(fonts: Fonts, page: text.Page, tab: Tab, chosen: menu.Settings) !void {
     page.fillRect(0, top, page.width, height - top, 0xff);
     page.fillRect(0, height - 4, page.width, 4, 0x00);
     try drawTabs(fonts, page, tab);

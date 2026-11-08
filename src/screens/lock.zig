@@ -1,5 +1,6 @@
 //! The lock screen: the book's cover while the Kindle sleeps.
 const std = @import("std");
+const catalog = @import("../book/catalog.zig");
 const os = @import("../platform/os.zig");
 const cover = @import("../ui/cover.zig");
 const file = @import("../platform/file.zig");
@@ -13,7 +14,7 @@ pub const lock_redraw_us = 1500 * 1000;
 pub const lock_redraws = 2;
 
 /// Shows the book's cover while the Kindle sleeps, then puts the screen back.
-pub fn lockScreen(a: *app.App, entry: ?*const library.Entry) !void {
+pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry) !void {
     @memcpy(a.lock_saved, a.screen.pixels);
     const target = a.lock_cover;
     var drawn = false;

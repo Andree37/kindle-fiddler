@@ -1,6 +1,8 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
 //! Usage: panelshot [panel | notes | toolbar [sheet] | library [page [read]]]
 const std = @import("std");
+const catalog = core.catalog;
+const Fonts = core.fonts.Fonts;
 const core = @import("core");
 const linux = std.os.linux;
 const cover = core.cover;
@@ -41,7 +43,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var caption = try text.Font.init(alloc, ui_regular, 26, 1.2);
     var hero = try text.Font.init(alloc, book_bold, 56, 1.2);
     var cover_type = try text.Font.init(alloc, book_bold, 36, 1.2);
-    const fonts = library.Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
+    const fonts = Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
     const w = 1272;
     const h = 1696;
     const buf = try alloc.alloc(u8, w * h);
@@ -52,12 +54,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var quick = system.read();
 
     if (std.mem.eql(u8, mode, "library")) {
-        const entries = try library.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
-        library.sort(entries, .recent);
+        const entries = try catalog.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        catalog.sort(entries, .recent);
         const visible = try alloc.alloc(usize, entries.len);
-        const filter: library.Filter = if (argv.len > 3) .read else .all;
-        const lead = library.pickHero(entries);
-        const count = library.select(entries, filter, lead, visible);
+        const filter: catalog.Filter = if (argv.len > 3) .read else .all;
+        const lead = catalog.pickHero(entries);
+        const count = catalog.select(entries, filter, lead, visible);
         const index: usize = if (argv.len > 2) try std.fmt.parseInt(usize, std.mem.sliceTo(argv[2], 0), 10) else 0;
         try library.render(alloc, fonts, page, entries, lead, visible[0..count], index, filter, .recent, "", &quick);
         write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
@@ -88,11 +90,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     if (std.mem.eql(u8, mode, "sheet")) {
-        const entries = try library.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
-        library.sort(entries, .recent);
-        const lead = library.pickHero(entries);
+        const entries = try catalog.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        catalog.sort(entries, .recent);
+        const lead = catalog.pickHero(entries);
         const visible = try alloc.alloc(usize, entries.len);
-        const count = library.select(entries, .all, lead, visible);
+        const count = catalog.select(entries, .all, lead, visible);
         try library.render(alloc, fonts, page, entries, lead, visible[0..count], 0, .all, .recent, "", &quick);
         var list: [3]sheet.Option = undefined;
         const confirming = argv.len > 2;

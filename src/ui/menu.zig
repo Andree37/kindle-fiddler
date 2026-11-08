@@ -1,5 +1,6 @@
 //! Quick panel: drag down from the top of any screen to open it.
 const std = @import("std");
+const Fonts = @import("fonts.zig").Fonts;
 const icons = @import("icons.zig");
 const library = @import("library.zig");
 const slider = @import("slider.zig");
@@ -113,7 +114,7 @@ pub const band_height = band_above + band_below;
 
 /// One slider row, redrawn alone while dragging. `mono` is pure black and white
 /// for the fast waveform, which breaks up gray.
-pub fn drawSlider(fonts: library.Fonts, page: text.Page, row: Row, value: u32, mono: bool) !void {
+pub fn drawSlider(fonts: Fonts, page: text.Page, row: Row, value: u32, mono: bool) !void {
     page.fillRect(0, bandTop(row), page.width, band_height, 0xff);
     const bar = rowSlider(row);
     const knob = slider.knobAt(bar, value, row.max);
@@ -160,7 +161,7 @@ fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
     };
 }
 
-pub fn render(fonts: library.Fonts, page: text.Page, quick: *const system.Quick) !void {
+pub fn render(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, height, 0xff);
     page.fillRect(0, height - 4, page.width, 4, 0x00);

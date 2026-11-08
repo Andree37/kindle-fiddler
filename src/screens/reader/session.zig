@@ -1,5 +1,6 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const catalog = @import("../../book/catalog.zig");
 const os = @import("../../platform/os.zig");
 const cache = @import("../../platform/cache.zig");
 const highlights = @import("../../book/highlights.zig");
@@ -92,7 +93,7 @@ pub const Session = struct {
     }
 };
 
-pub fn saveProgress(entry: *library.Entry, path: [*:0]const u8, s: *const Session) void {
+pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *const Session) void {
     const pos = s.pages[s.current];
     const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();

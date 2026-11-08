@@ -1,4 +1,5 @@
 test {
+    _ = @import("book/catalog.zig");
     _ = @import("platform/input.zig");
     _ = @import("platform/os.zig");
     _ = @import("ui/aa.zig");

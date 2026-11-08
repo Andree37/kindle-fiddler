@@ -5,218 +5,42 @@ const cover = @import("cover.zig");
 const icons = @import("icons.zig");
 const system = @import("../platform/system.zig");
 const text = @import("../book/text.zig");
-
-pub const Availability = enum { local, cloud, downloading };
-
-pub const Entry = struct {
-    path: [:0]const u8,
-    title: []const u8,
-    author: []const u8,
-    percent: u32,
-    last: u64,
-    finished: bool = false,
-    kindle_percent: u32 = 0,
-    kindle_last: u64 = 0,
-    thumbnail: [:0]const u8 = "",
-    added: u64 = 0,
-    availability: Availability = .local,
-    key: []const u8 = "",
-    kind: []const u8 = "",
-    guid: []const u8 = "",
-    cover: ?[]u8 = null,
-    cover_tried: bool = false,
-    hero: ?[]u8 = null,
-    hero_tried: bool = false,
-
-    pub fn isRead(e: Entry) bool {
-        return e.finished or e.percent >= finished_percent;
-    }
-
-    /// Started but not finished, which is what the hero leads with.
-    pub fn inProgress(e: Entry) bool {
-        return !e.isRead() and e.percent > untouched_percent;
-    }
-
-    /// On this Kindle and complete, so it can be opened.
-    pub fn isLocal(e: Entry) bool {
-        return e.availability == .local;
-    }
-};
-
-pub const Filter = enum { all, unread, read };
-
-const finished_percent = 99;
-const untouched_percent = 1; // Stock gives new books 1% without them being opened
-const read_state_finished = 2; // Kindle's own "finished" mark
-
-/// Converted filenames look like "Title -- Author -- Year -- junk".
-pub fn cleanTitle(raw: []const u8) []const u8 {
-    const end = std.mem.indexOf(u8, raw, " -- ") orelse raw.len;
-    return std.mem.trim(u8, raw[0..end], " ");
-}
-
-/// Filename conversion turned ":" into "_", and some titles carry a series prefix
-/// like "[Bobiverse 01] \u{2022} We Are Legion".
-pub fn fixTitle(alloc: std.mem.Allocator, raw: []const u8) ![]const u8 {
-    var t = cleanTitle(raw);
-    const bullet = "\u{2022} ";
-    if (t.len > 0 and t[0] == '[') {
-        if (std.mem.indexOf(u8, t, bullet)) |at| t = t[at + bullet.len..];
-    }
-    var out: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < t.len) {
-        if (std.mem.startsWith(u8, t[i..], " _ ")) {
-            try out.appendSlice(alloc, ": ");
-            i += 3;
-        } else if (std.mem.startsWith(u8, t[i..], "_ ")) {
-            try out.appendSlice(alloc, ": ");
-            i += 2;
-        } else {
-            try out.append(alloc, t[i]);
-            i += 1;
-        }
-    }
-    return std.mem.trimEnd(u8, out.items, "_ ");
-}
-
-/// Authors can repeat as "Liu, Cixin [Liu, Cixin]".
-pub fn cleanAuthor(raw: []const u8) []const u8 {
-    const end = std.mem.indexOf(u8, raw, " [") orelse raw.len;
-    return std.mem.trim(u8, raw[0..end], " ");
-}
-
-pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]Entry {
-    var out: std.ArrayList(Entry) = .empty;
-    var lines = std.mem.tokenizeScalar(u8, data, '\n');
-    while (lines.next()) |line| {
-        var fields = std.mem.splitScalar(u8, line, '\t');
-        const path = fields.next() orelse continue;
-        const title = fields.next() orelse continue;
-        const author = fields.next() orelse continue;
-        const percent = std.fmt.parseFloat(f32, fields.next() orelse "0") catch 0;
-        const last = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
-        const read_state = std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0;
-        const thumbnail = fields.next() orelse "";
-        const added = std.fmt.parseInt(u64, fields.next() orelse "0", 10) catch 0;
-        const availability: Availability = switch (std.fmt.parseInt(u32, fields.next() orelse "0", 10) catch 0) {
-            1 => .cloud,
-            2 => .downloading,
-            else => .local,
-        };
-        const key = fields.next() orelse "";
-        const kind = fields.next() orelse "";
-        const guid = fields.next() orelse "";
-        if (path.len == 0 and availability == .local) continue;
-        try out.append(alloc, .{
-            .path = try alloc.dupeSentinel(u8, path, 0),
-            .title = try fixTitle(alloc, title),
-            .author = cleanAuthor(author),
-            .percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
-            .last = last,
-            // The Kindle's own mark, which marking as unread clears.
-            .finished = read_state == read_state_finished,
-            .kindle_percent = @intFromFloat(std.math.clamp(percent, 0, 100)),
-            .kindle_last = last,
-            .thumbnail = try alloc.dupeSentinel(u8, thumbnail, 0),
-            .added = added,
-            .availability = availability,
-            .key = key,
-            .kind = kind,
-            .guid = guid,
-        });
-    }
-    return out.toOwnedSlice(alloc);
-}
-
-pub const Order = enum {
-    recent,
-    title,
-    added,
-
-    fn label(o: Order) []const u8 {
-        return switch (o) {
-            .recent => "Recent",
-            .title => "A to Z",
-            .added => "Newest",
-        };
-    }
-
-    pub fn next(o: Order) Order {
-        return switch (o) {
-            .recent => .title,
-            .title => .added,
-            .added => .recent,
-        };
-    }
-};
-
-fn before(order: Order, a: Entry, b: Entry) bool {
-    // Books on this Kindle always come first: cloud ones can't be opened yet.
-    if (a.isLocal() != b.isLocal()) return a.isLocal();
-    return switch (order) {
-        .recent => a.last > b.last,
-        .added => a.added > b.added,
-        .title => std.ascii.lessThanIgnoreCase(a.title, b.title),
-    };
-}
-
-pub fn sort(entries: []Entry, order: Order) void {
-    std.mem.sort(Entry, entries, order, before);
-}
-
-/// The book for the hero: the latest one in progress, or else the latest opened.
-pub fn pickHero(entries: []const Entry) ?usize {
-    var best: ?usize = null;
-    for (entries, 0..) |e, i| {
-        if (!e.inProgress() or !e.isLocal()) continue;
-        if (best == null or e.last > entries[best.?].last) best = i;
-    }
-    if (best != null) return best;
-    for (entries, 0..) |e, i| {
-        if (!e.isLocal()) continue;
-        if (best == null or e.last > entries[best.?].last) best = i;
-    }
-    return best;
-}
-
-/// Fills `out` with indexes of matching entries, leaving out the hero, and returns how many.
-pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, out: []usize) usize {
-    var n: usize = 0;
-    for (entries, 0..) |e, i| {
-        if (i == hero) continue;
-        const matches = switch (filter) {
-            .all => true,
-            .read => e.isRead(),
-            .unread => !e.isRead(),
-        };
-        if (matches) {
-            out[n] = i;
-            n += 1;
-        }
-    }
-    return n;
-}
+const catalog = @import("../book/catalog.zig");
+const Fonts = @import("fonts.zig").Fonts;
 
 const margin = 72;
+
 const gutter = 40;
+
 const columns = 4;
+
 const cell_step = cover.width + gutter;
+
 const row_height = 410;
+
 const status_height = 96;
 
 // Page one always leads with the current book, on every tab and sort.
 const hero_top = 112;
+
 const hero_bottom = 500;
+
 const hero_tabs_top = 516;
+
 const hero_grid_top = 622;
+
 const plain_tabs_top = 100;
+
 const plain_grid_top = 206;
+
 const tabs_height = 84;
+
 const hero_rows = 2;
+
 const plain_rows = 3;
 
-const Tab = struct { filter: Filter, label: []const u8, left: i32, right: i32 };
+const Tab = struct { filter: catalog.Filter, label: []const u8, left: i32, right: i32 };
+
 const tabs = [_]Tab{
     .{ .filter = .all, .label = "All", .left = 72, .right = 170 },
     .{ .filter = .unread, .label = "Unread", .left = 170, .right = 352 },
@@ -224,21 +48,18 @@ const tabs = [_]Tab{
 };
 
 const footer_top = 1450;
+
 const footer_bottom = 1570;
+
 const prev_left = 340;
+
 const next_left = 732;
+
 const footer_button = 200;
+
 const sort_left = 860;
 
-pub const Fonts = struct {
-    title: *text.Font, // UI bold
-    small: *text.Font, // UI regular
-    caption: *text.Font,
-    hero: *text.Font, // Book title, in the reading typeface
-    cover: *text.Font,
-};
-
-pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, tab: Filter };
+pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, tab: catalog.Filter };
 
 fn gridSize(hero: bool) usize {
     return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
@@ -365,7 +186,7 @@ fn progressBar(page: text.Page, x: u32, y: u32, w: u32, percent: u32) void {
 }
 
 /// A book with no thumbnail still gets a real cover: its title set in type.
-fn typeCover(fonts: Fonts, page: text.Page, x: u32, y: u32, w: u32, h: u32, e: *const Entry) !void {
+fn typeCover(fonts: Fonts, page: text.Page, x: u32, y: u32, w: u32, h: u32, e: *const catalog.Entry) !void {
     page.fillRect(x, y, w, h, 0xf0);
     page.fillRect(x, y, w, 2, 0x00);
     page.fillRect(x, y + h - 2, w, 2, 0x00);
@@ -379,7 +200,7 @@ fn typeCover(fonts: Fonts, page: text.Page, x: u32, y: u32, w: u32, h: u32, e: *
     try drawClipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
 }
 
-fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
+fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog.Entry, x: u32, y: u32) !void {
     if (!e.cover_tried) {
         e.cover_tried = true;
         if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail, cover.width, cover.height);
@@ -391,7 +212,7 @@ fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry,
     }
 }
 
-fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) !void {
+fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog.Entry) !void {
     if (!e.hero_tried) {
         e.hero_tried = true;
         if (e.thumbnail.len > 0) e.hero = cover.load(alloc, e.thumbnail, cover.hero_width, cover.hero_height);
@@ -422,7 +243,7 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry) 
     page.tint(left_px, bar_y + 16, @intFromFloat(avail), 34, 0x50);
 }
 
-fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *Entry, x: u32, y: u32) !void {
+fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog.Entry, x: u32, y: u32) !void {
     try drawCover(alloc, fonts, page, e, x, y);
     const bar_y = y + cover.height + 8;
     const dots_x: f32 = @floatFromInt(x + cover.width - 8);
@@ -454,7 +275,7 @@ fn drawStatus(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
     try icons.statusCluster(page, fonts.caption, w - margin, centre, baseline, quick, false);
 }
 
-fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: Filter, order: Order) !void {
+fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: catalog.Filter, order: catalog.Order) !void {
     const y = top + 54;
     for (tabs) |t| {
         const left: u32 = @intCast(t.left);
@@ -492,7 +313,7 @@ fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
     if (index + 1 >= pages) page.tint(next_left, footer_top, footer_button, footer_bottom - footer_top, 0xc8);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []Entry, hero: ?usize, visible: []const usize, index: usize, filter: Filter, order: Order, message: []const u8, quick: *const system.Quick) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const system.Quick) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 
@@ -513,48 +334,6 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: 
     if (visible.len == 0) try fonts.small.draw(page, margin, @intCast(top + 60), "No books here yet.");
     try drawFooter(fonts, page, index, pageCount(visible.len));
     if (message.len > 0) try fonts.caption.draw(page, margin, 1640, message);
-}
-
-test "titles lose filename junk" {
-    try std.testing.expectEqualStrings("Snow Crash", cleanTitle("Snow Crash -- Stephenson, Neal -- 2010"));
-    try std.testing.expectEqualStrings("Prisoners of Geography", cleanTitle("Prisoners of Geography"));
-}
-
-test "authors lose repeated names" {
-    try std.testing.expectEqualStrings("Liu, Cixin", cleanAuthor("Liu, Cixin [Liu, Cixin]"));
-}
-
-test "rows parse and sort newest first" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const data = "/a.kfx\tOld -- x\tA\t12.7\t100\n/b.kfx\tNew\tB\t\t200\n\n";
-    const rows = try parse(arena.allocator(), data);
-    sort(rows, .recent);
-    try std.testing.expectEqual(@as(usize, 2), rows.len);
-    try std.testing.expectEqualStrings("New", rows[0].title);
-    try std.testing.expectEqual(@as(u32, 12), rows[1].percent);
-    try std.testing.expectEqualStrings("Old", rows[1].title);
-}
-
-test "sort orders by title and by date added" {
-    var rows = [_]Entry{
-        .{ .path = "/a", .title = "banana", .author = "", .percent = 0, .last = 1, .added = 5 },
-        .{ .path = "/b", .title = "Apple", .author = "", .percent = 0, .last = 2, .added = 9 },
-        .{ .path = "/c", .title = "cherry", .author = "", .percent = 0, .last = 3, .added = 1 },
-    };
-    sort(&rows, .title);
-    try std.testing.expectEqualStrings("Apple", rows[0].title);
-    try std.testing.expectEqualStrings("cherry", rows[2].title);
-    sort(&rows, .added);
-    try std.testing.expectEqualStrings("Apple", rows[0].title);
-    try std.testing.expectEqualStrings("cherry", rows[2].title);
-    sort(&rows, .recent);
-    try std.testing.expectEqualStrings("cherry", rows[0].title);
-}
-
-test "sort button cycles" {
-    try std.testing.expectEqual(Order.title, Order.recent.next());
-    try std.testing.expectEqual(Order.recent, Order.added.next());
 }
 
 test "the current book stays on page one of every view" {
@@ -590,75 +369,8 @@ test "page count follows the layout" {
     try std.testing.expectEqual(@as(usize, 7), pageCount(78));
 }
 
-test "finished stays read after our progress replaces the percent" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const rows = try parse(arena.allocator(), "/a\tA\tx\t99.1\t1\t1\n/b\tB\tx\t40\t1\t2\n/c\tC\tx\t40\t1\t1\n/d\tD\tx\t0\t1\t0\n");
-    try std.testing.expect(rows[0].isRead());
-    rows[0].percent = 3; // Read again from the start, or marked as unread
-    try std.testing.expect(!rows[0].isRead());
-    try std.testing.expect(rows[1].isRead());
-    try std.testing.expect(!rows[2].isRead());
-    try std.testing.expect(rows[2].inProgress());
-    try std.testing.expect(!rows[3].inProgress());
-}
-
-test "hero is the latest book in progress, and leaves the grid" {
-    const rows = [_]Entry{
-        .{ .path = "/a", .title = "Done", .author = "", .percent = 99, .last = 3 },
-        .{ .path = "/b", .title = "Fresh", .author = "", .percent = 0, .last = 2 },
-        .{ .path = "/c", .title = "Now", .author = "", .percent = 34, .last = 1 },
-    };
-    const hero = pickHero(&rows);
-    try std.testing.expectEqual(@as(usize, 2), hero.?);
-    var out: [3]usize = undefined;
-    try std.testing.expectEqual(@as(usize, 2), select(&rows, .all, hero, &out));
-    try std.testing.expectEqual(@as(usize, 1), select(&rows, .unread, hero, &out));
-    try std.testing.expectEqual(@as(usize, 1), out[0]);
-    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, hero, &out));
-    try std.testing.expectEqual(@as(usize, 0), out[0]);
-}
-
-test "with nothing in progress the hero is the latest opened" {
-    const rows = [_]Entry{
-        .{ .path = "/a", .title = "Old", .author = "", .percent = 0, .last = 1 },
-        .{ .path = "/b", .title = "New", .author = "", .percent = 0, .last = 5 },
-    };
-    try std.testing.expectEqual(@as(usize, 1), pickHero(&rows).?);
-}
-
-test "cloud books list without a path and never lead" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const rows = try parse(arena.allocator(), "\tCloud\tx\t50\t9\t0\t\t1\t1\n/b\tHere\tx\t20\t1\t0\t\t1\t0\n/c\tGetting\tx\t0\t2\t0\t\t1\t2\n\tNoPath\tx\t0\t2\t0\t\t1\t0\n");
-    try std.testing.expectEqual(@as(usize, 3), rows.len);
-    try std.testing.expectEqual(Availability.cloud, rows[0].availability);
-    try std.testing.expectEqual(Availability.downloading, rows[2].availability);
-    try std.testing.expectEqual(@as(usize, 1), pickHero(rows).?);
-}
-
-test "cloud books sort after local ones" {
-    var rows = [_]Entry{
-        .{ .path = "", .title = "A cloud book", .author = "", .percent = 0, .last = 9, .availability = .cloud },
-        .{ .path = "/b", .title = "Zed", .author = "", .percent = 0, .last = 1 },
-    };
-    sort(&rows, .recent);
-    try std.testing.expectEqualStrings("Zed", rows[0].title);
-    sort(&rows, .title);
-    try std.testing.expectEqualStrings("Zed", rows[0].title);
-}
-
 test "three dots sit beside the title" {
     try std.testing.expectEqual(Hit{ .dots = 0 }, hit(300, 975, 0, 79));
     try std.testing.expectEqual(Hit{ .book = 0 }, hit(120, 975, 0, 79));
     try std.testing.expectEqual(Hit.hero_dots, hit(1180, 130, 0, 79));
-}
-
-test "a new book at one percent is not in progress" {
-    const fresh = Entry{ .path = "/a", .title = "New", .author = "", .percent = 1, .last = 9 };
-    const going = Entry{ .path = "/b", .title = "Going", .author = "", .percent = 2, .last = 1 };
-    try std.testing.expect(!fresh.inProgress());
-    try std.testing.expect(going.inProgress());
-    const rows = [_]Entry{ fresh, going };
-    try std.testing.expectEqual(@as(usize, 1), pickHero(&rows).?);
 }

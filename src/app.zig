@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const Fonts = @import("ui/fonts.zig").Fonts;
 const input_mod = @import("platform/input.zig");
 const aa = @import("ui/aa.zig");
 const file = @import("platform/file.zig");
@@ -34,7 +35,7 @@ pub const App = struct {
     turns: u32 = 0,
     note_font: *text.Font,
     footer: *text.Font,
-    ui: library.Fonts,
+    ui: Fonts,
     slots: [3]Slot,
     overlay: []u8,
     lock_saved: []u8,

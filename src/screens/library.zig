@@ -1,5 +1,6 @@
 //! The home screen: the library, a book's actions, and opening books.
 const std = @import("std");
+const catalog = @import("../book/catalog.zig");
 const os = @import("../platform/os.zig");
 const file = @import("../platform/file.zig");
 const kfx = @import("../book/kfx.zig");
@@ -26,7 +27,7 @@ pub fn loggedHit(x: i32, y: i32, index: usize, count: usize) library.Hit {
 pub const Library = struct {
     arena: std.heap.ArenaAllocator,
     data: []const u8,
-    entries: []library.Entry,
+    entries: []catalog.Entry,
     visible: []usize,
 
     fn deinit(l: *Library) void {
@@ -60,7 +61,7 @@ pub fn loadLibrary(a: *app.App) !Library {
     errdefer arena.deinit();
     const alloc = arena.allocator();
     const data = try file.map(a.library_path);
-    const entries = try library.parse(alloc, data);
+    const entries = try catalog.parse(alloc, data);
     var path_buf: [320]u8 = undefined;
     for (entries) |*e| {
         if (e.availability == .downloading and isCompleteBook(e.path)) e.availability = .local;
@@ -76,7 +77,7 @@ pub fn loadLibrary(a: *app.App) !Library {
 /// Saves the book as unread, so the reload that follows doesn't bring back 100%.
 /// Dated just after the last time it was opened anywhere: newer than stock's
 /// percent, so it wins, without moving the book up in recent order.
-pub fn forgetFinished(a: *app.App, e: *const library.Entry) !void {
+pub fn forgetFinished(a: *app.App, e: *const catalog.Entry) !void {
     var path_buf: [320]u8 = undefined;
     const path = try state.pathFor(&path_buf, a.state_dir, e.path);
     var saved = state.load(path);
@@ -86,7 +87,7 @@ pub fn forgetFinished(a: *app.App, e: *const library.Entry) !void {
 }
 
 /// Shows a book's actions. True means the library changed and should be reloaded.
-pub fn bookSheet(a: *app.App, e: *library.Entry, background: []const u8) !bool {
+pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !bool {
     std.debug.print("sheet: {s}\n", .{e.title});
     var confirming = false;
     var list_buf: [3]book_actions.Option = undefined;
@@ -155,8 +156,8 @@ pub fn logPage(lib: *const Library, index: usize, count: usize) void {
 pub fn runLibrary(a: *app.App) !void {
     var lib = try loadLibrary(a);
     defer lib.deinit();
-    var filter: library.Filter = .all;
-    var order: library.Order = .recent;
+    var filter: catalog.Filter = .all;
+    var order: catalog.Order = .recent;
     var message: []const u8 = "";
     var index: usize = 0;
     const buf = a.slots[0].buf;
@@ -168,9 +169,9 @@ pub fn runLibrary(a: *app.App) !void {
 
     while (true) {
         const alloc = lib.arena.allocator();
-        library.sort(lib.entries, order);
-        var hero = library.pickHero(lib.entries);
-        var count = library.select(lib.entries, filter, hero, lib.visible);
+        catalog.sort(lib.entries, order);
+        var hero = catalog.pickHero(lib.entries);
+        var count = catalog.select(lib.entries, filter, hero, lib.visible);
         index = @min(index, library.pageCount(count) - 1);
         a.quick = system.read();
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
@@ -182,8 +183,8 @@ pub fn runLibrary(a: *app.App) !void {
         message = "";
 
         browse: while (true) {
-            var opening: ?*library.Entry = null;
-            var acting: ?*library.Entry = null;
+            var opening: ?*catalog.Entry = null;
+            var acting: ?*catalog.Entry = null;
             var notice: []const u8 = "";
             switch (a.input.next()) {
                 .tap => |t| switch (loggedHit(t.x, t.y, index, count)) {
@@ -194,14 +195,14 @@ pub fn runLibrary(a: *app.App) !void {
                     },
                     .tab => |f| {
                         filter = f;
-                        count = library.select(lib.entries, filter, hero, lib.visible);
+                        count = catalog.select(lib.entries, filter, hero, lib.visible);
                         index = 0;
                     },
                     .sort => {
                         order = order.next();
-                        library.sort(lib.entries, order);
-                        hero = library.pickHero(lib.entries);
-                        count = library.select(lib.entries, filter, hero, lib.visible);
+                        catalog.sort(lib.entries, order);
+                        hero = catalog.pickHero(lib.entries);
+                        count = catalog.select(lib.entries, filter, hero, lib.visible);
                         index = 0;
                     },
                     .next => {

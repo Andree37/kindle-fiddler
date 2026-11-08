@@ -1,5 +1,6 @@
 //! Making, extending and deleting highlights on the page.
 const std = @import("std");
+const catalog = @import("../../book/catalog.zig");
 const os = @import("../../platform/os.zig");
 const annotations = @import("../../book/annotations.zig");
 const highlights = @import("../../book/highlights.zig");
@@ -20,7 +21,7 @@ pub fn pointFor(s: *sess.Session, para: u32, byte: u32) ?annotations.Point {
     return .{ .element = p.element, .offset = chars, .short = p.position + chars };
 }
 
-pub fn saveHighlight(s: *sess.Session, entry: *const library.Entry, id: []const u8, span: highlights.Span) bool {
+pub fn saveHighlight(s: *sess.Session, entry: *const catalog.Entry, id: []const u8, span: highlights.Span) bool {
     if (system.dryRun()) return true;
     if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id)) return false;
     const start = pointFor(s, span.first_para, span.first_byte) orelse return false;
@@ -143,7 +144,7 @@ fn paintSelection(a: *app.App, list: []const text.Word, first: usize, last: usiz
 }
 
 /// Press and hold: makes a new highlight from what the finger covers.
-pub fn newHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const library.Entry, hold_x: i32, hold_y: i32) !?[]const u8 {
+pub fn newHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, hold_x: i32, hold_y: i32) !?[]const u8 {
     const words = pageWords(a, s);
     const fixed = selection.wordAt(words, hold_x, hold_y) orelse return null;
     const head = try dragSelection(a, words, fixed, fixed);
@@ -167,7 +168,7 @@ pub fn newHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, ent
 }
 
 /// Drags one end of a highlight. The record keeps its ID, so it extends in place.
-pub fn extendHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const library.Entry, id: []const u8, grab_start: bool) !void {
+pub fn extendHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, id: []const u8, grab_start: bool) !void {
     const words = pageWords(a, s);
     const range = highlights.wordRange(words, s.highlights.items, id) orelse return;
     const whole = highlights.extent(s.highlights.items, id) orelse return;
@@ -188,7 +189,7 @@ pub fn extendHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, 
 }
 
 /// Deletes a highlight here and, through sync, everywhere.
-pub fn removeHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const library.Entry, id: []const u8) !void {
+pub fn removeHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, id: []const u8) !void {
     if (!system.dryRun()) {
         var buf: [900]u8 = undefined;
         const safe = system.safeId(id) and system.safeId(entry.key);

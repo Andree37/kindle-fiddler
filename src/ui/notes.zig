@@ -1,5 +1,6 @@
 //! Note popup, anchored to the bottom of the page.
 const std = @import("std");
+const Fonts = @import("fonts.zig").Fonts;
 const kfx = @import("../book/kfx.zig");
 const library = @import("library.zig");
 const text = @import("../book/text.zig");
@@ -36,7 +37,7 @@ pub fn fit(font: *text.Font, parts: []const kfx.Paragraph, start: text.Pos, widt
 }
 
 /// Draws into `panel`, whose buffer starts at the panel's top row.
-pub fn render(font: *text.Font, fonts: library.Fonts, panel: text.Page, parts: []const kfx.Paragraph, start: text.Pos, more: bool) !void {
+pub fn render(font: *text.Font, fonts: Fonts, panel: text.Page, parts: []const kfx.Paragraph, start: text.Pos, more: bool) !void {
     _ = try text.renderPage(font, panel, parts, start, layout(), null);
     panel.fillRect(0, 0, panel.width, 4, 0x00);
     try fonts.title.draw(panel, margin, 62, "Note");

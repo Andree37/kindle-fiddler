@@ -1,5 +1,6 @@
 //! Reading a book: page turns, and routing taps to the toolbar, panel, notes and highlights.
 const std = @import("std");
+const catalog = @import("../book/catalog.zig");
 const os = @import("../platform/os.zig");
 const file = @import("../platform/file.zig");
 const highlights = @import("../book/highlights.zig");
@@ -30,7 +31,7 @@ pub const Outcome = enum { library, quit };
 
 pub const View = enum { page, toolbar, sheet, panel, note, highlight };
 
-pub fn readBook(a: *app.App, entry: *library.Entry) !Outcome {
+pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
