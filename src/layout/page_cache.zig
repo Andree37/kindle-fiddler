@@ -1,9 +1,11 @@
 //! Which cached page to overwrite when rendering a new one.
 const std = @import("std");
+const check = @import("../base/check.zig");
 
 /// Picks a free slot, else one outside the window around `center`.
 /// Keeps the page on screen and both of its neighbours.
 pub fn victim(pages: [3]i64, center: i64) usize {
+    check.that(center >= 0, "the page being read has a number");
     for (pages, 0..) |p, i| {
         if (p < 0) return i;
     }

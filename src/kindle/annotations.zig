@@ -1,6 +1,8 @@
 //! Writes highlights and bookmarks into the Kindle's annotation outbox, in the exact
 //! format its own reader uses. Stock's sync service then sends them to Amazon.
 const std = @import("std");
+const check = @import("../base/check.zig");
+const safe = @import("safe.zig");
 
 /// Amazon's long position: a version byte, element ID and character offset, in base64.
 pub fn longPosition(buf: *[12]u8, element: u32, offset: u32) []const u8 {
@@ -62,6 +64,7 @@ pub const Record = struct {
 
 /// The statement that queues a record for sync.
 pub fn insertSql(buf: []u8, h: Record) ![]const u8 {
+    check.that(safe.safeId(h.id) and safe.safeId(h.key) and safe.safeId(h.content_type) and safe.safeGuid(h.guid), "record ids were checked before they reach SQL");
     var start_buf: [12]u8 = undefined;
     var end_buf: [12]u8 = undefined;
     const start = longPosition(&start_buf, h.start.element, h.start.offset);

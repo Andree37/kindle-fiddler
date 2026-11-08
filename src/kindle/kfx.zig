@@ -614,3 +614,31 @@ test "a book cut short is not complete" {
     std.mem.writeInt(u32, d[6..10], 40, .little); // Header longer than the file
     try std.testing.expect(!isComplete(&d));
 }
+
+test "random and broken books are refused, never crash" {
+    var prng = std.Random.DefaultPrng.init(0x6b6678);
+    const random = prng.random();
+    var buf: [2048]u8 = undefined;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for (0..5_000) |_| {
+        const len = random.uintLessThan(usize, buf.len);
+        random.bytes(buf[0..len]);
+        // Most rounds look like a container, with offsets that point somewhere inside it.
+        if (len >= 18 and random.boolean()) {
+            @memcpy(buf[0..4], "CONT");
+            std.mem.writeInt(u32, buf[6..10], random.uintLessThan(u32, @intCast(len + 8)), .little);
+            std.mem.writeInt(u32, buf[10..14], random.uintLessThan(u32, @intCast(len + 8)), .little);
+            std.mem.writeInt(u32, buf[14..18], random.uintLessThan(u32, @intCast(len + 8)), .little);
+        }
+        const data = buf[0..len];
+        _ = isComplete(data);
+        _ = coverImage(data);
+        if (entities(data)) |it| {
+            var all = it;
+            while (all.next()) |e| _ = entityValue(e.raw);
+        } else |_| {}
+        _ = parse(arena.allocator(), data) catch {};
+        _ = arena.reset(.retain_capacity);
+    }
+}

@@ -54,7 +54,9 @@ pub const Value = struct {
     }
 
     pub fn symbol(v: Value) ?u32 {
-        return if (v.kind == .symbol) @intCast(v.int) else null;
+        // A symbol number past 32 bits can only come from a broken file.
+        if (v.kind != .symbol or v.int > std.math.maxInt(u32)) return null;
+        return @intCast(v.int);
     }
 
     pub fn unsigned(v: Value) ?u64 {
@@ -191,4 +193,31 @@ test "padding in lists is skipped, even at the end" {
     var it = (try parse(&d)).items();
     try std.testing.expectEqual(@as(u64, 1), it.next().?.int);
     try std.testing.expect(it.next() == null);
+}
+
+/// Reads every value inside `v`, the way the KFX parser does, to reach all the code
+/// a hostile file could steer.
+fn walkAll(v: Value, depth: u32) void {
+    if (depth > 40) return;
+    _ = v.text();
+    _ = v.symbol();
+    _ = v.number();
+    var items = v.items();
+    while (items.next()) |item| walkAll(item, depth + 1);
+    var fields = v.fields();
+    while (fields.next()) |f| walkAll(f.value, depth + 1);
+}
+
+test "random and broken input never crashes the reader" {
+    var prng = std.Random.DefaultPrng.init(0x6e6f66616365);
+    const random = prng.random();
+    var buf: [512]u8 = undefined;
+    for (0..20_000) |round| {
+        const len = random.uintLessThan(usize, buf.len);
+        random.bytes(buf[0..len]);
+        // Half the rounds start like real Ion, so the parser gets past the first byte.
+        if (round % 2 == 0 and len >= 4) @memcpy(buf[0..4], &[_]u8{ 0xe0, 0x01, 0x00, 0xea });
+        const v = parse(buf[0..len]) catch continue;
+        walkAll(v, 0);
+    }
 }

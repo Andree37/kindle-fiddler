@@ -1,5 +1,6 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const check = @import("../../base/check.zig");
 const Page = @import("../../gfx/page.zig").Page;
 const book_model = @import("../../model/book.zig");
 const note_rules = @import("../../model/notes.zig");
@@ -59,6 +60,7 @@ pub const Session = struct {
 
     /// Bytes of text from the start of the book to a position.
     pub fn textAt(s: *const Session, p: book_model.Pos) u64 {
+        check.that(p.para < s.text_before.len, "position inside the book");
         return s.text_before[p.para] + p.byte;
     }
 
@@ -119,6 +121,7 @@ pub const Session = struct {
 
     /// Every move to another page comes through here, so reading time stays right.
     pub fn setPage(s: *Session, index: usize) void {
+        check.thatf(index < s.pages.len, "page {d} of {d}", .{ index, s.pages.len });
         s.leavePage(index);
         s.current = index;
         s.anchor = s.pages[index];
@@ -150,6 +153,7 @@ pub const Session = struct {
 
     /// Get a rendered page, reusing a cached one when possible.
     pub fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
+        check.thatf(index < s.pages.len and center < s.pages.len, "page {d} of {d}", .{ index, s.pages.len });
         const a = s.app;
         if (a.slotFor(index)) |slot| return slot.buf;
         var cached: [3]i64 = undefined;
@@ -223,7 +227,8 @@ pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const book_
     while (pos.para < paragraphs.len) {
         try pages.append(alloc, pos);
         const next = try text.layoutPage(a.body, null, geometry, paragraphs, pos, a.layout, null);
-        if (next.para == pos.para and next.byte == pos.byte) break;
+        // A page that fits nothing would repeat forever; layout always places something.
+        check.thatf(next.para > pos.para or (next.para == pos.para and next.byte > pos.byte), "page at {d}:{d} moves forward", .{ pos.para, pos.byte });
         pos = next;
     }
     return pages.items;

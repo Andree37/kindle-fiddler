@@ -1,6 +1,7 @@
 //! The reader's chosen settings: text size, spacing, margins, typeface and toggles,
 //! and how they're saved.
 const std = @import("std");
+const check = @import("../base/check.zig");
 
 /// The typefaces offered, by name. kindle/fonts.zig has their files, in the same order.
 pub const families = [_][]const u8{ "Ember", "Bookerly", "Baskerville", "Serif" };
@@ -23,11 +24,18 @@ pub const Settings = struct {
     time_left: bool = true,
 
     pub fn px(s: Settings) f32 {
+        s.checkSteps();
         return sizes[s.size];
     }
 
     pub fn lineHeight(s: Settings) i32 {
+        s.checkSteps();
         return @intFromFloat(sizes[s.size] * spacings[s.spacing]);
+    }
+
+    /// Parsing clamps every value, so an index out of range is a bug of ours.
+    fn checkSteps(s: Settings) void {
+        check.that(s.size < sizes.len and s.spacing < spacings.len and s.margin < margins.len and s.font < families.len, "settings are within their steps");
     }
 };
 

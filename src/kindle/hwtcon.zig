@@ -1,6 +1,7 @@
 //! Direct access to the Kindle Paperwhite 12th gen e-ink driver (MediaTek hwtcon_v2).
 //! Struct layout and ioctl numbers follow FBInk's eink/mtk-kindle.h.
 const std = @import("std");
+const check = @import("../base/check.zig");
 const linux = std.os.linux;
 
 pub const Waveform = enum(u32) {
@@ -102,6 +103,7 @@ pub const Screen = struct {
 
     /// Queue an update for part of the screen and return its marker.
     pub fn updateRegion(s: *Screen, left: u32, top: u32, width: u32, height: u32, waveform: Waveform, mode: UpdateMode) !u32 {
+        check.thatf(left + width <= s.width and top + height <= s.height and width > 0 and height > 0, "screen update {d},{d} {d}x{d} inside the screen", .{ left, top, width, height });
         const marker = s.next_marker;
         s.next_marker += 1;
         var data = UpdateData{

@@ -1,5 +1,6 @@
 //! Highlights in a book: where they sit in the text, and how they map to a page.
 const std = @import("std");
+const check = @import("../base/check.zig");
 const book_model = @import("book.zig");
 
 /// A highlight, plus the Amazon ID that keeps edits on the same record.
@@ -123,6 +124,8 @@ pub fn freeId(alloc: std.mem.Allocator, list: []const Highlight, short: u32) ![]
 
 /// Adds a highlight, one mark per paragraph it crosses.
 pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, id: []const u8, span: Span) !void {
+    check.thatf(span.first_para < span.last_para or (span.first_para == span.last_para and span.first_byte <= span.last_byte), "highlight {s} starts before it ends", .{id});
+    check.that(span.last_para < paragraphs.len, "highlight ends inside the book");
     var index = span.first_para;
     while (index <= span.last_para) : (index += 1) {
         const first = if (index == span.first_para) span.first_byte else 0;

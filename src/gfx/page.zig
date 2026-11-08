@@ -1,5 +1,6 @@
 //! A grayscale pixel buffer and the shapes drawn onto it.
 const std = @import("std");
+const check = @import("../base/check.zig");
 
 pub const Page = struct {
     buf: []u8,
@@ -31,11 +32,15 @@ pub const Page = struct {
         }
     }
 
+    /// Fills a rectangle, clipped to the page.
     pub fn fillRect(p: Page, x: u32, y: u32, w: u32, h: u32, value: u8) void {
+        if (x >= p.width or y >= p.height) return;
+        const width = @min(w, p.width - x);
         var row = y;
-        while (row < @min(y + h, p.height)) : (row += 1) {
+        while (row < @min(y +| h, p.height)) : (row += 1) {
             const start = row * p.stride + x;
-            @memset(p.buf[start .. start + @min(w, p.width - x)], value);
+            check.that(start + width <= p.buf.len, "fill stays inside the page buffer");
+            @memset(p.buf[start .. start + width], value);
         }
     }
 
@@ -177,3 +182,14 @@ pub const Page = struct {
         }
     }
 };
+
+test "fills clip to the page, even when they start off it" {
+    var buf: [16]u8 = @splat(0xff);
+    const p = Page{ .buf = &buf, .width = 4, .height = 4, .stride = 4 };
+    p.fillRect(3, 3, 10, 10, 0);
+    try std.testing.expectEqual(@as(u8, 0), buf[15]);
+    try std.testing.expectEqual(@as(u8, 0xff), buf[14]);
+    p.fillRect(9, 0, 2, 2, 0); // Starts past the right edge: draws nothing
+    p.fillRect(0, 9, 2, 2, 0);
+    try std.testing.expectEqual(@as(u8, 0xff), buf[0]);
+}
