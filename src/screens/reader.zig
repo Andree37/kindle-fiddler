@@ -1,5 +1,6 @@
 //! Reading a book: page turns, and routing taps to the toolbar, panel, notes and highlights.
 const std = @import("std");
+const stats = @import("../model/stats.zig");
 const epub = @import("../epub/epub.zig");
 const memory = @import("../base/memory.zig");
 const book_model = @import("../model/book.zig");
@@ -88,10 +89,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};
     var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start], .chapters = book.chapters, .seconds_read = saved.seconds, .pages_path = pages_path, .book_bytes = data.len };
-    const text_before = try alloc.alloc(u64, book.paragraphs.len + 1);
-    text_before[0] = 0;
-    for (book.paragraphs, 0..) |p, i| text_before[i + 1] = text_before[i] + (if (p.note) 0 else p.text.len);
-    session.text_before = text_before;
+    const words_before = try alloc.alloc(u64, book.paragraphs.len + 1);
+    words_before[0] = 0;
+    for (book.paragraphs, 0..) |p, i| words_before[i + 1] = words_before[i] + (if (p.note) 0 else stats.countWords(p.text));
+    session.words_before = words_before;
     if (entry.isEpub()) {
         var notes_buf: [320]u8 = undefined;
         session.notes_path = try alloc.dupeSentinel(u8, try state.sibling(&notes_buf, state_path, "notes"), 0);

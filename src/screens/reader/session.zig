@@ -58,28 +58,30 @@ pub const Session = struct {
     book_bytes: usize = 0, // The book file's size, part of the saved breaks' key
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const book_model.Chapter = &.{},
-    text_before: []const u64 = &.{}, // Bytes of text before each paragraph, for time left
+    words_before: []const u64 = &.{}, // Words before each paragraph, for time left
     shown_us: u64 = 0, // When the reader started on this page; 0 while not reading
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
 
-    /// Bytes of text from the start of the book to a position.
-    pub fn textAt(s: *const Session, p: book_model.Pos) u64 {
-        check.that(p.para < s.text_before.len, "position inside the book");
-        return s.text_before[p.para] + p.byte;
+    /// Words from the start of the book to a position.
+    pub fn wordsAt(s: *const Session, p: book_model.Pos) u64 {
+        check.that(p.para < s.paragraphs.len and p.para + 1 < s.words_before.len, "position inside the book");
+        const para = s.paragraphs[p.para];
+        if (para.note) return s.words_before[p.para];
+        return s.words_before[p.para] + stats.countWords(para.text[0..@min(p.byte, para.text.len)]);
     }
 
-    fn textOnPage(s: *const Session, index: usize) u64 {
-        const end = if (s.pageEnd(index)) |e| s.textAt(e) else s.text_before[s.text_before.len - 1];
-        return end -| s.textAt(s.pages[index]);
+    fn wordsOnPage(s: *const Session, index: usize) u64 {
+        const end = if (s.pageEnd(index)) |e| s.wordsAt(e) else s.words_before[s.words_before.len - 1];
+        return end -| s.wordsAt(s.pages[index]);
     }
 
     /// Minutes left in the chapter and in the book from a page, once speed is known.
-    pub fn timeLeft(s: *const Session, index: usize) struct { chapter: ?u64, book: u64 } {
-        const here = s.textAt(s.pages[index]);
-        const total = s.text_before[s.text_before.len - 1];
+    pub fn timeLeft(s: *const Session, index: usize) struct { chapter: ?u64, book: ?u64 } {
+        const here = s.wordsAt(s.pages[index]);
+        const total = s.words_before[s.words_before.len - 1];
         var chapter_end: ?u64 = null;
         for (s.chapters) |c| {
-            const at = s.text_before[c.para];
+            const at = s.words_before[c.para];
             if (at > here and (chapter_end == null or at < chapter_end.?)) chapter_end = at;
         }
         const speed = s.app.speed;
@@ -93,12 +95,12 @@ pub const Session = struct {
     /// the reading speed.
     fn leavePage(s: *Session, to: usize) void {
         if (s.shown_us == 0) return;
-        const seconds = (nowUs() -| s.shown_us) / 1_000_000;
-        s.seconds_read += stats.countedSeconds(seconds);
+        const us = nowUs() -| s.shown_us;
+        s.seconds_read += stats.countedSeconds(us / 1_000_000);
         if (to != s.current + 1) return;
         const speed = &s.app.speed;
         const was_known = speed.known();
-        speed.record(s.textOnPage(s.current), seconds);
+        speed.record(s.wordsOnPage(s.current), us);
         // Pages already drawn have no time left on them yet.
         if (!was_known and speed.known()) s.app.forgetPages();
     }
@@ -149,7 +151,8 @@ pub const Session = struct {
             const t = std.fmt.bufPrint(&line, "{s} left in chapter", .{stats.formatMinutes(&buf, m)}) catch "";
             try a.footer.draw(page, margin, y, t);
         }
-        const t = std.fmt.bufPrint(&line, "{s} left in book", .{stats.formatMinutes(&buf, left.book)}) catch "";
+        // Like the Kindle, say so while the speed is still being learned rather than guess.
+        const t = if (left.book) |m| std.fmt.bufPrint(&line, "{s} left in book", .{stats.formatMinutes(&buf, m)}) catch "" else "Learning reading speed";
         try a.footer.draw(page, @as(f32, @floatFromInt(a.screen.width)) - margin - try a.footer.measure(t), y, t);
     }
 
