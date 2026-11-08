@@ -251,7 +251,16 @@ pub fn readHighlights(key: []const u8, out: []u8) []const u8 {
     , .{ fields, book, book, fields, book }, 0) catch return "";
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
     const n = run(&argv, out) orelse return "";
-    return out[0..n];
+    return completeLines(out[0..n], n == out.len);
+}
+
+/// Output that filled its buffer may end mid-line; that last line is dropped
+/// rather than read as a highlight with a wrong end.
+pub fn completeLines(output: []const u8, filled: bool) []const u8 {
+    if (!filled) return output;
+    std.debug.print("highlight list cut off at {d} bytes\n", .{output.len});
+    const end = std.mem.lastIndexOfScalar(u8, output, '\n') orelse return "";
+    return output[0 .. end + 1];
 }
 
 /// Runs a SQL statement against the annotation database.
@@ -390,4 +399,10 @@ test "guids are checked before they reach SQL" {
     try std.testing.expect(safeGuid(""));
     try std.testing.expect(!safeGuid("CR!1' or 1=1 --"));
     try std.testing.expect(!safeGuid("a\"b"));
+}
+
+test "a cut-off highlight list loses only its partial line" {
+    try std.testing.expectEqualStrings("a|1|2\nb|3|4\n", completeLines("a|1|2\nb|3|4\nc|5|", true));
+    try std.testing.expectEqualStrings("a|1|2\nc|5|6", completeLines("a|1|2\nc|5|6", false));
+    try std.testing.expectEqualStrings("", completeLines("c|5|", true));
 }

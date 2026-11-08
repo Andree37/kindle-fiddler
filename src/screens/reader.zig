@@ -53,7 +53,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     else
         sess.pageContaining(pages, saved.para, saved.byte);
 
-    const stored = try alloc.alloc(u8, 256 * 1024);
+    const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};
     var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start] };
     try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, system.readHighlights(entry.key, stored)));
