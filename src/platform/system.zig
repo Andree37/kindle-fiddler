@@ -108,10 +108,17 @@ pub fn parseInt(output: []const u8) ?u32 {
     return std.fmt.parseInt(u32, std.mem.trim(u8, output, " \n"), 10) catch null;
 }
 
-fn get(service: [*:0]const u8, prop: [*:0]const u8) ?u32 {
+/// Settings calls answer at once when lipc is healthy; when it isn't, give up fast.
+const lipc_timeout_ms = 3000;
+
+fn lipcDeadline() u64 {
+    return os.nowUs() + lipc_timeout_ms * 1000;
+}
+
+fn get(service: [*:0]const u8, prop: [*:0]const u8, deadline: u64) ?u32 {
     const argv = [_:null]?[*:0]const u8{ lipc_get, service, prop };
     var buf: [32]u8 = undefined;
-    const n = run(&argv, &buf) orelse return null;
+    const n = runUntil(&argv, &buf, deadline) orelse return null;
     return parseInt(buf[0..n]);
 }
 
@@ -120,12 +127,12 @@ fn set(service: [*:0]const u8, prop: [*:0]const u8, value: u32) void {
     const arg = std.fmt.bufPrintSentinel(&text, "{d}", .{value}, 0) catch return;
     const argv = [_:null]?[*:0]const u8{ lipc_set, service, prop, arg };
     var buf: [32]u8 = undefined;
-    _ = run(&argv, &buf);
+    _ = runUntil(&argv, &buf, lipcDeadline());
 }
 
-fn getText(service: [*:0]const u8, prop: [*:0]const u8, buf: []u8) []const u8 {
+fn getText(service: [*:0]const u8, prop: [*:0]const u8, buf: []u8, deadline: u64) []const u8 {
     const argv = [_:null]?[*:0]const u8{ lipc_get, "-s", service, prop };
-    const n = run(&argv, buf) orelse return "";
+    const n = runUntil(&argv, buf, deadline) orelse return "";
     return std.mem.trim(u8, buf[0..n], " \n");
 }
 
@@ -135,21 +142,24 @@ pub fn signalBars(signal: []const u8) u32 {
     return @min((value + 1) / 2, 3);
 }
 
+/// Everything the panel and status bar show. All reads share one short deadline,
+/// so a hung lipc costs one wait, not one per value.
 pub fn read() Quick {
+    const deadline = lipcDeadline();
     var state_buf: [32]u8 = undefined;
     var signal_buf: [16]u8 = undefined;
-    const connected = std.mem.eql(u8, getText("com.lab126.wifid", "cmState", &state_buf), "CONNECTED");
+    const connected = std.mem.eql(u8, getText("com.lab126.wifid", "cmState", &state_buf, deadline), "CONNECTED");
     var q = Quick{
         .wifi_on = connected,
-        .wifi_bars = if (connected) signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf)) else 0,
-        .brightness = get("com.lab126.powerd", "flIntensity") orelse 0,
-        .warmth = get("com.lab126.powerd", "currentAmberLevel") orelse 0,
-        .schedule = (get("com.lab126.powerd", "amberSchedEnable") orelse 0) == 1,
-        .airplane = (get("com.lab126.cmd", "wirelessEnable") orelse 1) == 0,
-        .battery = get("com.lab126.powerd", "battLevel") orelse 0,
+        .wifi_bars = if (connected) signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf, deadline)) else 0,
+        .brightness = get("com.lab126.powerd", "flIntensity", deadline) orelse 0,
+        .warmth = get("com.lab126.powerd", "currentAmberLevel", deadline) orelse 0,
+        .schedule = (get("com.lab126.powerd", "amberSchedEnable", deadline) orelse 0) == 1,
+        .airplane = (get("com.lab126.cmd", "wirelessEnable", deadline) orelse 1) == 0,
+        .battery = get("com.lab126.powerd", "battLevel", deadline) orelse 0,
     };
     const argv = [_:null]?[*:0]const u8{ "/bin/date", "+%H:%M - %d %b %Y" };
-    if (run(&argv, &q.clock)) |n| q.clock_len = std.mem.trimEnd(u8, q.clock[0..n], "\n").len;
+    if (runUntil(&argv, &q.clock, deadline)) |n| q.clock_len = std.mem.trimEnd(u8, q.clock[0..n], "\n").len;
     return q;
 }
 
