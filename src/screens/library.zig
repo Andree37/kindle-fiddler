@@ -64,6 +64,7 @@ pub fn loadLibrary(a: *app.App) !Library {
         if (e.availability == .downloading and isCompleteBook(e.path)) e.availability = .local;
         if (!e.isLocal()) continue;
         const saved = state.load(try a.statePath(&path_buf, e.path));
+        e.seconds_read = saved.seconds;
         if (state.preferKindle(saved, e.kindle_last)) continue;
         if (saved.percent) |p| e.percent = @min(p, 100);
         e.last = @max(e.last, saved.opened);

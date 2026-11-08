@@ -1,5 +1,6 @@
 //! Actions for one book, opened from the three dots beside its cover.
 const std = @import("std");
+const stats = @import("../book/stats.zig");
 const draw = @import("draw.zig");
 const style = @import("style.zig");
 const catalog = @import("../book/catalog.zig");
@@ -85,7 +86,14 @@ pub fn render(fonts: Fonts, page: text.Page, e: *const catalog.Entry, list: []co
     const x: f32 = left + 48;
     const avail: f32 = width - 96;
     try library.drawClipped(fonts.title, page, x, @intCast(card_top + 76), e.title, avail);
-    const line = if (confirming) "It stays in your Amazon library." else e.author;
+    var read_buf: [96]u8 = undefined;
+    var time_buf: [32]u8 = undefined;
+    const line = if (confirming)
+        "It stays in your Amazon library."
+    else if (e.seconds_read >= 60)
+        std.fmt.bufPrint(&read_buf, "{s}  \u{b7}  read for {s}", .{ e.author, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch e.author
+    else
+        e.author;
     try library.drawClipped(fonts.caption, page, x, @intCast(card_top + 128), line, avail);
     page.tint(left + 48, card_top + 100, width - 96, 44, 0x50);
 

@@ -50,6 +50,7 @@ pub const Settings = struct {
     left_align: bool = false,
     clock: bool = true,
     refresh: bool = false,
+    time_left: bool = true,
 
     pub fn px(s: Settings) f32 {
         return sizes[s.size];
@@ -211,12 +212,14 @@ pub fn decode(saved: state.State) Settings {
         .left_align = flags & 2 != 0,
         .clock = flags & 4 == 0,
         .refresh = flags & 8 != 0,
+        .time_left = flags & 16 == 0,
     };
 }
 
 pub fn encode(s: Settings) state.State {
     const flags = @as(usize, @intFromBool(s.bold)) | @as(usize, @intFromBool(s.left_align)) << 1 |
-        @as(usize, @intFromBool(!s.clock)) << 2 | @as(usize, @intFromBool(s.refresh)) << 3;
+        @as(usize, @intFromBool(!s.clock)) << 2 | @as(usize, @intFromBool(s.refresh)) << 3 |
+        @as(usize, @intFromBool(!s.time_left)) << 4;
     return .{ .para = s.size | s.spacing << 4 | s.font << 8 | s.margin << 12, .byte = flags, .opened = format_packed };
 }
 

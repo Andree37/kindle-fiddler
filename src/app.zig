@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const stats = @import("book/stats.zig");
 const cover = @import("ui/cover.zig");
 const kfx = @import("book/kfx.zig");
 const draw = @import("ui/draw.zig");
@@ -48,6 +49,8 @@ pub const App = struct {
     state_dir: []const u8,
     library_path: [*:0]const u8,
     settings_path: [*:0]const u8,
+    speed_path: [*:0]const u8,
+    speed: stats.Speed = .{}, // How fast this reader reads, across every book
     settings: menu.Settings,
     quick: system.Quick = .{},
     utc_offset: i64,
@@ -211,6 +214,16 @@ pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
+}
+
+pub fn loadSpeed(path: [*:0]const u8) stats.Speed {
+    var buf: [64]u8 = undefined;
+    return stats.parse(state.readSmall(path, &buf));
+}
+
+pub fn saveSpeed(a: *const App) void {
+    var buf: [64]u8 = undefined;
+    state.writeSmall(a.speed_path, stats.format(&buf, a.speed));
 }
 
 pub fn loadSettings(path: [*:0]const u8) menu.Settings {

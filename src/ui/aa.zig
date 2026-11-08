@@ -30,6 +30,7 @@ pub const Hit = union(enum) {
     alignment,
     clock,
     refresh,
+    time_left,
 };
 
 pub const Row = struct { hit: Hit, label: []const u8, top: u32, steps: usize };
@@ -46,6 +47,7 @@ const toggle_height = 76;
 const align_top = content_top + 292;
 const clock_top = content_top + 8;
 const refresh_top = content_top + 108;
+const time_left_top = content_top + 208;
 
 const theme_width = 340;
 const theme_gap = 34;
@@ -103,6 +105,7 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
         .more => {
             if (within(y, clock_top, toggle_height)) return .clock;
             if (within(y, refresh_top, toggle_height)) return .refresh;
+            if (within(y, time_left_top, toggle_height)) return .time_left;
         },
     }
     return .none;
@@ -188,6 +191,7 @@ pub fn render(fonts: Fonts, page: text.Page, tab: Tab, chosen: menu.Settings) !v
         .more => {
             try drawToggle(fonts, page, clock_top, "Show clock while reading", chosen.clock);
             try drawToggle(fonts, page, refresh_top, "Page refresh every 20 pages", chosen.refresh);
+            try drawToggle(fonts, page, time_left_top, "Show time left", chosen.time_left);
         },
     }
 }
@@ -208,6 +212,7 @@ test "each tab maps its own controls" {
     try std.testing.expectEqual(Hit.alignment, hit(.layout, 600, align_top + 20));
     try std.testing.expectEqual(Hit.clock, hit(.more, 600, clock_top + 20));
     try std.testing.expectEqual(Hit.refresh, hit(.more, 600, refresh_top + 20));
+    try std.testing.expectEqual(Hit.time_left, hit(.more, 600, time_left_top + 20));
 }
 
 test "the sheet stays inside itself" {
@@ -217,5 +222,5 @@ test "the sheet stays inside itself" {
 }
 
 test "controls of other tabs don't answer" {
-    try std.testing.expectEqual(Hit.none, hit(.more, 600, 600));
+    try std.testing.expectEqual(Hit.none, hit(.more, 600, 700));
 }

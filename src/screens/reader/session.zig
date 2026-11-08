@@ -1,5 +1,6 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const stats = @import("../../book/stats.zig");
 const bookmarks = @import("../../book/bookmarks.zig");
 const icons = @import("../../ui/icons.zig");
 const catalog = @import("../../book/catalog.zig");
@@ -50,6 +51,45 @@ pub const Session = struct {
     highlights: std.ArrayList(highlights.Highlight) = .empty,
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
     query: Query = .{}, // The last search, kept while the book is open
+    chapters: []const kfx.Chapter = &.{},
+    text_before: []const u64 = &.{}, // Bytes of text before each paragraph, for time left
+    shown_us: u64 = 0, // When the current page went up
+    seconds_read: u64 = 0, // Time spent in this book, saved with the position
+
+    /// Bytes of text from the start of the book to a position.
+    pub fn textAt(s: *const Session, p: text.Pos) u64 {
+        return s.text_before[p.para] + p.byte;
+    }
+
+    fn textOnPage(s: *const Session, index: usize) u64 {
+        const end = if (s.pageEnd(index)) |e| s.textAt(e) else s.text_before[s.text_before.len - 1];
+        return end -| s.textAt(s.pages[index]);
+    }
+
+    /// Minutes left in the chapter and in the book from a page, once speed is known.
+    pub fn timeLeft(s: *const Session, index: usize) struct { chapter: ?u64, book: ?u64 } {
+        const here = s.textAt(s.pages[index]);
+        const total = s.text_before[s.text_before.len - 1];
+        var chapter_end: ?u64 = null;
+        for (s.chapters) |c| {
+            const at = s.text_before[c.para];
+            if (at > here and (chapter_end == null or at < chapter_end.?)) chapter_end = at;
+        }
+        const speed = s.app.speed;
+        return .{
+            .chapter = if (chapter_end) |end| speed.minutesFor(end - here) else if (s.chapters.len > 0) speed.minutesFor(total -| here) else null,
+            .book = speed.minutesFor(total -| here),
+        };
+    }
+
+    /// Counts the time on the page being left. Reading one page forward also teaches
+    /// the reading speed.
+    fn leavePage(s: *Session, to: usize) void {
+        if (s.shown_us == 0) return;
+        const seconds = (nowUs() -| s.shown_us) / 1_000_000;
+        s.seconds_read += stats.countedSeconds(seconds);
+        if (to == s.current + 1) s.app.speed.record(s.textOnPage(s.current), seconds);
+    }
 
     /// Where a page ends: the next page's start, or null on the last page.
     pub fn pageEnd(s: *const Session, index: usize) ?text.Pos {
@@ -70,6 +110,24 @@ pub const Session = struct {
         return slot.hits.find(x, y);
     }
 
+    /// "12 min left in chapter" on the left of the footer, the book's on the right.
+    fn drawTimeLeft(s: *const Session, page: text.Page, index: usize) !void {
+        const a = s.app;
+        const left = s.timeLeft(index);
+        const y: i32 = @intCast(a.screen.height - 60);
+        const margin: f32 = @floatFromInt(a.layout.margin_x);
+        var buf: [48]u8 = undefined;
+        var line: [64]u8 = undefined;
+        if (left.chapter) |m| {
+            const t = std.fmt.bufPrint(&line, "{s} left in chapter", .{stats.formatMinutes(&buf, m)}) catch "";
+            try a.footer.draw(page, margin, y, t);
+        }
+        if (left.book) |m| {
+            const t = std.fmt.bufPrint(&line, "{s} left in book", .{stats.formatMinutes(&buf, m)}) catch "";
+            try a.footer.draw(page, @as(f32, @floatFromInt(a.screen.width)) - margin - try a.footer.measure(t), y, t);
+        }
+    }
+
     /// Get a rendered page, reusing a cached one when possible.
     pub fn ensure(s: *Session, index: usize, center: usize) ![]const u8 {
         const a = s.app;
@@ -87,6 +145,7 @@ pub const Session = struct {
         const x = @as(f32, @floatFromInt(a.screen.width)) / 2 - 50;
         try a.footer.draw(page, x, @intCast(a.screen.height - 60), counter);
         if (s.isBookmarked(index)) icons.ribbon(page, a.screen.width);
+        if (a.settings.time_left) try s.drawTimeLeft(page, index);
 
         a.slots[victim].page = @intCast(index);
         return buf;
@@ -94,6 +153,8 @@ pub const Session = struct {
 
     pub fn show(s: *Session, index: usize, touched_us: ?u64, force_clean: bool) !void {
         const a = s.app;
+        s.leavePage(index);
+        defer s.shown_us = nowUs();
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);
         a.stampClock();
@@ -128,7 +189,8 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *const Sessio
     const pos = s.pages[s.current];
     const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();
-    state.save(path, .{ .para = kfx.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now });
+    state.save(path, .{ .para = kfx.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = s.seconds_read });
+    app.saveSpeed(s.app);
     entry.percent = percent;
     entry.last = now;
 }

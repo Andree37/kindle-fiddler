@@ -7,6 +7,7 @@ pub const State = struct {
     byte: usize = 0,
     percent: ?u32 = null,
     opened: u64 = 0,
+    seconds: u64 = 0, // Time spent reading this book
 };
 
 const failed = @import("os.zig").failed;
@@ -39,35 +40,43 @@ pub fn parse(content: []const u8) State {
     s.byte = std.fmt.parseInt(usize, it.next() orelse return .{}, 10) catch return .{};
     s.percent = if (it.next()) |p| std.fmt.parseInt(u32, p, 10) catch null else null;
     s.opened = if (it.next()) |o| std.fmt.parseInt(u64, o, 10) catch 0 else 0;
+    s.seconds = if (it.next()) |o| std.fmt.parseInt(u64, o, 10) catch 0 else 0;
     return s;
 }
 
 pub fn load(path: [*:0]const u8) State {
-    const rc = linux.open(path, .{ .ACCMODE = .RDONLY }, 0);
-    if (failed(rc)) return .{};
-    const fd: i32 = @intCast(rc);
-    defer _ = linux.close(fd);
-    var buf: [96]u8 = undefined;
-    const n = linux.read(fd, &buf, buf.len);
-    if (failed(n)) return .{};
-    return parse(buf[0..n]);
+    var buf: [128]u8 = undefined;
+    return parse(readSmall(path, &buf));
 }
 
-/// Writes beside the real file and renames, so a crash can't lose the old position.
-pub fn save(path: [*:0]const u8, s: State) void {
+/// A small file's contents, or nothing if it can't be read.
+pub fn readSmall(path: [*:0]const u8, buf: []u8) []const u8 {
+    const rc = linux.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (failed(rc)) return "";
+    const fd: i32 = @intCast(rc);
+    defer _ = linux.close(fd);
+    const n = linux.read(fd, buf.ptr, buf.len);
+    return if (failed(n)) "" else buf[0..n];
+}
+
+/// Writes beside the real file and renames, so a crash can't lose the old contents.
+pub fn writeSmall(path: [*:0]const u8, data: []const u8) void {
     var tmp: [320]u8 = undefined;
     const name = std.mem.sliceTo(path, 0);
     const tmp_path = std.fmt.bufPrintSentinel(&tmp, "{s}.tmp", .{name}, 0) catch return;
-
-    const rc = linux.open(tmp_path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644);
+    const rc = linux.open(tmp_path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
     if (failed(rc)) return;
     const fd: i32 = @intCast(rc);
-    var buf: [96]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, "{d} {d} {d} {d}\n", .{ s.para, s.byte, s.percent orelse 0, s.opened }) catch "";
-    const written = linux.write(fd, line.ptr, line.len);
+    const written = linux.write(fd, data.ptr, data.len);
     _ = linux.close(fd);
-    if (failed(written) or written != line.len or line.len == 0) return;
+    if (failed(written) or written != data.len or data.len == 0) return;
     _ = linux.rename(tmp_path, path);
+}
+
+pub fn save(path: [*:0]const u8, s: State) void {
+    var buf: [128]u8 = undefined;
+    const line = std.fmt.bufPrint(&buf, "{d} {d} {d} {d} {d}\n", .{ s.para, s.byte, s.percent orelse 0, s.opened, s.seconds }) catch return;
+    writeSmall(path, line);
 }
 
 test "state file name matches basename piped to md5sum" {
@@ -95,4 +104,9 @@ test "kindle position wins until we have our own" {
     try std.testing.expect(preferKindle(.{ .para = 5, .opened = 100 }, 200));
     try std.testing.expect(!preferKindle(.{ .para = 5, .opened = 300 }, 200));
     try std.testing.expect(!preferKindle(.{ .para = 5 }, 200));
+}
+
+test "reading time is kept, and older files read as none" {
+    try std.testing.expectEqual(@as(u64, 4200), parse("1 2 37 1793990000 4200\n").seconds);
+    try std.testing.expectEqual(@as(u64, 0), parse("1 2 37 1793990000\n").seconds);
 }

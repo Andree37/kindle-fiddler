@@ -59,7 +59,11 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
 
     const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};
-    var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start] };
+    var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start], .chapters = book.chapters, .seconds_read = saved.seconds };
+    const text_before = try alloc.alloc(u64, book.paragraphs.len + 1);
+    text_before[0] = 0;
+    for (book.paragraphs, 0..) |p, i| text_before[i + 1] = text_before[i] + (if (p.note) 0 else p.text.len);
+    session.text_before = text_before;
     try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, system.readAnnotations(entry.key, .highlight, stored)));
     try session.bookmarks.appendSlice(alloc, try bookmarks.parse(alloc, book.paragraphs, system.readAnnotations(entry.key, .bookmark, stored)));
     std.debug.print("{d} bookmarks loaded\n", .{session.bookmarks.items.len});

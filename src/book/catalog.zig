@@ -11,6 +11,7 @@ pub const Entry = struct {
     percent: u32,
     last: u64,
     finished: bool = false,
+    seconds_read: u64 = 0, // Time spent reading it in noface
     kindle_percent: u32 = 0,
     kindle_last: u64 = 0,
     thumbnail: [:0]const u8 = "",
