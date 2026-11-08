@@ -75,7 +75,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .library_path = argv[1],
         .settings_path = settings_path,
         .utc_offset = system.utcOffset(),
-        .settings = menu.load(settings_path),
+        .settings = app.loadSettings(settings_path),
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };
     shared.applySettings() catch {

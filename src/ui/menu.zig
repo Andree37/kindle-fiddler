@@ -216,14 +216,6 @@ pub fn encode(s: Settings) state.State {
     return .{ .para = s.size | s.spacing << 4 | s.font << 8 | s.margin << 12, .byte = flags, .opened = format_packed };
 }
 
-pub fn load(path: [*:0]const u8) Settings {
-    return decode(state.load(path));
-}
-
-pub fn save(path: [*:0]const u8, s: Settings) void {
-    state.save(path, encode(s));
-}
-
 test "settings survive being saved" {
     const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true };
     try std.testing.expectEqual(s, decode(encode(s)));

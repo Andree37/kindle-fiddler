@@ -113,12 +113,12 @@ pub fn tapSheet(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, title: 
         .alignment => a.settings.left_align = !a.settings.left_align,
         .clock => {
             a.settings.clock = !a.settings.clock;
-            menu.save(a.settings_path, a.settings);
+            app.saveSettings(a.settings_path, a.settings);
             return drawToolbar(a, s, title, true, false);
         },
         .refresh => {
             a.settings.refresh = !a.settings.refresh;
-            menu.save(a.settings_path, a.settings);
+            app.saveSettings(a.settings_path, a.settings);
             return drawToolbar(a, s, title, true, false);
         },
     }

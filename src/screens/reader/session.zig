@@ -128,10 +128,10 @@ pub fn pageContaining(pages: []const text.Pos, para: usize, byte: usize) usize {
 pub fn relayout(a: *app.App, alloc: std.mem.Allocator, s: *Session) !void {
     a.applySettings() catch |err| {
         std.debug.print("settings failed: {s}\n", .{@errorName(err)});
-        a.settings = menu.load(a.settings_path);
+        a.settings = app.loadSettings(a.settings_path);
         return a.applySettings();
     };
-    menu.save(a.settings_path, a.settings);
+    app.saveSettings(a.settings_path, a.settings);
     for (&a.slots) |*slot| slot.page = -1;
     s.pages = try paginate(a, alloc, s.paragraphs);
     s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);

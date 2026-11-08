@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const state = @import("platform/state.zig");
 const Fonts = @import("ui/fonts.zig").Fonts;
 const input_mod = @import("platform/input.zig");
 const aa = @import("ui/aa.zig");
@@ -154,4 +155,12 @@ pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
+}
+
+pub fn loadSettings(path: [*:0]const u8) menu.Settings {
+    return menu.decode(state.load(path));
+}
+
+pub fn saveSettings(path: [*:0]const u8, s: menu.Settings) void {
+    state.save(path, menu.encode(s));
 }
