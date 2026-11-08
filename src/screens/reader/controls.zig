@@ -120,6 +120,11 @@ pub fn tapSheet(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, title: 
             app.saveSettings(a.settings_path, a.settings);
             return drawToolbar(a, s, title, true, false);
         },
+        .autostart => {
+            a.settings.autostart = !a.settings.autostart;
+            app.saveSettings(a.settings_path, a.settings);
+            return drawToolbar(a, s, title, true, false);
+        },
         .time_left => {
             a.settings.time_left = !a.settings.time_left;
             app.saveSettings(a.settings_path, a.settings);

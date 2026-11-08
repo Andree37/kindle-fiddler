@@ -297,7 +297,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 a.quick = lipc.read(a.quick);
                 try panel.drawMenu(a, try session.ensure(session.current, session.current));
             },
-            .power, .idle, .stop => return .quit,
+            .power, .computer, .stop => return .quit,
         }
     }
 }

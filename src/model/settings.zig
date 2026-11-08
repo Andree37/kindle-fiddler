@@ -22,6 +22,7 @@ pub const Settings = struct {
     clock: bool = true,
     refresh: bool = false,
     time_left: bool = true,
+    autostart: bool = false, // Open noface when the Kindle starts: device/autostart.sh reads it
 
     pub fn px(s: Settings) f32 {
         s.checkSteps();
@@ -58,6 +59,7 @@ pub fn parse(content: []const u8) Settings {
         if (std.mem.eql(u8, name, "clock")) s.clock = isOn(value, s.clock);
         if (std.mem.eql(u8, name, "refresh")) s.refresh = isOn(value, s.refresh);
         if (std.mem.eql(u8, name, "time-left")) s.time_left = isOn(value, s.time_left);
+        if (std.mem.eql(u8, name, "autostart")) s.autostart = isOn(value, s.autostart);
     }
     return s;
 }
@@ -73,8 +75,9 @@ pub fn format(buf: []u8, s: Settings) []const u8 {
         \\clock {s}
         \\refresh {s}
         \\time-left {s}
+        \\autostart {s}
         \\
-    , .{ s.size, s.spacing, s.margin, families[s.font], onOff(s.bold), onOff(!s.left_align), onOff(s.clock), onOff(s.refresh), onOff(s.time_left) }) catch "";
+    , .{ s.size, s.spacing, s.margin, families[s.font], onOff(s.bold), onOff(!s.left_align), onOff(s.clock), onOff(s.refresh), onOff(s.time_left), onOff(s.autostart) }) catch "";
 }
 
 fn step(value: []const u8, count: usize, fallback: usize) usize {
@@ -134,7 +137,7 @@ fn fromOldFile(content: []const u8) Settings {
 
 test "settings survive being saved" {
     var buf: [256]u8 = undefined;
-    const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true, .time_left = false };
+    const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true, .time_left = false, .autostart = true };
     try std.testing.expectEqual(s, parse(format(&buf, s)));
     try std.testing.expectEqual(Settings{}, parse(format(&buf, .{})));
     try std.testing.expect(std.mem.indexOf(u8, format(&buf, s), "font Baskerville\n") != null);

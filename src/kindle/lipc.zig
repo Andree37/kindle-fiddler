@@ -92,13 +92,29 @@ pub fn inScreenSaver() ?bool {
     return std.mem.eql(u8, state, "screenSaver");
 }
 
-/// Starts a child that prints power events. Its `out` pipe is non-blocking.
-pub fn watchPowerEvents() ?process.Child {
-    const argv = [_:null]?[*:0]const u8{ "/usr/bin/lipc-wait-event", "-m", "com.lab126.powerd", "goingToScreenSaver,outOfScreenSaver" };
+/// Starts a child that prints the named events of one lipc publisher, one per line.
+/// Its `out` pipe is non-blocking.
+fn watchEvents(publisher: [*:0]const u8, events: [*:0]const u8) ?process.Child {
+    const argv = [_:null]?[*:0]const u8{ "/usr/bin/lipc-wait-event", "-m", publisher, events };
     const child = process.spawn(&argv) orelse return null;
     const flags = linux.fcntl(child.out, linux.F.GETFL, 0);
     _ = linux.fcntl(child.out, linux.F.SETFL, flags | 0o4000); // O_NONBLOCK
     return child;
+}
+
+/// Locking and waking, from powerd.
+pub fn watchPowerEvents() ?process.Child {
+    return watchEvents("com.lab126.powerd", "goingToScreenSaver,outOfScreenSaver");
+}
+
+/// A computer setting up the USB connection, from the volume manager.
+pub fn watchUsbEvents() ?process.Child {
+    return watchEvents("com.lab126.volumd", "usbConfigured");
+}
+
+/// True while USB carries a network (as Jobman's SSH does) rather than file transfer.
+pub fn usbForNetwork() bool {
+    return (get("com.lab126.volumd", "useUsbForNetwork", lipcDeadline()) orelse 0) == 1;
 }
 
 /// Same as the Sync button in the stock panel.

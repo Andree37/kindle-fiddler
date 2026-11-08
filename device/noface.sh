@@ -10,8 +10,9 @@ restore() {
     # has listeners of its own that must keep running. lipc-wait-event splits its
     # event list in place, so the comma shows up as a separate word here.
     for p in $(pidof lipc-wait-event); do
-        tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "-m com.lab126.powerd goingToScreenSaver outOfScreenSaver" && kill "$p"
+        tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -E -- "-m com.lab126.powerd goingToScreenSaver outOfScreenSaver|-m com.lab126.volumd usbConfigured" && kill "$p"
     done
+    [ -n "$watchdog" ] && kill "$watchdog" 2>/dev/null
 }
 trap restore EXIT
 
@@ -30,6 +31,25 @@ fi
 "$DIR/noface" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$FONTS/Amazon-Ember-Regular.ttf" "$FONTS/Amazon-Ember-Bold.ttf" "$DIR" >> "$DIR/noface.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null' INT TERM HUP
+
+# Watchdog. noface refreshes a heartbeat in RAM every 30 seconds while its loop runs.
+# If that stops for 2 minutes while the Kindle is awake, noface is stuck: end it,
+# and the stock UI comes back. A locked Kindle lets noface sleep, so it's left alone.
+# After a minute of running well, the boot crash guard in autostart.sh is reset too.
+(
+    sleep 60
+    kill -0 "$pid" 2>/dev/null && rm -f "$DIR/boot-attempts"
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 30
+        [ "$(lipc-get-prop -s com.lab126.powerd state 2>/dev/null)" = active ] || continue
+        beat=$(cat /tmp/noface-alive 2>/dev/null || echo 0)
+        if [ $(( $(date +%s) - beat )) -gt 120 ]; then
+            echo "watchdog: no heartbeat for 2 minutes, stopping noface" >> "$DIR/noface.log"
+            kill -9 "$pid" 2>/dev/null
+        fi
+    done
+) &
+watchdog=$!
 # A signal ends the first wait early, while noface is still shutting down.
 wait "$pid"
 code=$?

@@ -59,8 +59,7 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry) !void {
                 if (redraws == lock_redraws) a.input.tick_us = 0;
             },
             .unlock => break,
-            .idle => a.input.last_input = nowUs(), // Time asleep isn't time idle
-            .stop => {
+            .computer, .stop => {
                 a.input.stashed = action;
                 break;
             },

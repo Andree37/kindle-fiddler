@@ -69,7 +69,7 @@ pub fn run(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator) !?usize {
                 }
                 whole = true;
             },
-            .lock, .power, .idle, .stop => {
+            .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
                 return null;
             },

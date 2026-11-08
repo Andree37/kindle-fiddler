@@ -32,6 +32,7 @@ pub const Hit = union(enum) {
     clock,
     refresh,
     time_left,
+    autostart,
 };
 
 pub const Row = struct { hit: Hit, label: []const u8, top: u32, steps: usize };
@@ -49,6 +50,7 @@ const align_top = content_top + 292;
 const clock_top = content_top + 8;
 const refresh_top = content_top + 108;
 const time_left_top = content_top + 208;
+const autostart_top = content_top + 308;
 
 const theme_width = 340;
 const theme_gap = 34;
@@ -107,6 +109,7 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
             if (within(y, clock_top, toggle_height)) return .clock;
             if (within(y, refresh_top, toggle_height)) return .refresh;
             if (within(y, time_left_top, toggle_height)) return .time_left;
+            if (within(y, autostart_top, toggle_height)) return .autostart;
         },
     }
     return .none;
@@ -193,6 +196,7 @@ pub fn render(fonts: Fonts, page: Page, tab: Tab, chosen: settings_model.Setting
             try drawToggle(fonts, page, clock_top, "Show clock while reading", chosen.clock);
             try drawToggle(fonts, page, refresh_top, "Page refresh every 20 pages", chosen.refresh);
             try drawToggle(fonts, page, time_left_top, "Show time left", chosen.time_left);
+            try drawToggle(fonts, page, autostart_top, "Open noface when the Kindle starts", chosen.autostart);
         },
     }
 }
@@ -214,6 +218,7 @@ test "each tab maps its own controls" {
     try std.testing.expectEqual(Hit.clock, hit(.more, 600, clock_top + 20));
     try std.testing.expectEqual(Hit.refresh, hit(.more, 600, refresh_top + 20));
     try std.testing.expectEqual(Hit.time_left, hit(.more, 600, time_left_top + 20));
+    try std.testing.expectEqual(Hit.autostart, hit(.more, 600, autostart_top + 20));
 }
 
 test "the sheet stays inside itself" {
@@ -223,5 +228,5 @@ test "the sheet stays inside itself" {
 }
 
 test "controls of other tabs don't answer" {
-    try std.testing.expectEqual(Hit.none, hit(.more, 600, 700));
+    try std.testing.expectEqual(Hit.none, hit(.more, 600, autostart_top + toggle_height + 20));
 }

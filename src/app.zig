@@ -207,7 +207,7 @@ pub fn chooseFromCard(a: *App, background: []const u8, title: []const u8, subtit
                 const index = card.hit(t.x, t.y, rows.len) orelse break null;
                 if (index < rows.len) break index;
             },
-            .lock, .power, .idle, .stop => {
+            .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
                 break null;
             },
@@ -257,7 +257,7 @@ pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
             },
             .drag_end => break,
             .tap, .hold, .pull, .tick, .unlock => {},
-            .lock, .power, .idle, .stop => {
+            .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
                 break;
             },

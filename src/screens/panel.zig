@@ -118,7 +118,7 @@ pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
                 try closeMenu(a, background);
                 return false;
             },
-            .power, .idle, .stop => return true,
+            .power, .computer, .stop => return true,
         }
     }
 }

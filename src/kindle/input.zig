@@ -1,5 +1,6 @@
 //! Touch and power input: raw events in, taps, holds, drags and power changes out.
 const std = @import("std");
+const state = @import("../linux/state.zig");
 const linux = std.os.linux;
 const os = @import("../linux/os.zig");
 const lipc = @import("lipc.zig");
@@ -7,7 +8,8 @@ const touch_zones = @import("touch.zig");
 
 const failed = os.failed;
 const nowUs = os.nowUs;
-const idle_quit_ms = 30 * 60 * 1000;
+const heartbeat_every_us = 30 * 1000 * 1000;
+const heartbeat_path = "/tmp/noface-alive"; // In RAM: device/noface.sh's watchdog reads it
 const watcher_retry_ms = 5000;
 const activity_every_us = 60 * 1000 * 1000;
 const key_power = 116;
@@ -80,7 +82,7 @@ pub const Action = union(enum) {
     lock,
     unlock,
     power,
-    idle,
+    computer, // Plugged into a computer for file transfer: the Kindle's own screens take over
     stop,
 };
 
@@ -92,6 +94,9 @@ pub const Input = struct {
     power: i32,
     power_events: i32 = -1,
     watcher_pid: i32 = 0, // The lipc-wait-event child behind power_events
+    usb_events: i32 = -1, // Lines from a second watcher, on USB connections
+    usb_watcher_pid: i32 = 0,
+    heartbeat_us: u64 = 0, // When the watchdog last heard noface is alive
     width: i32,
     height: i32,
     x_max: i32,
@@ -124,6 +129,12 @@ pub const Input = struct {
     told_powerd_us: u64 = 0, // When powerd last heard the reader is active
 
     /// Starts listening for lock and unlock from powerd.
+    fn startUsbWatcher(in: *Input) void {
+        const child = lipc.watchUsbEvents() orelse return;
+        in.usb_events = child.out;
+        in.usb_watcher_pid = child.pid;
+    }
+
     fn startWatcher(in: *Input) void {
         const child = lipc.watchPowerEvents() orelse {
             in.power_events = -1;
@@ -198,7 +209,6 @@ pub const Input = struct {
                 return action;
             }
             if (in.waiting()) |action| return action;
-            if (!in.locked and nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
             if (in.deferred and !in.top_moved) {
                 if (in.top_slot) |slot| {
                     if (nowUs() -| in.top_us >= touch_zones.hold_ms * 1000) {
@@ -218,8 +228,16 @@ pub const Input = struct {
             var fds = [_]linux.pollfd{
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
+                .{ .fd = in.usb_events, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = key_fd, .events = linux.POLL.IN, .revents = 0 },
             };
+            // Tells the watchdog in device/noface.sh that noface is still running its loop.
+            if (nowUs() > in.heartbeat_us + heartbeat_every_us) {
+                in.heartbeat_us = nowUs();
+                var stamp: [24]u8 = undefined;
+                state.writeSmall(heartbeat_path, std.fmt.bufPrint(&stamp, "{d}\n", .{os.unixTime()}) catch "0\n");
+            }
+
             // Touches are grabbed, so powerd can't see them and would lock the Kindle
             // 10 minutes into reading. Tell it, while there's nothing else to do anyway.
             if (!in.locked and in.last_input > in.told_powerd_us + activity_every_us) {
@@ -244,6 +262,20 @@ pub const Input = struct {
                 std.debug.print("power watcher restarted: {}\n", .{in.power_events >= 0});
                 // A wake-up while no one listened is gone for good, so ask instead.
                 if (in.locked and lipc.inScreenSaver() == false) return .unlock;
+            }
+
+            if (in.usb_events >= 0) {
+                var line: [512]u8 = undefined;
+                const got = linux.read(in.usb_events, &line, line.len);
+                if (got == 0) {
+                    // That watcher died; USB handover is lost until restart, nothing else is.
+                    _ = linux.close(in.usb_events);
+                    in.usb_events = -1;
+                    std.debug.print("usb watcher stopped\n", .{});
+                } else if (!failed(got) and std.mem.indexOf(u8, line[0..got], "usbConfigured") != null) {
+                    // USB used for networking (as for SSH) isn't a computer asking for files.
+                    if (!lipc.usbForNetwork()) return .computer;
+                }
             }
 
             if (in.power_events >= 0) {
@@ -349,16 +381,18 @@ pub fn open(width: u32, height: u32) !Input {
         .last_input = nowUs(),
     };
     in.startWatcher();
+    in.startUsbWatcher();
     return in;
 }
 
 /// Gives the touchscreen back to the stock UI.
 pub fn release(in: *const Input) void {
     _ = linux.ioctl(in.touch, eviocgrab, 0);
-    if (in.watcher_pid > 0) {
-        _ = linux.kill(in.watcher_pid, linux.SIG.TERM);
+    for ([_]i32{ in.watcher_pid, in.usb_watcher_pid }) |pid| {
+        if (pid <= 0) continue;
+        _ = linux.kill(pid, linux.SIG.TERM);
         var status: i32 = 0;
-        _ = linux.waitpid(in.watcher_pid, &status, 0);
+        _ = linux.waitpid(pid, &status, 0);
     }
 }
 

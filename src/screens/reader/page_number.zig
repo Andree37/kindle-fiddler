@@ -51,7 +51,7 @@ pub fn run(a: *app.App, s: *sess.Session) !?usize {
                     },
                 }
             },
-            .lock, .power, .idle, .stop => {
+            .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
                 return null;
             },

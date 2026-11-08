@@ -241,7 +241,7 @@ pub fn runLibrary(a: *app.App) !void {
                     if (try panel.libraryMenu(a, buf)) return;
                     continue;
                 },
-                .power, .idle, .stop => return,
+                .power, .computer, .stop => return,
             }
             if (opening) |entry| {
                 a.input.tick_us = 0;
