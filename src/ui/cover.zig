@@ -1,6 +1,7 @@
 //! Book thumbnails, decoded once and scaled to library size.
 const std = @import("std");
 const file = @import("../platform/file.zig");
+const text = @import("../book/text.zig");
 
 extern fn img_gray(data: [*]const u8, len: c_int, w: *c_int, h: *c_int) ?[*]u8;
 extern fn img_free(p: [*]u8) void;
@@ -55,7 +56,18 @@ pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
     }
 }
 
-/// Decodes a JPEG and draws it as large as fits, centred on black.
+/// The part of a `sw` x `sh` picture that fills a `dw` x `dh` screen when scaled:
+/// the centre, with the overflowing sides (or top and bottom) cut off.
+pub fn cropToFill(sw: usize, sh: usize, dw: usize, dh: usize) struct { x: usize, y: usize, w: usize, h: usize } {
+    if (sw * dh > sh * dw) {
+        const w = @max(1, sh * dw / dh);
+        return .{ .x = (sw - w) / 2, .y = 0, .w = w, .h = sh };
+    }
+    const h = @max(1, sw * dh / dw);
+    return .{ .x = 0, .y = (sh - h) / 2, .w = sw, .h = h };
+}
+
+/// Decodes a cover and fills the whole screen with it, cropping what overflows.
 /// `stride` is bytes per row in `buf`, which can be more than the visible width.
 pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_px: usize, height_px: usize, stride: usize) bool {
     var w: c_int = 0;
@@ -65,18 +77,31 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
     if (w <= 0 or h <= 0) return false;
     const sw: usize = @intCast(w);
     const sh: usize = @intCast(h);
-    const fit = fitted(sw, sh, width_px, height_px);
-    if (fit.w == 0 or fit.h == 0) return false; // A sliver too thin to show
-    const scaled = alloc.alloc(u8, fit.w * fit.h) catch return false;
+    const crop = cropToFill(sw, sh, width_px, height_px);
+    const part = alloc.alloc(u8, crop.w * crop.h) catch return false;
+    defer alloc.free(part);
+    for (0..crop.h) |row| @memcpy(part[row * crop.w ..][0..crop.w], pixels[(crop.y + row) * sw + crop.x ..][0..crop.w]);
+    const scaled = alloc.alloc(u8, width_px * height_px) catch return false;
     defer alloc.free(scaled);
-    scale(pixels[0 .. sw * sh], sw, sh, scaled, fit.w, fit.h);
-    dither(alloc, scaled, fit.w) catch return false;
-    @memset(buf, 0x00);
-    const left = (width_px - fit.w) / 2;
-    const top = (height_px - fit.h) / 2;
-    for (0..fit.h) |row| {
-        @memcpy(buf[(top + row) * stride + left ..][0..fit.w], scaled[row * fit.w..][0..fit.w]);
-    }
+    scale(part, crop.w, crop.h, scaled, width_px, height_px);
+    dither(alloc, scaled, width_px) catch return false;
+    for (0..height_px) |row| @memcpy(buf[row * stride ..][0..width_px], scaled[row * width_px ..][0..width_px]);
+    return true;
+}
+
+/// Decodes a picture and draws it into a box on a page, scaled and dithered for the panel.
+pub fn place(alloc: std.mem.Allocator, encoded: []const u8, page: text.Page, x: u32, y: u32, w: u32, h: u32) bool {
+    if (w == 0 or h == 0 or x + w > page.width or y + h > page.height) return false;
+    var sw: c_int = 0;
+    var sh: c_int = 0;
+    const pixels = img_gray(encoded.ptr, @intCast(encoded.len), &sw, &sh) orelse return false;
+    defer img_free(pixels);
+    if (sw <= 0 or sh <= 0) return false;
+    const scaled = alloc.alloc(u8, w * h) catch return false;
+    defer alloc.free(scaled);
+    scale(pixels[0..@intCast(sw * sh)], @intCast(sw), @intCast(sh), scaled, w, h);
+    dither(alloc, scaled, w) catch return false;
+    for (0..h) |row| @memcpy(page.buf[(y + row) * page.stride + x ..][0..w], scaled[row * w ..][0..w]);
     return true;
 }
 
@@ -143,4 +168,17 @@ test "a sliver of an image fits to nothing, and dithering nothing is safe" {
     try std.testing.expectEqual(@as(usize, 0), fitted(1, 10000, 1272, 1696).w);
     var none: [0]u8 = .{};
     try dither(std.testing.allocator, &none, 0);
+}
+
+test "covers fill the screen, cropping the overflow evenly" {
+    // A wide cover keeps its full height and loses equal strips at the sides.
+    const wide = cropToFill(1000, 1000, 1272, 1696);
+    try std.testing.expectEqual(@as(usize, 1000), wide.h);
+    try std.testing.expectEqual(@as(usize, 750), wide.w);
+    try std.testing.expectEqual(@as(usize, 125), wide.x);
+    // A tall one keeps its full width and loses top and bottom.
+    const tall = cropToFill(600, 1200, 1272, 1696);
+    try std.testing.expectEqual(@as(usize, 600), tall.w);
+    try std.testing.expectEqual(@as(usize, 800), tall.h);
+    try std.testing.expectEqual(@as(usize, 200), tall.y);
 }
