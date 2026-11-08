@@ -21,6 +21,7 @@ const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
+const local_notes = @import("reader/local_notes.zig");
 const more = @import("reader/more.zig");
 const page_store = @import("reader/page_store.zig");
 const search = @import("reader/search.zig");
@@ -91,8 +92,14 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     text_before[0] = 0;
     for (book.paragraphs, 0..) |p, i| text_before[i + 1] = text_before[i] + (if (p.note) 0 else p.text.len);
     session.text_before = text_before;
-    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, annotation_db.readAnnotations(entry.key, .highlight, stored)));
-    try session.bookmarks.appendSlice(alloc, try bookmarks.parse(alloc, book.paragraphs, annotation_db.readAnnotations(entry.key, .bookmark, stored)));
+    if (entry.isEpub()) {
+        var notes_buf: [320]u8 = undefined;
+        session.notes_path = try alloc.dupeSentinel(u8, try state.sibling(&notes_buf, state_path, "notes"), 0);
+    }
+    const highlight_lines = if (entry.isEpub()) try local_notes.read(alloc, session.notes_path, .highlight) else annotation_db.readAnnotations(entry.key, .highlight, stored);
+    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, highlight_lines));
+    const bookmark_lines = if (entry.isEpub()) try local_notes.read(alloc, session.notes_path, .bookmark) else annotation_db.readAnnotations(entry.key, .bookmark, stored);
+    try session.bookmarks.appendSlice(alloc, try bookmarks.parse(alloc, book.paragraphs, bookmark_lines));
     std.debug.print("{d} bookmarks loaded\n", .{session.bookmarks.items.len});
     std.debug.print("{d} highlights loaded\n", .{session.highlights.items.len});
     try hl.refreshMarks(a, &session, alloc);

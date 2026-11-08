@@ -54,6 +54,7 @@ pub const Session = struct {
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
     marks: std.ArrayList(book_model.Mark) = .empty, // What layout shades, rebuilt from highlights
     pages_path: [:0]const u8 = "", // Where this book's page breaks are saved
+    notes_path: [:0]const u8 = "", // Where highlights and bookmarks are kept, for books Amazon doesn't sync
     book_bytes: usize = 0, // The book file's size, part of the saved breaks' key
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const book_model.Chapter = &.{},

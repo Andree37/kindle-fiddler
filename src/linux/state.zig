@@ -33,6 +33,15 @@ pub fn preferKindle(saved: State, kindle_last: u64) bool {
     return kindle_last > saved.opened;
 }
 
+/// Another file about the same book, beside its state file: "<dir>/<kind>-<book>" for
+/// "<dir>/state-<book>". Used for saved page breaks, covers and local notes.
+pub fn sibling(buf: []u8, state_path: []const u8, kind: []const u8) ![:0]u8 {
+    const dir = std.fs.path.dirname(state_path) orelse ".";
+    const name = std.fs.path.basename(state_path);
+    if (!std.mem.startsWith(u8, name, "state-")) return error.NotAStateFile;
+    return std.fmt.bufPrintSentinel(buf, "{s}/{s}-{s}", .{ dir, kind, name["state-".len..] }, 0);
+}
+
 pub fn parse(content: []const u8) State {
     var it = std.mem.tokenizeAny(u8, content, " \n");
     var s = State{};
@@ -109,4 +118,10 @@ test "kindle position wins until we have our own" {
 test "reading time is kept, and older files read as none" {
     try std.testing.expectEqual(@as(u64, 4200), parse("1 2 37 1793990000 4200\n").seconds);
     try std.testing.expectEqual(@as(u64, 0), parse("1 2 37 1793990000\n").seconds);
+}
+
+test "a book's other files sit beside its state file" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("/d/notes-0bee89b07a248e27", try sibling(&buf, "/d/state-0bee89b07a248e27", "notes"));
+    try std.testing.expectError(error.NotAStateFile, sibling(&buf, "/d/other", "notes"));
 }

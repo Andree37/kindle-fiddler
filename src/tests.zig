@@ -1,4 +1,5 @@
 test {
+    _ = @import("screens/reader/local_notes.zig");
     _ = @import("epub/epub.zig");
     _ = @import("epub/picture.zig");
     _ = @import("epub/xml.zig");

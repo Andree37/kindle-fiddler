@@ -17,7 +17,7 @@ const records = @import("records.zig");
 pub fn saveHighlight(s: *sess.Session, entry: *const catalog.Entry, id: []const u8, span: highlights.Span) bool {
     const start = records.pointFor(s, span.first_para, span.first_byte) orelse return false;
     const end = records.pointFor(s, span.last_para, span.last_byte) orelse return false;
-    return records.write(entry, .highlight, id, start, end);
+    return records.write(s, entry, .highlight, id, start, end);
 }
 
 pub fn pageWords(a: *app.App, s: *const sess.Session) []const book_model.Word {
@@ -167,7 +167,7 @@ pub fn extendHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, 
 /// Deletes a highlight here and, through sync, everywhere.
 pub fn removeHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, id: []const u8) !void {
     if (!annotation_db.dryRun()) {
-        const removed = records.delete(entry, .highlight, id);
+        const removed = records.delete(s, entry, .highlight, id);
         std.debug.print("highlight removed: {}\n", .{removed});
         if (!removed) return app.showNotice(a, "This highlight couldn't be deleted.");
         lipc.syncNow();

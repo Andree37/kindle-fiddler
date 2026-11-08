@@ -427,6 +427,13 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !book.Book {
         try b.chapter(path, xhtml);
     }
     if (b.paragraphs.items.len == 0) return error.EmptyBook;
+    // Character positions, numbered the way Kindle books are, so highlights and
+    // bookmarks work the same way in both. Never 0: that means "not numbered".
+    var position: u32 = 1;
+    for (b.paragraphs.items) |*para| {
+        para.position = position;
+        position += book.charOffset(para.text, para.text.len) + 1;
+    }
     try b.resolveLinks();
     notes.markNotes(b.paragraphs.items);
     const chapters = try readContents(alloc, files, p, &b.anchors);
@@ -456,6 +463,8 @@ test "a small EPUB reads into paragraphs, styles, links and contents" {
     try std.testing.expectEqualStrings("Two", b.chapters[1].title);
     try std.testing.expect(b.paragraphs[b.chapters[1].para].section == 2);
     try std.testing.expectEqualStrings("Caf\u{e9} \u{2014} done", b.paragraphs[b.paragraphs.len - 1].text);
+    try std.testing.expectEqual(@as(u32, 1), b.paragraphs[0].position);
+    try std.testing.expect(b.paragraphs[1].position > b.paragraphs[0].position);
 }
 
 test "hrefs resolve against their folder" {

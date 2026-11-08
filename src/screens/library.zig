@@ -68,7 +68,7 @@ fn addEpubs(a: *app.App, alloc: std.mem.Allocator, catalog_entries: []catalog.En
         const data = file.map(path) catch continue;
         defer file.unmap(data);
         const state_path = try a.statePath(&path_buf, path);
-        const cover_path = try std.fmt.bufPrintSentinel(&cover_buf, "{s}/cover-{s}", .{ a.state_dir, std.fs.path.basename(state_path)["state-".len..] }, 0);
+        const cover_path = try state.sibling(&cover_buf, state_path, "cover");
         const have_cover = if (file.map(cover_path)) |c| blk: {
             file.unmap(c);
             break :blk true;

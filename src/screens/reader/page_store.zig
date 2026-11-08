@@ -47,10 +47,7 @@ pub fn key(a: *const app.App, book_bytes: usize) u64 {
 
 /// "<dir>/pages-<book>", beside the book's state file "<dir>/state-<book>".
 pub fn pathFor(buf: []u8, state_path: []const u8) ![:0]u8 {
-    const dir = std.fs.path.dirname(state_path) orelse ".";
-    const name = std.fs.path.basename(state_path);
-    check.that(std.mem.startsWith(u8, name, "state-"), "state files are named state-<book>");
-    return std.fmt.bufPrintSentinel(buf, "{s}/pages-{s}", .{ dir, name["state-".len..] }, 0);
+    return state.sibling(buf, state_path, "pages");
 }
 
 const header_len = magic.len + 8 + 4;

@@ -22,7 +22,7 @@ pub fn toggle(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *c
                 i += 1;
                 continue;
             }
-            if (!records.delete(entry, .bookmark, b.id)) return app.showNotice(a, "This bookmark couldn't be removed.");
+            if (!records.delete(s, entry, .bookmark, b.id)) return app.showNotice(a, "This bookmark couldn't be removed.");
             _ = s.bookmarks.orderedRemove(i);
         }
         std.debug.print("bookmark removed\n", .{});
@@ -30,7 +30,7 @@ pub fn toggle(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *c
         const at = firstPosition(s, s.current) orelse return app.showNotice(a, "This page can't be bookmarked.");
         const point = records.pointFor(s, at.para, at.byte).?;
         const id = try std.fmt.allocPrint(alloc, "{s}{d}", .{ annotations.Kind.bookmark.prefix(), point.short });
-        if (!records.write(entry, .bookmark, id, point, point)) return app.showNotice(a, "This bookmark couldn't be saved.");
+        if (!records.write(s, entry, .bookmark, id, point, point)) return app.showNotice(a, "This bookmark couldn't be saved.");
         try s.bookmarks.append(alloc, .{ .id = id, .para = at.para, .byte = at.byte });
         std.debug.print("bookmark added\n", .{});
     }
