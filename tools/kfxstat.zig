@@ -22,6 +22,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
         if (i > 0 and c.para < book.chapters[i - 1].para) ordered = false;
     }
     std.debug.print("chapters {d}, deepest {d}, in reading order {}\n", .{ book.chapters.len, deepest, ordered });
+    var bold: usize = 0;
+    var italic: usize = 0;
+    var headings: usize = 0;
+    var centred: usize = 0;
+    var runs: usize = 0;
+    for (book.paragraphs) |p| {
+        if (p.look.bold) bold += 1;
+        if (p.look.italic) italic += 1;
+        if (p.look.size > kfx.normal_size) headings += 1;
+        if (p.look.alignment == .center) centred += 1;
+        runs += p.runs.len;
+    }
+    std.debug.print("looks: bold {d}, italic {d}, larger {d}, centred {d}, inline runs {d}\n", .{ bold, italic, headings, centred, runs });
     _ = linux.clock_gettime(.MONOTONIC, &ts1);
 
     var bytes: usize = 0;

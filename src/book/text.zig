@@ -388,7 +388,15 @@ test "tap near a reference finds it" {
 
 pub const Pos = struct { para: usize = 0, byte: usize = 0 };
 
+/// Where layout gets the font for a weight, slant and size. Without one, every
+/// word uses the base font.
+pub const Faces = struct {
+    ctx: *anyopaque,
+    pick: *const fn (ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*Font,
+};
+
 pub const Layout = struct {
+    faces: ?Faces = null,
     margin_x: i32,
     margin_top: i32,
     margin_bottom: i32,
@@ -400,7 +408,8 @@ pub const Layout = struct {
 
 const max_words = 96;
 
-const Link = @import("kfx.zig").Link;
+const kfx = @import("kfx.zig");
+const Link = kfx.Link;
 
 fn findReference(links: []const Link, paras: []const Paragraph, start: usize, len: usize) ?Link {
     for (links) |link| {
@@ -410,26 +419,59 @@ fn findReference(links: []const Link, paras: []const Paragraph, start: usize, le
     return null;
 }
 
+fn face(l: Layout, base: *Font, bold: bool, italic: bool, size: u8) !*Font {
+    const f = l.faces orelse return base;
+    return f.pick(f.ctx, bold, italic, size);
+}
+
+/// Bold and italic for a word: its paragraph's, plus any run it starts in.
+fn wordFace(l: Layout, base: *Font, p: Paragraph, word_start: usize) !*Font {
+    var bold = p.look.bold;
+    var italic = p.look.italic;
+    for (p.runs) |r| {
+        if (word_start >= r.start and word_start < r.end) {
+            bold = bold or r.bold;
+            italic = italic or r.italic;
+        }
+    }
+    return face(l, base, bold, italic, p.look.size);
+}
+
+fn spaceLines(tenths: u8, base: *Font) i32 {
+    return @divTrunc(@as(i32, tenths) * base.line_height, 10);
+}
+
 /// Lay out one page and return where the next page starts.
 /// With `page` null this only measures, which is how the book gets paginated.
 pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: Pos, l: Layout, hits: ?*Hits) !Pos {
     if (maybe_page) |p| @memset(p.buf, 0xff);
     const page = geometry;
     const line_width: f32 = @floatFromInt(@as(i32, @intCast(page.width)) - 2 * l.margin_x);
-    const space = try font.measure(" ");
     const bottom = @as(i32, @intCast(page.height)) - l.margin_bottom;
-    var y = l.margin_top + font.ascent;
+    var top = l.margin_top; // Top of the next line
     var pos = start;
 
     while (pos.para < paras.len) : ({
         pos.para += 1;
         pos.byte = 0;
     }) {
-        if (paras[pos.para].note) continue;
-        const text = paras[pos.para].text;
-        const links = paras[pos.para].links;
+        const para = paras[pos.para];
+        if (para.note) continue;
+        const text = para.text;
+        const links = para.links;
+        const look = para.look;
+        const pf = try face(l, font, look.bold, look.italic, look.size); // Sets the line height
+        const space = try pf.measure(" ");
+        // Headings and centred lines aren't indented, and only body text is justified.
+        const plain = look.size == kfx.normal_size and (look.alignment == .auto or look.alignment == .justify or look.alignment == .left);
+        const justify = switch (look.alignment) {
+            .auto => l.justify and look.size == kfx.normal_size,
+            .justify => true,
+            else => false,
+        };
         var i = pos.byte;
-        var indent: f32 = if (i == 0) l.indent else 0;
+        var indent: f32 = if (i == 0 and plain) l.indent else 0;
+        if (i == 0 and top > l.margin_top) top += spaceLines(look.space_before, font);
 
         while (i < text.len) {
             while (i < text.len and (text[i] == ' ' or text[i] == '\n')) i += 1;
@@ -437,6 +479,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
 
             var words: [max_words][]const u8 = undefined;
             var widths: [max_words]f32 = undefined;
+            var fonts: [max_words]*Font = undefined;
             var n: usize = 0;
             var used: f32 = 0;
             var j = i;
@@ -447,12 +490,14 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 var end = j;
                 while (end < text.len and text[end] != ' ' and text[end] != '\n') end += 1;
                 const word = text[j..end];
-                const w = try font.measure(word);
+                const wf = try wordFace(l, font, para, j);
+                const w = try wf.measure(word);
                 if (n == 0 and w > avail) {
                     // Wider than a whole line, as with a URL or unspaced CJK: split it.
-                    const part = word[0..try font.fit(word, avail)];
+                    const part = word[0..try wf.fit(word, avail)];
                     words[0] = part;
-                    widths[0] = try font.measure(part);
+                    widths[0] = try wf.measure(part);
+                    fonts[0] = wf;
                     n = 1;
                     j += part.len;
                     break;
@@ -461,6 +506,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 if (n > 0 and used + gap + w > avail) break;
                 words[n] = word;
                 widths[n] = w;
+                fonts[n] = wf;
                 n += 1;
                 used += gap + w;
                 j = end;
@@ -476,29 +522,35 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 }
             }
 
+            const y = top + pf.ascent; // Baseline
             if (y > bottom) return .{ .para = pos.para, .byte = i };
 
             var word_total: f32 = 0;
             for (widths[0..n]) |w| word_total += w;
             var gap = space;
-            if (l.justify and !line_ends_para and n > 1) {
+            if (justify and !line_ends_para and n > 1) {
                 gap = @min((avail - word_total) / @as(f32, @floatFromInt(n - 1)), space * 2.5);
             }
-            var x = @as(f32, @floatFromInt(l.margin_x)) + indent;
-            for (words[0..n], widths[0..n]) |word, w| {
+            const line_used = word_total + gap * @as(f32, @floatFromInt(@max(n, 1) - 1));
+            var x = @as(f32, @floatFromInt(l.margin_x)) + indent + switch (look.alignment) {
+                .center => @max(avail - line_used, 0) / 2,
+                .right => @max(avail - line_used, 0),
+                else => 0,
+            };
+            for (words[0..n], widths[0..n], fonts[0..n]) |word, w, wf| {
                 var shrink: f32 = 0; // A small mark takes less room than was measured
                 if (maybe_page) |p| {
                     const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
                     if (isMarked(l.marks, pos.para, word_start, word_start + word.len)) {
                         // Reaches into the gap, so a marked phrase reads as one band.
                         const band: u32 = @intFromFloat(w + gap);
-                        p.fillRect(@intFromFloat(x), @intCast(y - font.ascent + 4), band, @intCast(font.line_height - 8), mark_shade);
+                        p.fillRect(@intFromFloat(x), @intCast(y - pf.ascent + 4), band, @intCast(pf.line_height - 8), mark_shade);
                     }
                     if (hits) |h| h.addWord(.{
                         .x = @intFromFloat(x),
-                        .y = y - font.ascent,
+                        .y = y - pf.ascent,
                         .w = @intFromFloat(w),
-                        .h = font.line_height,
+                        .h = pf.line_height,
                         .para = @intCast(pos.para),
                         .start = @intCast(word_start),
                         .end = @intCast(word_start + word.len),
@@ -506,32 +558,33 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                     const reference = findReference(links, paras, word_start, word.len);
                     if (reference) |r| {
                         // Raised and small, like a printed note mark.
-                        const small = l.reference orelse font;
+                        const small = l.reference orelse wf;
                         const a = @max(r.start, word_start) - word_start;
                         const b = @min(r.end, word_start + word.len) - word_start;
-                        try font.draw(p, x, y, word[0..a]);
-                        const mark_x = x + try font.measure(word[0..a]);
-                        try small.draw(p, mark_x, y - @divTrunc(font.line_height, 3), word[a..b]);
+                        try wf.draw(p, x, y, word[0..a]);
+                        const mark_x = x + try wf.measure(word[0..a]);
+                        try small.draw(p, mark_x, y - @divTrunc(pf.line_height, 3), word[a..b]);
                         const mark_w = try small.measure(word[a..b]);
-                        try font.draw(p, mark_x + mark_w, y, word[b..]);
-                        shrink = try font.measure(word[a..b]) - mark_w;
+                        try wf.draw(p, mark_x + mark_w, y, word[b..]);
+                        shrink = try wf.measure(word[a..b]) - mark_w;
                         if (hits) |h| h.add(.{
                             .x = @intFromFloat(mark_x),
-                            .y = y - font.ascent,
+                            .y = y - pf.ascent,
                             .w = @intFromFloat(@max(mark_w, 1)),
-                            .h = font.line_height,
+                            .h = pf.line_height,
                             .target = r.target,
                         });
                     } else {
-                        try font.draw(p, x, y, word);
+                        try wf.draw(p, x, y, word);
                     }
                 }
                 x += w + gap - shrink;
             }
-            y += font.line_height;
+            top += pf.line_height;
             i = j;
-            indent = if (line_ends_para) l.indent else 0;
+            indent = if (line_ends_para and plain) l.indent else 0;
         }
+        top += spaceLines(look.space_after, font);
     }
     return pos;
 }

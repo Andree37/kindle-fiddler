@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const kfx = @import("book/kfx.zig");
 const draw = @import("ui/draw.zig");
 const state = @import("platform/state.zig");
 const Fonts = @import("ui/fonts.zig").Fonts;
@@ -31,8 +32,9 @@ pub const App = struct {
     screen: *hwtcon.Screen,
     input: *Input,
     body: *text.Font,
-    body_fonts: [menu.families.len][2][menu.sizes.len]?text.Font = @splat(@splat(@splat(null))),
-    font_files: [menu.families.len][2]?[]const u8 = @splat(@splat(null)),
+    // Body fonts by family, face (bold, italic), reader size and book size, made on first use.
+    face_fonts: [menu.families.len][4][menu.sizes.len][kfx.size_scales.len]?text.Font = @splat(@splat(@splat(@splat(null)))),
+    face_files: [menu.families.len][4]?[]const u8 = @splat(@splat(null)),
     tab: aa.Tab = .font,
     turns: u32 = 0,
     note_font: *text.Font,
@@ -53,15 +55,31 @@ pub const App = struct {
 
     /// Fonts are kept per size, so stepping through sizes doesn't reload them.
     pub fn applySettings(a: *App) !void {
-        const family = a.settings.font;
-        const weight: usize = @intFromBool(a.settings.bold);
-        if (a.font_files[family][weight] == null) a.font_files[family][weight] = try file.map(a.settings.fontPath());
-        const slot = &a.body_fonts[family][weight][a.settings.size];
-        if (slot.* == null) slot.* = try text.Font.init(a.alloc, a.font_files[family][weight].?, a.settings.px(), 1);
+        a.body = try a.face(false, false, kfx.normal_size);
+        a.layout.faces = .{ .ctx = a, .pick = pickFace };
         a.layout.margin_x = menu.margins[a.settings.margin];
         a.layout.justify = !a.settings.left_align;
-        slot.*.?.line_height = a.settings.lineHeight();
-        a.body = &slot.*.?;
+    }
+
+    /// The body font for a weight, slant and book size, in the reader's family and size.
+    /// The reader's Bold setting makes everything bold.
+    pub fn face(a: *App, bold_text: bool, italic: bool, size: u8) !*text.Font {
+        const family = menu.families[a.settings.font];
+        const bold = bold_text or a.settings.bold;
+        const which: usize = @as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1;
+        const file_slot = &a.face_files[a.settings.font][which];
+        if (file_slot.* == null) file_slot.* = try file.map(family.path(bold, italic));
+        const scale = kfx.size_scales[size];
+        const slot = &a.face_fonts[a.settings.font][which][a.settings.size][size];
+        if (slot.* == null) slot.* = try text.Font.init(a.alloc, file_slot.*.?, a.settings.px() * scale, 1);
+        // Spacing can change without the font changing, so set it every time.
+        slot.*.?.line_height = @intFromFloat(@as(f32, @floatFromInt(a.settings.lineHeight())) * scale);
+        return &slot.*.?;
+    }
+
+    fn pickFace(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*text.Font {
+        const a: *App = @ptrCast(@alignCast(ctx));
+        return a.face(bold, italic, size) catch a.face(false, false, size);
     }
 
     pub fn page(a: *App, buf: []u8) text.Page {

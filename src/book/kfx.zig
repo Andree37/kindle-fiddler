@@ -32,9 +32,39 @@ const t_book_nav = 258;
 /// A byte range of a paragraph that links to another paragraph.
 pub const Link = struct { start: usize, end: usize, target: u32 };
 
+/// How text is set: weight, slant, size, alignment and spacing around it.
+pub const Look = struct {
+    bold: bool = false,
+    italic: bool = false,
+    size: u8 = normal_size, // Index into `size_scales`
+    alignment: Alignment = .auto,
+    space_before: u8 = 0, // Tenths of a line
+    space_after: u8 = 0,
+
+    pub const Alignment = enum { auto, left, center, right, justify };
+};
+
+/// Text sizes, relative to the reader's chosen size. Book sizes snap to these.
+pub const size_scales = [_]f32{ 0.8, 1.0, 1.2, 1.45, 1.75 };
+pub const normal_size = 1;
+
+/// Snaps a book's size (1.0 is body text) to the nearest step in `size_scales`.
+pub fn sizeClass(rem: f64) u8 {
+    if (rem < 0.9) return 0;
+    if (rem < 1.1) return 1;
+    if (rem < 1.33) return 2;
+    if (rem < 1.62) return 3;
+    return 4;
+}
+
+/// Bold or italic over part of a paragraph.
+pub const Run = struct { start: u32, end: u32, bold: bool, italic: bool };
+
 pub const Paragraph = struct {
     text: []const u8,
     style: u32,
+    look: Look = .{},
+    runs: []const Run = &.{},
     links: []const Link = &.{},
     section: u32 = 0,
     element: u32 = 0, // Position IDs Amazon uses for this text
@@ -182,6 +212,21 @@ const Parser = struct {
     positions: std.AutoHashMapUnmanaged(u64, u32) = .empty, // Element ID to paragraph
     raw_links: std.ArrayList(RawLink) = .empty,
     section: u32 = 0,
+    looks: std.AutoHashMapUnmanaged(u32, Look) = .empty, // Style name to how it sets text
+
+    /// Reads every style once, keeping what changes how text looks.
+    fn readLooks(p: *Parser) !void {
+        var it = p.index.iterator();
+        while (it.next()) |kv| {
+            if (kv.key_ptr.kind != t_style) continue;
+            const v = p.entity(kv.key_ptr.id, t_style) orelse continue;
+            try p.looks.put(p.alloc, kv.key_ptr.id, lookOf(v));
+        }
+    }
+
+    fn lookFor(p: *const Parser, style: u32) Look {
+        return p.looks.get(style) orelse .{};
+    }
 
     /// Fills in each paragraph's position: section start plus offset in section.
     fn resolvePositions(p: *Parser) !void {
@@ -213,8 +258,22 @@ const Parser = struct {
 
     fn collectLinks(p: *Parser, item: ion.Value, para: u32, text: []const u8) !void {
         const events = item.get(f_style_events) orelse return;
+        var runs: std.ArrayList(Run) = .empty;
+        defer p.paragraphs.items[para].runs = runs.items;
         var it = events.items();
         while (it.next()) |event| {
+            // Bold or italic over a stretch of the paragraph.
+            if (event.get(f_style)) |s| {
+                const look = p.lookFor(s.symbol() orelse 0);
+                const offset = (event.get(f_event_offset) orelse continue).unsigned() orelse continue;
+                const length = (event.get(f_event_length) orelse continue).unsigned() orelse continue;
+                if (look.bold or look.italic) try runs.append(p.alloc, .{
+                    .start = @intCast(byteOffset(text, offset)),
+                    .end = @intCast(byteOffset(text, offset + length)),
+                    .bold = look.bold,
+                    .italic = look.italic,
+                });
+            }
             const anchor = (event.get(f_link) orelse continue).symbol() orelse continue;
             const offset = (event.get(f_event_offset) orelse continue).unsigned() orelse continue;
             const length = (event.get(f_event_length) orelse continue).unsigned() orelse continue;
@@ -294,7 +353,7 @@ const Parser = struct {
     /// Resolves a text reference. False means it pointed at nothing usable.
     fn addContent(p: *Parser, ref: ion.Value, style: u32) !bool {
         if (ref.text()) |txt| {
-            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style });
+            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style, .look = p.lookFor(style) });
             return true;
         }
         const name = (ref.get(f_name) orelse return false).symbol() orelse return false;
@@ -305,7 +364,7 @@ const Parser = struct {
         while (strings.next()) |s| : (i += 1) {
             if (i != wanted) continue;
             const txt = s.text() orelse return false;
-            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style });
+            try p.paragraphs.append(p.alloc, .{ .text = txt, .style = style, .look = p.lookFor(style) });
             return true;
         }
         return false;
@@ -353,6 +412,53 @@ const Parser = struct {
 };
 
 const t_raw_media = 417;
+const t_style = 157;
+const f_font_style = 12;
+const f_font_weight = 13;
+const f_font_size = 16;
+const f_text_align = 34;
+const f_margin_top = 47;
+const f_margin_bottom = 49;
+const f_amount = 307;
+const f_unit = 306;
+const unit_rem = 505;
+const unit_lines = 310;
+const style_italic = 382;
+const weight_bold = 361;
+const weight_semibold = 362;
+const align_center = 320;
+const align_justify = 321;
+const align_left = 59;
+const align_right = 61;
+
+fn amount(v: ion.Value, unit: u32) ?f64 {
+    if ((v.get(f_unit) orelse return null).symbol() != unit) return null;
+    return (v.get(f_amount) orelse return null).number();
+}
+
+fn tenths(lines: f64) u8 {
+    return @intFromFloat(std.math.clamp(lines * 10, 0, 30));
+}
+
+/// How a style sets text, from the fields that matter on a reader's page.
+fn lookOf(v: ion.Value) Look {
+    var look = Look{};
+    if (v.get(f_font_style)) |s| look.italic = s.symbol() == style_italic;
+    if (v.get(f_font_weight)) |w| look.bold = w.symbol() == weight_bold or w.symbol() == weight_semibold;
+    if (v.get(f_font_size)) |s| {
+        if (amount(s, unit_rem)) |rem| look.size = sizeClass(rem);
+    }
+    if (v.get(f_text_align)) |a| look.alignment = switch (a.symbol() orelse 0) {
+        align_center => .center,
+        align_justify => .justify,
+        align_left => .left,
+        align_right => .right,
+        else => .auto,
+    };
+    if (v.get(f_margin_top)) |m| look.space_before = tenths(amount(m, unit_lines) orelse 0);
+    if (v.get(f_margin_bottom)) |m| look.space_after = tenths(amount(m, unit_lines) orelse 0);
+    return look;
+}
 const t_navigation = 389;
 const t_nav_container = 391;
 const f_nav_containers = 392;
@@ -472,6 +578,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
         if (r.off > c.body.len or r.len > c.body.len - r.off) return error.Truncated;
         try p.index.put(alloc, .{ .id = r.id, .kind = r.kind }, c.body[@intCast(r.off)..][0..@intCast(r.len)]);
     }
+    try p.readLooks();
 
     const doc = findDocument(&p) orelse return error.NoReadingOrder;
     var orders = (doc.get(f_reading_orders) orelse return error.NoReadingOrder).items();
@@ -638,4 +745,12 @@ test "a book cut short is not complete" {
     @memcpy(d[0..4], "CONT");
     std.mem.writeInt(u32, d[6..10], 40, .little); // Header longer than the file
     try std.testing.expect(!isComplete(&d));
+}
+
+test "book sizes snap to the reader's steps" {
+    try std.testing.expectEqual(@as(u8, 0), sizeClass(0.8));
+    try std.testing.expectEqual(@as(u8, 1), sizeClass(1.0));
+    try std.testing.expectEqual(@as(u8, 2), sizeClass(1.125));
+    try std.testing.expectEqual(@as(u8, 3), sizeClass(1.5));
+    try std.testing.expectEqual(@as(u8, 4), sizeClass(2.0));
 }

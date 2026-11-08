@@ -19,13 +19,22 @@ pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = system.max_warmt
 const schedule_top = 754;
 const schedule_bottom = 794;
 
-pub const Family = struct { label: []const u8, regular: [*:0]const u8, bold: [*:0]const u8 };
+/// A typeface's four files: regular, bold, italic and bold italic, in that order.
+pub const Family = struct {
+    label: []const u8,
+    faces: [4][*:0]const u8,
+
+    /// The file for a weight and slant.
+    pub fn path(f: Family, bold: bool, italic: bool) [*:0]const u8 {
+        return f.faces[@as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1];
+    }
+};
 const font_dir = "/usr/java/lib/fonts/";
 pub const families = [_]Family{
-    .{ .label = "Ember", .regular = font_dir ++ "Amazon-Ember-Regular.ttf", .bold = font_dir ++ "Amazon-Ember-Bold.ttf" },
-    .{ .label = "Bookerly", .regular = font_dir ++ "Bookerly-Regular.ttf", .bold = font_dir ++ "Bookerly-Bold.ttf" },
-    .{ .label = "Baskerville", .regular = font_dir ++ "Baskerville-Regular.ttf", .bold = font_dir ++ "Baskerville-Bold.ttf" },
-    .{ .label = "Serif", .regular = font_dir ++ "AmazonEmberSerif_Rg.ttf", .bold = font_dir ++ "AmazonEmberSerif_Bd.ttf" },
+    .{ .label = "Ember", .faces = .{ font_dir ++ "Amazon-Ember-Regular.ttf", font_dir ++ "Amazon-Ember-Bold.ttf", font_dir ++ "Amazon-Ember-RegularItalic.ttf", font_dir ++ "Amazon-Ember-BoldItalic.ttf" } },
+    .{ .label = "Bookerly", .faces = .{ font_dir ++ "Bookerly-Regular.ttf", font_dir ++ "Bookerly-Bold.ttf", font_dir ++ "Bookerly-Italic.ttf", font_dir ++ "Bookerly-BoldItalic.ttf" } },
+    .{ .label = "Baskerville", .faces = .{ font_dir ++ "Baskerville-Regular.ttf", font_dir ++ "Baskerville-Bold.ttf", font_dir ++ "Baskerville-Italic.ttf", font_dir ++ "Baskerville-BoldItalic.ttf" } },
+    .{ .label = "Serif", .faces = .{ font_dir ++ "AmazonEmberSerif_Rg.ttf", font_dir ++ "AmazonEmberSerif_Bd.ttf", font_dir ++ "AmazonEmberSerif_RgIt.ttf", font_dir ++ "AmazonEmberSerif_BdIt.ttf" } },
 };
 
 pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
@@ -44,11 +53,6 @@ pub const Settings = struct {
 
     pub fn px(s: Settings) f32 {
         return sizes[s.size];
-    }
-
-    pub fn fontPath(s: Settings) [*:0]const u8 {
-        const family = families[s.font];
-        return if (s.bold) family.bold else family.regular;
     }
 
     pub fn lineHeight(s: Settings) i32 {

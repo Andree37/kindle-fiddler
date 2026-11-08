@@ -37,6 +37,21 @@ const sample = filler ++ filler ++ "One reference2 sits inside a word and a [3] 
 const note_line = "This is invented text for checking the note panel, long enough to wrap over several lines. ";
 const sample_note = note_line ++ note_line ++ note_line;
 
+/// Faces for the format preview: the four Bookerly files at any size, made on first use.
+const PreviewFaces = struct {
+    files: [4][]const u8,
+    fonts: [4][5]?text.Font = @splat(@splat(null)),
+    alloc: std.mem.Allocator,
+
+    fn pick(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*text.Font {
+        const f: *PreviewFaces = @ptrCast(@alignCast(ctx));
+        const which: usize = @as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1;
+        const slot = &f.fonts[which][size];
+        if (slot.* == null) slot.* = try text.Font.init(f.alloc, f.files[which], 46 * core.kfx.size_scales[size], 1.35);
+        return &slot.*.?;
+    }
+};
+
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
     const alloc = std.heap.page_allocator;
@@ -113,6 +128,39 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const jpeg = kfx.coverImage(data) orelse return error.NoCover;
         std.debug.print("jpeg {d} bytes\n", .{jpeg.len});
         if (!cover.fillScreen(alloc, jpeg, buf, w, h, w)) return error.DecodeFailed;
+        writeImage(buf, w, h);
+        return;
+    }
+
+    if (std.mem.eql(u8, mode, "format")) {
+        // Invented text, set the way a chapter opening is.
+        var faces = PreviewFaces{ .alloc = alloc, .files = undefined };
+        const font_root = "/usr/java/lib/fonts/";
+        for ([_][*:0]const u8{ font_root ++ "Bookerly-Regular.ttf", font_root ++ "Bookerly-Bold.ttf", font_root ++ "Bookerly-Italic.ttf", font_root ++ "Bookerly-BoldItalic.ttf" }, &faces.files) |path, *f| f.* = try file.map(path);
+        const body_text = "This sample paragraph has a few words in bold and some in italics, then carries on as ordinary body text for a line or two more.";
+        const runs = [_]core.kfx.Run{
+            .{ .start = 26, .end = 39, .bold = true, .italic = false },
+            .{ .start = 44, .end = 59, .bold = false, .italic = true },
+        };
+        const sample_paras = [_]core.kfx.Paragraph{
+            .{ .text = "Chapter One", .style = 0, .look = .{ .bold = true, .size = 4, .alignment = .center, .space_after = 10 } },
+            .{ .text = "A subtitle in italics", .style = 0, .look = .{ .italic = true, .alignment = .center, .space_after = 10 } },
+            .{ .text = body_text, .style = 0, .runs = &runs },
+            .{ .text = body_text, .style = 0 },
+            .{ .text = "A Section Heading", .style = 0, .look = .{ .bold = true, .size = 2, .space_before = 10, .space_after = 4 } },
+            .{ .text = body_text, .style = 0 },
+        };
+        const base = try PreviewFaces.pick(&faces, false, false, core.kfx.normal_size);
+        _ = try text.renderPage(base, page, &sample_paras, .{}, .{ .faces = .{ .ctx = &faces, .pick = PreviewFaces.pick }, .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 }, null);
+        writeImage(buf, w, h);
+        return;
+    }
+
+    if (std.mem.eql(u8, mode, "search")) {
+        @memset(buf, 0xe8);
+        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, null, .{}, false);
+        try core.search_ui.renderField(fonts, page, "lighthouse", true, null);
+        try core.keyboard.render(fonts, page);
         writeImage(buf, w, h);
         return;
     }
