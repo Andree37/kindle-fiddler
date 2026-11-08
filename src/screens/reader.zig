@@ -17,6 +17,7 @@ const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
+const search = @import("reader/search.zig");
 const bookmark = @import("reader/bookmark.zig");
 const bookmarks = @import("../book/bookmarks.zig");
 const panel = @import("panel.zig");
@@ -160,7 +161,16 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 .toolbar, .sheet => {
                     const sheet = view == .sheet;
                     switch (toolbar.hit(t.x, t.y, sheet)) {
-                        .stay, .search, .more => {},
+                        .stay, .more => {},
+                        .search => {
+                            if (try search.run(a, &session, alloc)) |target| {
+                                view = .page;
+                                a.input.grips = true;
+                                try session.show(target, null, true);
+                            } else {
+                                try controls.drawToolbar(a, &session, entry.title, sheet, true);
+                            }
+                        },
                         .bookmark => {
                             try bookmark.toggle(a, &session, alloc, entry);
                             try controls.drawToolbar(a, &session, entry.title, sheet, true);

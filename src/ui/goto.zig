@@ -11,7 +11,7 @@ const Fonts = @import("fonts.zig").Fonts;
 
 pub const top = 228; // Under the toolbar, which stays visible above
 const tabs_baseline = top + 72;
-const list_top = top + 112;
+pub const list_top = top + 112; // Above it: the tabs here, the query field in search
 const row_height = 100;
 pub const rows = 11;
 const indent = 48; // Per level of nesting
@@ -76,10 +76,16 @@ pub fn render(fonts: Fonts, page: text.Page, tab: Tab, list: []const Row, readin
     const half: f32 = @floatFromInt(page.width / 2);
     try draw.choice(fonts, page, half / 2, .center, tabs_baseline, "Contents", tab == .contents, tabs_baseline + 14);
     try draw.choice(fonts, page, half + half / 2, .center, tabs_baseline, "Notes", tab == .notes, tabs_baseline + 14);
+    const empty = if (tab == .contents) "This book has no contents list." else "No bookmarks or highlights yet.";
+    try renderList(fonts, page, list, reading, list_page, empty);
+}
+
+/// The rows under the header, with the pager below. `empty` shows when there are none.
+pub fn renderList(fonts: Fonts, page: text.Page, list: []const Row, reading: ?usize, list_page: usize, empty: []const u8) !void {
+    page.fillRect(0, list_top - 12, page.width, page.height - (list_top - 12), style.white);
     page.fillRect(style.margin, list_top - 12, page.width - 2 * style.margin, 1, style.rule);
     if (list.len == 0) {
-        const empty = if (tab == .contents) "This book has no contents list." else "No bookmarks or highlights yet.";
-        try draw.centered(fonts.small, page, half, list_top + 200, empty);
+        try draw.centered(fonts.small, page, @floatFromInt(page.width / 2), list_top + 200, empty);
         return;
     }
     const first = list_page * rows;

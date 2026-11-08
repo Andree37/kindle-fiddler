@@ -28,6 +28,27 @@ pub const Value = struct {
         return .{ .data = if (v.kind == .struct_) v.body else &.{} };
     }
 
+    /// A float, stored big-endian in 4 or 8 bytes. Zero-length means 0.
+    pub fn float(v: Value) ?f64 {
+        if (v.kind != .float) return null;
+        return switch (v.body.len) {
+            0 => 0,
+            4 => @as(f32, @bitCast(std.mem.readInt(u32, v.body[0..4], .big))),
+            8 => @bitCast(std.mem.readInt(u64, v.body[0..8], .big)),
+            else => null,
+        };
+    }
+
+    /// A number however it's stored: unsigned, negative, float or decimal (decimals read as 0).
+    pub fn number(v: Value) ?f64 {
+        return switch (v.kind) {
+            .uint => @floatFromInt(v.int),
+            .nint => -@as(f64, @floatFromInt(v.int)),
+            .float => v.float(),
+            else => null,
+        };
+    }
+
     pub fn text(v: Value) ?[]const u8 {
         return if (v.kind == .string) v.body else null;
     }

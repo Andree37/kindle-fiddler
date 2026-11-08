@@ -16,6 +16,27 @@ const unixTime = os.unixTime;
 const failed = os.failed;
 const app = @import("../../app.zig");
 
+/// What's typed into search.
+pub const Query = struct {
+    buf: [64]u8 = undefined,
+    len: usize = 0,
+
+    pub fn slice(q: *const Query) []const u8 {
+        return q.buf[0..q.len];
+    }
+
+    pub fn push(q: *Query, c: u8) void {
+        if (q.len < q.buf.len) {
+            q.buf[q.len] = c;
+            q.len += 1;
+        }
+    }
+
+    pub fn pop(q: *Query) void {
+        q.len -|= 1;
+    }
+};
+
 pub const Session = struct {
     app: *app.App,
     paragraphs: []const kfx.Paragraph,
@@ -28,6 +49,7 @@ pub const Session = struct {
     note_next: ?text.Pos = null,
     highlights: std.ArrayList(highlights.Highlight) = .empty,
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
+    query: Query = .{}, // The last search, kept while the book is open
 
     /// Where a page ends: the next page's start, or null on the last page.
     pub fn pageEnd(s: *const Session, index: usize) ?text.Pos {
