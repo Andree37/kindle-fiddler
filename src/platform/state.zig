@@ -9,9 +9,7 @@ pub const State = struct {
     opened: u64 = 0,
 };
 
-fn failed(rc: usize) bool {
-    return rc > std.math.maxInt(usize) - 4096;
-}
+const failed = @import("os.zig").failed;
 
 /// `<dir>/state-<first 16 hex of md5 of "basename\n">`, matching earlier versions
 /// that named these files with `basename | md5sum`.

@@ -26,9 +26,7 @@ pub const Quick = struct {
     }
 };
 
-fn failed(rc: usize) bool {
-    return rc > std.math.maxInt(usize) - 4096;
-}
+const failed = @import("os.zig").failed;
 
 /// Runs a program and returns how many bytes of its output landed in `out`.
 fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {

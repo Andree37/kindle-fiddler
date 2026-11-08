@@ -26,9 +26,15 @@ const system = @import("platform/system.zig");
 const text = @import("book/text.zig");
 const toolbar = @import("ui/toolbar.zig");
 const touch_zones = @import("platform/touch.zig");
+const input_mod = @import("platform/input.zig");
+const os = @import("platform/os.zig");
+const Input = input_mod.Input;
+const Action = input_mod.Action;
+const nowUs = os.nowUs;
+const unixTime = os.unixTime;
+const failed = os.failed;
 
 const page_waveform: hwtcon.Waveform = .reagl;
-const idle_quit_ms = 30 * 60 * 1000;
 const save_every = 10;
 const download_poll_us = 5 * 1000 * 1000;
 const download_watch_us = 3 * 60 * 1000 * 1000;
@@ -39,299 +45,6 @@ const clock_top = 16;
 const clock_height = 56;
 const clock_width = 160;
 
-const touch_device = "/dev/input/event1";
-const power_device = "/dev/input/event0";
-const eviocgrab: u32 = 0x40044590;
-const eviocsclockid: u32 = 0x400445a0;
-const eviocgabs_x: u32 = 0x80184540 + 0x35;
-const eviocgabs_y: u32 = 0x80184540 + 0x36;
-
-const ev_key = 1;
-const ev_abs = 3;
-const abs_mt_slot = 0x2f;
-const abs_mt_x = 0x35;
-const abs_mt_y = 0x36;
-const abs_mt_tracking = 0x39;
-
-const InputEvent = extern struct { sec: u32, usec: u32, kind: u16, code: u16, value: i32 };
-
-var stop_requested = std.atomic.Value(bool).init(false);
-
-fn onSignal(_: linux.SIG) callconv(.c) void {
-    stop_requested.store(true, .release);
-}
-
-fn installSignals() void {
-    var act = std.mem.zeroes(linux.Sigaction);
-    act.handler = .{ .handler = onSignal };
-    for ([_]linux.SIG{ .TERM, .INT, .HUP }) |sig| _ = linux.sigaction(sig, &act, null);
-}
-
-fn nowUs() u64 {
-    var ts: linux.timespec = undefined;
-    _ = linux.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @intCast(ts.sec)) * 1_000_000 + @as(u64, @intCast(ts.nsec)) / 1000;
-}
-
-fn unixTime() u64 {
-    var ts: linux.timespec = undefined;
-    _ = linux.clock_gettime(.REALTIME, &ts);
-    return @intCast(ts.sec);
-}
-
-fn failed(rc: usize) bool {
-    return rc > std.math.maxInt(usize) - 4096;
-}
-
-fn openInput(path: [*:0]const u8) !i32 {
-    const rc = linux.open(path, .{ .ACCMODE = .RDONLY, .NONBLOCK = true }, 0);
-    if (failed(rc)) return error.InputOpen;
-    const fd: i32 = @intCast(rc);
-    var clock: i32 = 1; // CLOCK_MONOTONIC, so event times compare with nowUs
-    _ = linux.ioctl(fd, eviocsclockid, @intFromPtr(&clock));
-    return fd;
-}
-
-fn axisMax(fd: i32, req: u32) i32 {
-    var info = std.mem.zeroes([6]i32);
-    _ = linux.ioctl(fd, req, @intFromPtr(&info));
-    return @max(info[2], 1);
-}
-
-/// Current position of a multitouch axis in both slots (EVIOCGMTSLOTS).
-fn slotValues(fd: i32, code: u32) [2]i32 {
-    var request = [_]i32{ @intCast(code), 0, 0 };
-    _ = linux.ioctl(fd, 0x800c450a, @intFromPtr(&request));
-    return .{ request[1], request[2] };
-}
-
-const Action = union(enum) {
-    tap: struct { x: i32, y: i32, us: u64 },
-    hold: struct { x: i32, y: i32 },
-    pull,
-    drag: i32, // Finger x while a drag is being followed
-    drag_end,
-    tick,
-    lock,
-    unlock,
-    power,
-    idle,
-    stop,
-};
-
-/// Turns raw touch events into taps.
-/// The panel reports two slots. Every new finger counts, so a resting thumb
-/// can't block taps from another finger.
-const Input = struct {
-    touch: i32,
-    power: i32,
-    power_events: i32 = -1,
-    width: i32,
-    height: i32,
-    x_max: i32,
-    y_max: i32,
-    events: [64]InputEvent = undefined,
-    event_count: usize = 0,
-    event_next: usize = 0,
-    slot: usize = 0,
-    xs: [2]i32 = .{ 0, 0 },
-    ys: [2]i32 = .{ 0, 0 },
-    pending: ?usize = null,
-    down_us: u64 = 0,
-    top_slot: ?usize = null,
-    top_x: i32 = 0,
-    top_y: i32 = 0,
-    top_us: u64 = 0,
-    top_moved: bool = false,
-    deferred: bool = false, // On book pages: taps wait for lift, so a press can become a hold
-    last_touched: usize = 0,
-    grips: bool = true, // Off while controls sit where a thumb usually rests
-    edge_zones: bool = true, // Off while handles can sit at the screen edges
-    tick_us: u64 = 0, // When set, `next` returns .tick this often
-    last_tick: u64 = 0,
-    drag_slot: ?usize = null,
-    drag_y: i32 = 0,
-    last_input: u64 = 0,
-    stashed: ?Action = null,
-    locked: bool = false, // Nothing to check on a timer, so sleep until an event
-
-    /// Follows the finger of the last tap until it lifts.
-    fn beginDrag(in: *Input) void {
-        in.drag_slot = in.last_touched;
-    }
-
-    /// Skips to the newest finger position already waiting, if any.
-    /// Anything else that turns up is kept for the next call to `next`.
-    fn latestDrag(in: *Input) ?i32 {
-        var latest: ?i32 = null;
-        while (in.stashed == null) {
-            while (in.event_next >= in.event_count) {
-                const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
-                if (failed(n) or n < @sizeOf(InputEvent)) return latest;
-                in.event_count = n / @sizeOf(InputEvent);
-                in.event_next = 0;
-                in.last_input = nowUs();
-            }
-            const e = in.events[in.event_next];
-            in.event_next += 1;
-            const action = in.handle(e) orelse continue;
-            switch (action) {
-                .drag => |x| latest = x,
-                else => in.stashed = action,
-            }
-        }
-        return latest;
-    }
-
-    /// Sums page-turn taps already waiting, so fast tapping jumps instead of lagging.
-    /// Anything else that turns up is kept for the next call to `next`.
-    fn takeTurns(in: *Input) i32 {
-        var delta: i32 = 0;
-        while (in.stashed == null) {
-            while (in.event_next >= in.event_count) {
-                const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
-                if (failed(n) or n < @sizeOf(InputEvent)) return delta;
-                in.event_count = n / @sizeOf(InputEvent);
-                in.event_next = 0;
-                in.last_input = nowUs();
-            }
-            const e = in.events[in.event_next];
-            in.event_next += 1;
-            const action = in.handle(e) orelse continue;
-            switch (action) {
-                .tap => |t| {
-                    if (t.y < touch_zones.top_zone) {
-                        in.stashed = action;
-                    } else {
-                        delta += turnDirection(t.x, in.width);
-                    }
-                },
-                else => in.stashed = action,
-            }
-        }
-        return delta;
-    }
-
-    fn next(in: *Input) Action {
-        while (true) {
-            if (stop_requested.load(.acquire)) return .stop;
-            if (in.stashed) |action| {
-                in.stashed = null;
-                return action;
-            }
-            while (in.event_next < in.event_count) {
-                const e = in.events[in.event_next];
-                in.event_next += 1;
-                if (in.handle(e)) |action| return action;
-            }
-            if (!in.locked and nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
-            if (in.deferred and !in.top_moved) {
-                if (in.top_slot) |slot| {
-                    if (nowUs() -| in.top_us >= touch_zones.hold_ms * 1000) {
-                        in.top_slot = null;
-                        in.drag_slot = slot;
-                        return .{ .hold = .{ .x = in.top_x, .y = in.top_y } };
-                    }
-                }
-            }
-            if (in.tick_us != 0 and nowUs() - in.last_tick >= in.tick_us) {
-                in.last_tick = nowUs();
-                return .tick;
-            }
-
-            var fds = [_]linux.pollfd{
-                .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
-                .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
-            };
-            const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) -1 else 1000;
-            _ = linux.poll(&fds, fds.len, wait);
-
-            var drained: [16]InputEvent = undefined;
-            _ = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained))); // powerd acts on the key
-
-            if (in.power_events >= 0) {
-                var line: [512]u8 = undefined;
-                const got = linux.read(in.power_events, &line, line.len);
-                if (got == 0) {
-                    // The watcher died. Without this the closed pipe wakes poll forever.
-                    _ = linux.close(in.power_events);
-                    in.power_events = -1;
-                } else if (!failed(got)) {
-                    if (touch_zones.lastPowerEvent(line[0..got])) |event| {
-                        return if (event == .lock) .lock else .unlock;
-                    }
-                }
-            }
-
-            const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
-            if (!failed(n) and n >= @sizeOf(InputEvent)) {
-                in.event_count = n / @sizeOf(InputEvent);
-                in.event_next = 0;
-                in.last_input = nowUs();
-            }
-        }
-    }
-
-    fn handle(in: *Input, e: InputEvent) ?Action {
-        if (e.kind == ev_abs) {
-            switch (e.code) {
-                abs_mt_slot => in.slot = @min(@as(usize, @intCast(@max(e.value, 0))), 1),
-                abs_mt_x => in.xs[in.slot] = e.value,
-                abs_mt_y => in.ys[in.slot] = e.value,
-                abs_mt_tracking => {
-                    if (e.value >= 0) {
-                        in.pending = in.slot;
-                        in.down_us = @as(u64, e.sec) * 1_000_000 + e.usec;
-                    } else if (in.drag_slot == in.slot) {
-                        in.drag_slot = null;
-                        return .drag_end;
-                    } else if (in.top_slot == in.slot) {
-                        // Lifted without dragging, so it was a tap on the top row.
-                        in.top_slot = null;
-                        return .{ .tap = .{ .x = in.top_x, .y = in.top_y, .us = in.top_us } };
-                    }
-                },
-                else => {},
-            }
-            return null;
-        }
-        // Coordinates of a new touch arrive just before the SYN that ends its packet.
-        if (e.kind != 0) return null;
-        if (in.drag_slot) |slot| {
-            in.pending = null;
-            in.drag_y = @divTrunc(in.ys[slot] * in.height, in.y_max);
-            return .{ .drag = @divTrunc(in.xs[slot] * in.width, in.x_max) };
-        }
-        if (in.top_slot) |slot| {
-            const x = @divTrunc(in.xs[slot] * in.width, in.x_max);
-            const y = @divTrunc(in.ys[slot] * in.height, in.y_max);
-            if (touch_zones.movedOff(in.top_x, in.top_y, x, y)) in.top_moved = true;
-            if (in.top_y < touch_zones.top_zone and touch_zones.isPull(in.top_y, y)) {
-                in.top_slot = null;
-                return .pull;
-            }
-        }
-        const touched = in.pending orelse return null;
-        in.pending = null;
-        in.last_touched = touched;
-        const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
-        const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
-        if (in.edge_zones and in.grips and touch_zones.isGrip(px, py, in.width, in.height)) return null;
-        if (in.deferred or (in.edge_zones and py < touch_zones.top_zone)) {
-            in.top_slot = touched;
-            in.top_x = px;
-            in.top_y = py;
-            in.top_us = in.down_us;
-            in.top_moved = false;
-            return null;
-        }
-        return .{ .tap = .{ .x = px, .y = py, .us = in.down_us } };
-    }
-};
-
-fn turnDirection(x: i32, width: i32) i32 {
-    return if (x < @divTrunc(width, 3)) -1 else 1;
-}
 
 const Slot = struct { page: i64 = -1, buf: []u8, hits: text.Hits = .{} };
 
@@ -640,8 +353,7 @@ fn showNotice(a: *App, message: []const u8) !void {
     const label = try a.ui.small.measure(message);
     try a.ui.small.draw(screen_page, @as(f32, @floatFromInt(left + width / 2)) - label / 2, @intCast(top + 62), message);
     try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, page_waveform, .partial));
-    const wait = linux.timespec{ .sec = notice_ms / 1000, .nsec = (notice_ms % 1000) * 1_000_000 };
-    _ = linux.nanosleep(&wait, null);
+    os.sleepMs(notice_ms);
 }
 
 /// Takes a failed selection back off the page and says so.
@@ -1269,7 +981,7 @@ fn readBook(a: *App, entry: *library.Entry) !Outcome {
                         try drawToolbar(a, &session, entry.title, false, false);
                         continue;
                     }
-                    const delta = turnDirection(t.x, a.input.width) + a.input.takeTurns();
+                    const delta = input_mod.turnDirection(t.x, a.input.width) + a.input.takeTurns();
                     const last: i64 = @intCast(session.pages.len - 1);
                     const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
                     if (target == session.current) continue;
@@ -1624,23 +1336,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var slots: [3]Slot = undefined;
     for (&slots) |*s| s.* = .{ .buf = try alloc.alloc(u8, screen.pixels.len) };
 
-    const touch = try openInput(touch_device);
-    const power = try openInput(power_device);
-    // The kernel only reports coordinates that change, so start from the current ones.
-    var input = Input{
-        .touch = touch,
-        .power = power,
-        .power_events = system.watchPowerEvents() orelse -1,
-        .width = @intCast(screen.width),
-        .height = @intCast(screen.height),
-        .x_max = axisMax(touch, eviocgabs_x),
-        .y_max = axisMax(touch, eviocgabs_y),
-        .xs = slotValues(touch, abs_mt_x),
-        .ys = slotValues(touch, abs_mt_y),
-        .last_input = nowUs(),
-    };
+    var input = try input_mod.open(screen.width, screen.height);
+    defer input_mod.release(&input);
 
-    installSignals();
+    input_mod.installSignals();
     const saved_screen = try alloc.alloc(u8, screen.pixels.len);
     @memcpy(saved_screen, screen.pixels);
     defer {
@@ -1649,9 +1348,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
             screen.waitComplete(m) catch {};
         } else |_| {}
     }
-
-    if (failed(linux.ioctl(touch, eviocgrab, 1))) return error.GrabFailed;
-    defer _ = linux.ioctl(touch, eviocgrab, 0);
 
     var settings_buf: [320]u8 = undefined;
     const settings_path = try std.fmt.bufPrintSentinel(&settings_buf, "{s}/settings", .{state_dir}, 0);

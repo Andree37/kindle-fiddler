@@ -1,4 +1,6 @@
 test {
+    _ = @import("platform/input.zig");
+    _ = @import("platform/os.zig");
     _ = @import("ui/aa.zig");
     _ = @import("book/annotations.zig");
     _ = @import("platform/cache.zig");

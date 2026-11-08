@@ -120,6 +120,4 @@ pub const Screen = struct {
     }
 };
 
-fn failed(rc: usize) bool {
-    return rc > std.math.maxInt(usize) - 4096;
-}
+const failed = @import("os.zig").failed;
