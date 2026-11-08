@@ -1,6 +1,7 @@
 //! Shared by the app and the tools in tools/, which can't reach into src/ directly.
 pub const aa = @import("ui/aa.zig");
 pub const catalog = @import("book/catalog.zig");
+pub const contents = @import("ui/contents.zig");
 pub const cover = @import("ui/cover.zig");
 pub const file = @import("platform/file.zig");
 pub const fonts = @import("ui/fonts.zig");

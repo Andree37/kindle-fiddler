@@ -117,6 +117,22 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
+    if (std.mem.eql(u8, mode, "contents")) {
+        // Invented titles, nested the way books do.
+        const names = [_][]const u8{ "Cover", "Part One", "A first chapter title", "A second chapter", "Interlude", "A much longer chapter title that has to be clipped at the edge of the page", "Part Two", "Short", "Another chapter", "Notes" };
+        var list: [24]core.kfx.Chapter = undefined;
+        var page_of: [24]usize = undefined;
+        for (&list, &page_of, 0..) |*c, *p, i| {
+            c.* = .{ .title = names[i % names.len], .para = @intCast(i * 10), .depth = if (i % 5 == 2 or i % 5 == 3) 1 else 0 };
+            p.* = i * 17;
+        }
+        @memset(buf, 0xe8);
+        try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, null, .{});
+        try core.contents.render(fonts, page, &list, &page_of, 3, 0);
+        writeImage(buf, w, h);
+        return;
+    }
+
     if (std.mem.eql(u8, mode, "toolbar")) {
         const tab: ?core.aa.Tab = if (argv.len > 2) @enumFromInt(argv[2][0] - '0') else null;
         @memset(buf, 0xe8);

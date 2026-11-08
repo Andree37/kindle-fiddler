@@ -16,6 +16,7 @@ const input_mod = @import("../platform/input.zig");
 const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const app = @import("../app.zig");
+const goto = @import("reader/goto.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const sess = @import("reader/session.zig");
@@ -155,7 +156,16 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 .toolbar, .sheet => {
                     const sheet = view == .sheet;
                     switch (toolbar.hit(t.x, t.y, sheet)) {
-                        .stay, .goto, .bookmark, .search, .more => {},
+                        .stay, .bookmark, .search, .more => {},
+                        .goto => {
+                            if (try goto.run(a, &session, alloc, book.chapters)) |target| {
+                                view = .page;
+                                a.input.grips = true;
+                                try session.show(target, null, true);
+                            } else {
+                                try controls.drawToolbar(a, &session, entry.title, sheet, true);
+                            }
+                        },
                         .close => {
                             view = .page;
                             a.input.grips = true;
