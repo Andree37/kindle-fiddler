@@ -38,6 +38,7 @@ pub const View = enum { page, toolbar, sheet, panel, note, highlight };
 pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
+    defer a.pictures.clear(a.alloc); // Its keys point into this book's memory
     const alloc = arena.allocator();
 
     const t0 = nowUs();

@@ -1,4 +1,5 @@
 test {
+    _ = @import("app.zig");
     _ = @import("book/stats.zig");
     _ = @import("book/search.zig");
     _ = @import("ui/keyboard.zig");

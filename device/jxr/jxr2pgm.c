@@ -1,4 +1,5 @@
 /* Decodes one JPEG XR picture from stdin to an 8-bit grayscale PGM on stdout.
+ * With a width and height given, it scales the result to exactly that size.
  *
  * Kindle books store most pictures as JPEG XR. The Kindle's own decoder,
  * /usr/lib/libjpegXR.so (the ITU-T T.835 reference code), is loaded at run time,
@@ -40,7 +41,7 @@ static int fail(const char *why) {
     return 1;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     size_t cap = 1 << 20, len = 0;
     unsigned char *in = malloc(cap);
     for (size_t n; in && (n = fread(in + len, 1, cap - len, stdin)) > 0;) {
@@ -92,7 +93,28 @@ int main(void) {
     jxr_set_block_output(image, block);
     if (jxr_read_image_bitstream(image, f) < 0) return fail("decode failed");
 
-    printf("P5\n%d %d\n255\n", width, height);
-    fwrite(gray, 1, (size_t)width * height, stdout);
+    int out_w = argc == 3 ? atoi(argv[1]) : width;
+    int out_h = argc == 3 ? atoi(argv[2]) : height;
+    if (out_w <= 0 || out_h <= 0 || out_w > 8192 || out_h > 8192) return fail("bad output size");
+    unsigned char *out = gray;
+    if (out_w != width || out_h != height) {
+        /* Box filter: each output pixel averages the source pixels it covers. */
+        out = malloc((size_t)out_w * out_h);
+        if (!out) return fail("out of memory");
+        for (int y = 0; y < out_h; y++) {
+            int y0 = (int)((long)y * height / out_h), y1 = (int)((long)(y + 1) * height / out_h);
+            if (y1 <= y0) y1 = y0 + 1;
+            for (int x = 0; x < out_w; x++) {
+                int x0 = (int)((long)x * width / out_w), x1 = (int)((long)(x + 1) * width / out_w);
+                if (x1 <= x0) x1 = x0 + 1;
+                long sum = 0;
+                for (int sy = y0; sy < y1; sy++)
+                    for (int sx = x0; sx < x1; sx++) sum += gray[sy * width + sx];
+                out[y * out_w + x] = (unsigned char)(sum / ((y1 - y0) * (x1 - x0)));
+            }
+        }
+    }
+    printf("P5\n%d %d\n255\n", out_w, out_h);
+    fwrite(out, 1, (size_t)out_w * out_h, stdout);
     return 0;
 }

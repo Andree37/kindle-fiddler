@@ -289,8 +289,8 @@ pub fn isJpegXr(data: []const u8) bool {
 
 pub const Gray = struct { pixels: []u8, width: usize, height: usize };
 
-/// Decodes a JPEG XR picture with the Kindle's own decoder, through the helper.
-/// `width` and `height` are the size the book gives, which sizes the buffer.
+/// Decodes a JPEG XR picture with the Kindle's own decoder, through the helper,
+/// which scales it to exactly `width` x `height`: the size it will be drawn.
 pub fn decodeJpegXr(alloc: std.mem.Allocator, data: []const u8, width: usize, height: usize) ?Gray {
     const rc = linux.open(jxr_input, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600);
     if (failed(rc)) return null;
@@ -298,7 +298,9 @@ pub fn decodeJpegXr(alloc: std.mem.Allocator, data: []const u8, width: usize, he
     _ = linux.close(@intCast(rc));
     if (failed(written) or written != data.len) return null;
     const out = alloc.alloc(u8, width * height + 64) catch return null;
-    const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", jxr_helper ++ " < " ++ jxr_input };
+    var command_buf: [160]u8 = undefined;
+    const command = std.fmt.bufPrintSentinel(&command_buf, jxr_helper ++ " {d} {d} < " ++ jxr_input, .{ width, height }, 0) catch return null;
+    const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", command };
     const n = run(&argv, out) orelse return null;
     return parsePgm(out[0..n]);
 }

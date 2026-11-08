@@ -51,6 +51,7 @@ pub const App = struct {
     settings_path: [*:0]const u8,
     speed_path: [*:0]const u8,
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
+    pictures: Pictures = .{}, // Pictures of the open book, ready to copy onto pages
     settings: menu.Settings,
     quick: system.Quick = .{},
     utc_offset: i64,
@@ -84,13 +85,26 @@ pub const App = struct {
 
     fn drawImage(ctx: *anyopaque, page_buf: text.Page, image: kfx.Image, x: u32, y: u32, w: u32, h: u32) void {
         const a: *App = @ptrCast(@alignCast(ctx));
-        const drawn = if (system.isJpegXr(image.data)) blk: {
-            var arena = std.heap.ArenaAllocator.init(a.alloc);
-            defer arena.deinit();
-            const gray = system.decodeJpegXr(arena.allocator(), image.data, image.width, image.height) orelse break :blk false;
-            break :blk cover.placeGray(a.alloc, gray.pixels, gray.width, gray.height, page_buf, x, y, w, h);
-        } else cover.place(a.alloc, image.data, page_buf, x, y, w, h);
-        if (!drawn) std.debug.print("picture not drawn\n", .{});
+        const ready = a.pictures.get(image.data.ptr, w, h) orelse blk: {
+            const made = if (system.isJpegXr(image.data))
+                preparedJpegXr(a.alloc, image.data, w, h)
+            else
+                cover.decodeAndPrepare(a.alloc, image.data, w, h);
+            const pixels = made orelse {
+                std.debug.print("picture not drawn\n", .{});
+                return;
+            };
+            a.pictures.put(a.alloc, image.data.ptr, w, h, pixels);
+            break :blk pixels;
+        };
+        cover.blit(page_buf, ready, x, y, w, h);
+    }
+
+    fn preparedJpegXr(alloc: std.mem.Allocator, data: []const u8, w: u32, h: u32) ?[]u8 {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const gray = system.decodeJpegXr(arena.allocator(), data, w, h) orelse return null;
+        return cover.prepare(alloc, gray.pixels, gray.width, gray.height, w, h);
     }
 
     fn pickFace(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*text.Font {
@@ -232,4 +246,48 @@ pub fn loadSettings(path: [*:0]const u8) menu.Settings {
 
 pub fn saveSettings(path: [*:0]const u8, s: menu.Settings) void {
     state.save(path, menu.encode(s));
+}
+
+/// The last few pictures drawn, decoded, scaled and dithered, so drawing a page
+/// again doesn't decode them again. Keyed by where the picture's bytes sit in the
+/// open book, so it must be cleared when the book closes.
+pub const Pictures = struct {
+    const slots = 8;
+    const Entry = struct { key: usize = 0, w: u32 = 0, h: u32 = 0, pixels: []u8 = &.{} };
+    entries: [slots]Entry = @splat(.{}),
+    next: usize = 0, // Which entry to replace next
+
+    pub fn get(p: *const Pictures, data: [*]const u8, w: u32, h: u32) ?[]const u8 {
+        for (p.entries) |e| {
+            if (e.key == @intFromPtr(data) and e.w == w and e.h == h) return e.pixels;
+        }
+        return null;
+    }
+
+    pub fn put(p: *Pictures, alloc: std.mem.Allocator, data: [*]const u8, w: u32, h: u32, pixels: []u8) void {
+        const e = &p.entries[p.next];
+        if (e.key != 0) alloc.free(e.pixels);
+        e.* = .{ .key = @intFromPtr(data), .w = w, .h = h, .pixels = pixels };
+        p.next = (p.next + 1) % slots;
+    }
+
+    pub fn clear(p: *Pictures, alloc: std.mem.Allocator) void {
+        for (&p.entries) |*e| {
+            if (e.key != 0) alloc.free(e.pixels);
+            e.* = .{};
+        }
+        p.next = 0;
+    }
+};
+
+test "pictures are kept until replaced or cleared" {
+    const alloc = std.testing.allocator;
+    var p = Pictures{};
+    defer p.clear(alloc);
+    const key = "abc";
+    p.put(alloc, key.ptr, 2, 1, try alloc.dupe(u8, "xy"));
+    try std.testing.expectEqualStrings("xy", p.get(key.ptr, 2, 1).?);
+    try std.testing.expect(p.get(key.ptr, 4, 2) == null); // Another size
+    for (0..Pictures.slots) |i| p.put(alloc, @ptrFromInt(0x1000 + i), 1, 1, try alloc.dupe(u8, "z"));
+    try std.testing.expect(p.get(key.ptr, 2, 1) == null); // Pushed out
 }

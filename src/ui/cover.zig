@@ -89,25 +89,33 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
     return true;
 }
 
-/// Decodes a picture and draws it into a box on a page, scaled and dithered for the panel.
-pub fn place(alloc: std.mem.Allocator, encoded: []const u8, page: text.Page, x: u32, y: u32, w: u32, h: u32) bool {
-    var sw: c_int = 0;
-    var sh: c_int = 0;
-    const pixels = img_gray(encoded.ptr, @intCast(encoded.len), &sw, &sh) orelse return false;
-    defer img_free(pixels);
-    if (sw <= 0 or sh <= 0) return false;
-    return placeGray(alloc, pixels[0..@intCast(sw * sh)], @intCast(sw), @intCast(sh), page, x, y, w, h);
+/// Scales decoded grayscale pixels to `w` x `h` and dithers them for the panel,
+/// ready to copy onto pages. The caller owns the result.
+pub fn prepare(alloc: std.mem.Allocator, pixels: []const u8, sw: usize, sh: usize, w: usize, h: usize) ?[]u8 {
+    if (w == 0 or h == 0 or sw == 0 or sh == 0 or pixels.len < sw * sh) return null;
+    const out = alloc.alloc(u8, w * h) catch return null;
+    scale(pixels[0 .. sw * sh], sw, sh, out, w, h);
+    dither(alloc, out, w) catch {
+        alloc.free(out);
+        return null;
+    };
+    return out;
 }
 
-/// Draws already-decoded grayscale pixels into a box on a page.
-pub fn placeGray(alloc: std.mem.Allocator, pixels: []const u8, sw: usize, sh: usize, page: text.Page, x: u32, y: u32, w: u32, h: u32) bool {
-    if (w == 0 or h == 0 or x + w > page.width or y + h > page.height or pixels.len < sw * sh) return false;
-    const scaled = alloc.alloc(u8, w * h) catch return false;
-    defer alloc.free(scaled);
-    scale(pixels[0 .. sw * sh], sw, sh, scaled, w, h);
-    dither(alloc, scaled, w) catch return false;
-    for (0..h) |row| @memcpy(page.buf[(y + row) * page.stride + x ..][0..w], scaled[row * w ..][0..w]);
-    return true;
+/// Decodes a JPEG or PNG, then prepares it at `w` x `h`.
+pub fn decodeAndPrepare(alloc: std.mem.Allocator, encoded: []const u8, w: usize, h: usize) ?[]u8 {
+    var sw: c_int = 0;
+    var sh: c_int = 0;
+    const pixels = img_gray(encoded.ptr, @intCast(encoded.len), &sw, &sh) orelse return null;
+    defer img_free(pixels);
+    if (sw <= 0 or sh <= 0) return null;
+    return prepare(alloc, pixels[0..@intCast(sw * sh)], @intCast(sw), @intCast(sh), w, h);
+}
+
+/// Copies a prepared picture into a box on a page.
+pub fn blit(page: text.Page, ready: []const u8, x: u32, y: u32, w: u32, h: u32) void {
+    if (x + w > page.width or y + h > page.height or ready.len < @as(usize, w) * h) return;
+    for (0..h) |row| @memcpy(page.buf[(y + row) * page.stride + x ..][0..w], ready[row * w ..][0..w]);
 }
 
 /// Returns a grayscale cover at the given size, or null if it can't be read.
