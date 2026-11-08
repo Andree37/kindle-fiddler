@@ -85,6 +85,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         shared.settings = .{};
         try shared.applySettings();
     };
+    app.saveSettings(settings_path, shared.settings); // Older files come back in the current format
     try library_screen.runLibrary(&shared);
     std.debug.print("quit\n", .{});
 }

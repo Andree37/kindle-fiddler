@@ -245,12 +245,13 @@ pub fn saveSpeed(a: *const App) void {
 }
 
 pub fn loadSettings(path: [*:0]const u8) settings_model.Settings {
-    return settings_model.decode(state.load(path));
+    var buf: [512]u8 = undefined;
+    return settings_model.parse(state.readSmall(path, &buf));
 }
 
 pub fn saveSettings(path: [*:0]const u8, s: settings_model.Settings) void {
-    const packed_settings = settings_model.encode(s);
-    state.save(path, .{ .para = packed_settings.para, .byte = packed_settings.byte, .opened = packed_settings.opened });
+    var buf: [512]u8 = undefined;
+    state.writeSmall(path, settings_model.format(&buf, s));
 }
 
 /// The last few pictures drawn, decoded, scaled and dithered, so drawing a page
