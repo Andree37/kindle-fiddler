@@ -29,6 +29,11 @@ fi
 "$DIR/noface" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$FONTS/Amazon-Ember-Regular.ttf" "$FONTS/Amazon-Ember-Bold.ttf" "$DIR" >> "$DIR/noface.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null' INT TERM HUP
+# A signal ends the first wait early, while noface is still shutting down.
 wait "$pid"
-wait "$pid"
-echo "exit code $?" >> "$DIR/noface.log"
+code=$?
+if kill -0 "$pid" 2>/dev/null; then
+    wait "$pid"
+    code=$?
+fi
+echo "exit code $code" >> "$DIR/noface.log"
