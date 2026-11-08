@@ -47,9 +47,6 @@ pub fn installSignals() void {
     for ([_]linux.SIG{ .TERM, .INT, .HUP }) |sig| _ = linux.sigaction(sig, &act, null);
 }
 
-
-
-
 fn openInput(path: [*:0]const u8) !i32 {
     const rc = linux.open(path, .{ .ACCMODE = .RDONLY, .NONBLOCK = true }, 0);
     if (failed(rc)) return error.InputOpen;
@@ -123,6 +120,23 @@ pub const Input = struct {
     locked: bool = false, // Nothing to check on a timer, so sleep until an event
     watcher_retry_us: u64 = 0, // When to restart a power-event watcher that died
 
+    /// The next action from touch events already waiting, reading more only when the
+    /// panel has them ready. Null once nothing more is waiting.
+    fn waiting(in: *Input) ?Action {
+        while (true) {
+            while (in.event_next < in.event_count) {
+                const e = in.events[in.event_next];
+                in.event_next += 1;
+                if (in.handle(e)) |action| return action;
+            }
+            const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
+            if (failed(n) or n < @sizeOf(InputEvent)) return null;
+            in.event_count = n / @sizeOf(InputEvent);
+            in.event_next = 0;
+            in.last_input = nowUs();
+        }
+    }
+
     /// Follows the finger of the last tap until it lifts.
     pub fn beginDrag(in: *Input) void {
         in.drag_slot = in.last_touched;
@@ -133,16 +147,7 @@ pub const Input = struct {
     pub fn latestDrag(in: *Input) ?i32 {
         var latest: ?i32 = null;
         while (in.stashed == null) {
-            while (in.event_next >= in.event_count) {
-                const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
-                if (failed(n) or n < @sizeOf(InputEvent)) return latest;
-                in.event_count = n / @sizeOf(InputEvent);
-                in.event_next = 0;
-                in.last_input = nowUs();
-            }
-            const e = in.events[in.event_next];
-            in.event_next += 1;
-            const action = in.handle(e) orelse continue;
+            const action = in.waiting() orelse return latest;
             switch (action) {
                 .drag => |x| latest = x,
                 else => in.stashed = action,
@@ -156,16 +161,7 @@ pub const Input = struct {
     pub fn takeTurns(in: *Input) i32 {
         var delta: i32 = 0;
         while (in.stashed == null) {
-            while (in.event_next >= in.event_count) {
-                const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
-                if (failed(n) or n < @sizeOf(InputEvent)) return delta;
-                in.event_count = n / @sizeOf(InputEvent);
-                in.event_next = 0;
-                in.last_input = nowUs();
-            }
-            const e = in.events[in.event_next];
-            in.event_next += 1;
-            const action = in.handle(e) orelse continue;
+            const action = in.waiting() orelse return delta;
             switch (action) {
                 .tap => |t| {
                     if (t.y < touch_zones.top_zone) {
@@ -187,11 +183,7 @@ pub const Input = struct {
                 in.stashed = null;
                 return action;
             }
-            while (in.event_next < in.event_count) {
-                const e = in.events[in.event_next];
-                in.event_next += 1;
-                if (in.handle(e)) |action| return action;
-            }
+            if (in.waiting()) |action| return action;
             if (!in.locked and nowUs() - in.last_input > idle_quit_ms * 1000) return .idle;
             if (in.deferred and !in.top_moved) {
                 if (in.top_slot) |slot| {
@@ -248,12 +240,6 @@ pub const Input = struct {
                 }
             }
 
-            const n = linux.read(in.touch, @ptrCast(&in.events), @sizeOf(@TypeOf(in.events)));
-            if (!failed(n) and n >= @sizeOf(InputEvent)) {
-                in.event_count = n / @sizeOf(InputEvent);
-                in.event_next = 0;
-                in.last_input = nowUs();
-            }
         }
     }
 
@@ -343,7 +329,6 @@ pub fn open(width: u32, height: u32) !Input {
 pub fn release(in: *const Input) void {
     _ = linux.ioctl(in.touch, eviocgrab, 0);
 }
-
 
 // A pretend panel, the size of the screen, with no devices behind it.
 fn testInput() Input {
