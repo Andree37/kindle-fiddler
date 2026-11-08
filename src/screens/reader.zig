@@ -1,5 +1,6 @@
 //! Reading a book: page turns, and routing taps to the toolbar, panel, notes and highlights.
 const std = @import("std");
+const book_model = @import("../model/book.zig");
 const catalog = @import("../model/catalog.zig");
 const os = @import("../linux/os.zig");
 const file = @import("../linux/file.zig");
@@ -57,7 +58,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const start = if (state.preferKindle(saved, entry.kindle_last))
         @min(pages.len * entry.kindle_percent / 100, pages.len - 1)
     else
-        sess.pageContaining(pages, kfx.fromTextIndex(book.paragraphs, saved.para), saved.byte);
+        sess.pageContaining(pages, book_model.fromTextIndex(book.paragraphs, saved.para), saved.byte);
 
     const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};

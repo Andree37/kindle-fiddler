@@ -1,11 +1,11 @@
 //! The Go To sheet under the toolbar: the book's contents, or its bookmarks and
 //! highlights, a page of rows at a time.
 const std = @import("std");
+const book_model = @import("../model/book.zig");
 const draw = @import("draw.zig");
 const icons = @import("icons.zig");
 const library = @import("library.zig");
 const style = @import("style.zig");
-const kfx = @import("../kindle/kfx.zig");
 const text = @import("../layout/text.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
@@ -36,7 +36,7 @@ pub fn listPageOf(row: usize) usize {
 }
 
 /// The chapter being read: the last one starting at or before `para`.
-pub fn current(chapters: []const kfx.Chapter, para: usize) ?usize {
+pub fn current(chapters: []const book_model.Chapter, para: usize) ?usize {
     var found: ?usize = null;
     var best: u32 = 0;
     for (chapters, 0..) |c, i| {
@@ -111,7 +111,7 @@ pub fn renderList(fonts: Fonts, page: text.Page, list: []const Row, reading: ?us
 }
 
 test "the current chapter is the last one started" {
-    const chapters = [_]kfx.Chapter{
+    const chapters = [_]book_model.Chapter{
         .{ .title = "a", .para = 0, .depth = 0 },
         .{ .title = "b", .para = 10, .depth = 0 },
         .{ .title = "b.1", .para = 12, .depth = 1 },
@@ -120,7 +120,7 @@ test "the current chapter is the last one started" {
     try std.testing.expectEqual(@as(usize, 0), current(&chapters, 5).?);
     try std.testing.expectEqual(@as(usize, 2), current(&chapters, 20).?);
     try std.testing.expectEqual(@as(usize, 3), current(&chapters, 99).?);
-    const late = [_]kfx.Chapter{.{ .title = "x", .para = 50, .depth = 0 }};
+    const late = [_]book_model.Chapter{.{ .title = "x", .para = 50, .depth = 0 }};
     try std.testing.expect(current(&late, 5) == null);
 }
 

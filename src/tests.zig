@@ -1,4 +1,6 @@
 test {
+    _ = @import("model/book.zig");
+    _ = @import("model/notes.zig");
     _ = @import("kindle/catalog.zig");
     _ = @import("kindle/jpegxr.zig");
     _ = @import("kindle/annotation_db.zig");

@@ -1,7 +1,7 @@
 //! Finding words in a book. Matching ignores case and accents, so "acao" finds
 //! "Ação", the way people type on a small keyboard.
 const std = @import("std");
-const kfx = @import("../kindle/kfx.zig");
+const book_model = @import("book.zig");
 
 pub const Match = struct { para: u32, byte: u32 };
 
@@ -27,7 +27,7 @@ pub fn fold(cp: u32) u32 {
 
 /// Every place `query` appears, in reading order, up to `limit`. Notes are skipped,
 /// as they aren't part of the flow.
-pub fn find(alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, query: []const u8, limit: usize) ![]Match {
+pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, query: []const u8, limit: usize) ![]Match {
     var wanted: std.ArrayList(u32) = .empty;
     defer wanted.deinit(alloc);
     var q: usize = 0;
@@ -79,14 +79,14 @@ pub fn snippet(s: []const u8, byte: usize, max: usize) []const u8 {
     return s[start..end];
 }
 
-fn sample(t: []const u8) kfx.Paragraph {
+fn sample(t: []const u8) book_model.Paragraph {
     return .{ .text = t, .style = 0 };
 }
 
 test "matching ignores case and accents" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const paras = [_]kfx.Paragraph{ sample("A Ação começa."), sample("Nothing here"), sample("acao e ACAO") };
+    const paras = [_]book_model.Paragraph{ sample("A Ação começa."), sample("Nothing here"), sample("acao e ACAO") };
     const found = try find(arena.allocator(), &paras, "acao", 10);
     try std.testing.expectEqual(@as(usize, 3), found.len);
     try std.testing.expectEqual(@as(u32, 0), found[0].para);
@@ -101,7 +101,7 @@ test "notes are skipped and the limit holds" {
     defer arena.deinit();
     var note = sample("word word");
     note.note = true;
-    const paras = [_]kfx.Paragraph{ sample("word word word"), note };
+    const paras = [_]book_model.Paragraph{ sample("word word word"), note };
     try std.testing.expectEqual(@as(usize, 2), (try find(arena.allocator(), &paras, "word", 2)).len);
     try std.testing.expectEqual(@as(usize, 3), (try find(arena.allocator(), &paras, "word", 99)).len);
 }

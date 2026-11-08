@@ -1,6 +1,6 @@
 //! Notes shown in a panel over the page, from a tapped reference.
 const std = @import("std");
-const kfx = @import("../../kindle/kfx.zig");
+const note_rules = @import("../../model/notes.zig");
 const notes = @import("../../ui/notes.zig");
 const text = @import("../../layout/text.zig");
 const app = @import("../../app.zig");
@@ -23,7 +23,7 @@ pub fn showNote(a: *app.App, s: *sess.Session, start: text.Pos, fixed: ?u32) !vo
 }
 
 pub fn openNote(a: *app.App, s: *sess.Session, target: u32) !void {
-    s.note_len = kfx.noteLength(s.paragraphs, target);
+    s.note_len = note_rules.noteLength(s.paragraphs, target);
     for (s.paragraphs[target..][0..s.note_len], s.note_parts[0..s.note_len]) |src, *dst| {
         dst.* = src;
         dst.note = false;

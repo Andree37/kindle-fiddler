@@ -1,14 +1,14 @@
 //! Bookmarks: a single position marking a page.
 const std = @import("std");
+const book_model = @import("book.zig");
 const highlights = @import("highlights.zig");
-const kfx = @import("../kindle/kfx.zig");
 const text = @import("../layout/text.zig");
 
 pub const Bookmark = struct { id: []const u8, para: u32, byte: u32 };
 
 /// Reads "id|start|end" lines from the annotation database. Bookmarks start and
 /// end at the same place, so only the start counts.
-pub fn parse(alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, lines: []const u8) ![]Bookmark {
+pub fn parse(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, lines: []const u8) ![]Bookmark {
     var out: std.ArrayList(Bookmark) = .empty;
     var it = std.mem.tokenizeScalar(u8, lines, '\n');
     while (it.next()) |line| {
@@ -51,7 +51,7 @@ test "a bookmark belongs to the page it falls on" {
 test "bookmark lines become positions" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const paras = [_]kfx.Paragraph{ .{ .text = "abcdef", .style = 0, .position = 100 }, .{ .text = "ghij", .style = 0, .position = 106 } };
+    const paras = [_]book_model.Paragraph{ .{ .text = "abcdef", .style = 0, .position = 100 }, .{ .text = "ghij", .style = 0, .position = 106 } };
     const list = try parse(arena.allocator(), &paras, "kindle.bookmark-107|107|107\nbad\n");
     try std.testing.expectEqual(@as(usize, 1), list.len);
     try std.testing.expectEqual(@as(u32, 1), list[0].para);

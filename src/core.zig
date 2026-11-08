@@ -18,6 +18,8 @@ pub const os = @import("linux/os.zig");
 pub const process = @import("linux/process.zig");
 
 // Ours.
+pub const book = @import("model/book.zig");
+pub const note_rules = @import("model/notes.zig");
 pub const catalog = @import("model/catalog.zig");
 pub const quick = @import("model/quick.zig");
 pub const text = @import("layout/text.zig");

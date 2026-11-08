@@ -1,15 +1,15 @@
 //! Go To: the contents, or the bookmarks and highlights, over the page.
 //! Returns the page to jump to, if any.
 const std = @import("std");
+const book_model = @import("../../model/book.zig");
 const goto = @import("../../ui/goto.zig");
 const highlights = @import("../../model/highlights.zig");
-const kfx = @import("../../kindle/kfx.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
 
 const excerpt_bytes = 160;
 
-pub fn run(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, chapters: []const kfx.Chapter) !?usize {
+pub fn run(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, chapters: []const book_model.Chapter) !?usize {
     const chapter_rows = try contentsRows(alloc, s, chapters);
     const note_rows = try notesRows(alloc, s);
     const reading = goto.current(chapters, s.pages[s.current].para);
@@ -55,7 +55,7 @@ pub fn run(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, chapters: []
     }
 }
 
-fn contentsRows(alloc: std.mem.Allocator, s: *const sess.Session, chapters: []const kfx.Chapter) ![]goto.Row {
+fn contentsRows(alloc: std.mem.Allocator, s: *const sess.Session, chapters: []const book_model.Chapter) ![]goto.Row {
     const out = try alloc.alloc(goto.Row, chapters.len);
     for (chapters, out) |c, *r| r.* = .{ .label = c.title, .page = sess.pageContaining(s.pages, c.para, 0), .depth = c.depth };
     return out;

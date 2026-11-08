@@ -1,206 +1,61 @@
-//! KFX container reader. Handles unencrypted, uncompressed books only.
+//! Amazon's KFX book format: the container, its entities, and the parser that turns
+//! one into a model.Book.
 const std = @import("std");
 const ion = @import("ion.zig");
+const book = @import("../model/book.zig");
+const notes = @import("../model/notes.zig");
 
 const f_name = 4;
+
 const f_style_events = 142;
+
 const f_event_offset = 143;
+
 const f_event_length = 144;
+
 const f_id = 155;
+
 const f_link = 179;
+
 const f_anchor_position = 183;
+
 const f_section_item = 141;
+
 const f_content_ref = 145;
+
 const f_children = 146;
+
 const f_style = 157;
+
 const f_reading_orders = 169;
+
 const f_sections = 170;
+
 const f_story = 176;
+
 const f_index = 403;
+
 const f_compression = 410;
+
 const f_drm = 411;
+
 const f_index_offset = 413;
+
 const f_index_length = 414;
 
 const t_content = 145;
+
 const t_anchor = 266;
+
 const t_story = 259;
+
 const t_section = 260;
+
 const t_document = 538;
+
 const t_book_nav = 258;
 
-/// A byte range of a paragraph that links to another paragraph.
-pub const Link = struct { start: usize, end: usize, target: u32 };
-
-/// How text is set: weight, slant, size, alignment and spacing around it.
-pub const Look = struct {
-    bold: bool = false,
-    italic: bool = false,
-    size: u8 = normal_size, // Index into `size_scales`
-    alignment: Alignment = .auto,
-    space_before: u8 = 0, // Tenths of a line
-    space_after: u8 = 0,
-
-    pub const Alignment = enum { auto, left, center, right, justify };
-};
-
-/// Text sizes, relative to the reader's chosen size. Book sizes snap to these.
-pub const size_scales = [_]f32{ 0.8, 1.0, 1.2, 1.45, 1.75 };
-pub const normal_size = 1;
-
-/// Snaps a book's size (1.0 is body text) to the nearest step in `size_scales`.
-pub fn sizeClass(rem: f64) u8 {
-    if (rem < 0.9) return 0;
-    if (rem < 1.1) return 1;
-    if (rem < 1.33) return 2;
-    if (rem < 1.62) return 3;
-    return 4;
-}
-
-/// Bold or italic over part of a paragraph.
-pub const Run = struct { start: u32, end: u32, bold: bool, italic: bool };
-
-/// A picture in the text: its encoded bytes (JPEG or PNG) and size in pixels.
-pub const Image = struct { data: []const u8, width: u32, height: u32 };
-
-pub const Paragraph = struct {
-    image: ?Image = null, // A picture standing alone, in place of text
-    text: []const u8,
-    style: u32,
-    look: Look = .{},
-    runs: []const Run = &.{},
-    links: []const Link = &.{},
-    section: u32 = 0,
-    element: u32 = 0, // Position IDs Amazon uses for this text
-    position: u32 = 0,
-    note: bool = false, // Part of a note, so hidden from the flow
-    note_start: bool = false, // First paragraph of a note: what references point at
-};
-
-const max_reference_bytes = 12;
-const max_label_bytes = 8;
-
-const max_note_gap = 3;
-pub const max_note_parts = 8;
-
-/// Paragraphs a note spans, starting at its target.
-pub fn noteLength(paragraphs: []const Paragraph, target: usize) usize {
-    var n: usize = 1;
-    while (n < max_note_parts and target + n < paragraphs.len) : (n += 1) {
-        const p = paragraphs[target + n];
-        if (!p.note or p.note_start) break;
-    }
-    return n;
-}
-
-fn hasNoteReference(p: Paragraph, paragraphs: []const Paragraph) bool {
-    for (p.links) |l| {
-        if (l.target < paragraphs.len and paragraphs[l.target].note_start) return true;
-    }
-    return false;
-}
-
-/// Note marks are numbers or symbols. A word in a link is an ordinary cross-reference.
-pub fn isMark(s: []const u8) bool {
-    var letters: usize = 0;
-    var it = (std.unicode.Utf8View.init(s) catch return false).iterator();
-    while (it.nextCodepoint()) |cp| {
-        const latin = cp >= 0xc0 and cp <= 0x24f;
-        if (latin or (cp < 0x80 and std.ascii.isAlphabetic(@intCast(cp)))) letters += 1;
-    }
-    return letters <= 1;
-}
-
-/// A short link inside longer text pointing forward is a note reference.
-/// That leaves out contents pages, where the link is the whole line, and
-/// back-links inside notes, which point backward.
-pub fn markNotes(paragraphs: []Paragraph) void {
-    for (paragraphs, 0..) |p, i| {
-        for (p.links) |l| {
-            if (l.target <= i or l.target >= paragraphs.len) continue;
-            const span = l.end - l.start;
-            if (span > max_reference_bytes or span * 2 > p.text.len) continue;
-            if (!isMark(p.text[l.start..l.end])) continue;
-            paragraphs[l.target].note = true;
-            paragraphs[l.target].note_start = true;
-        }
-    }
-
-    // Some books put the number in its own paragraph, with the text in the next.
-    for (paragraphs, 0..) |p, i| {
-        if (p.note_start and p.text.len <= max_label_bytes and i + 1 < paragraphs.len) paragraphs[i + 1].note = true;
-    }
-
-    // Short gaps between two notes of a section are the rest of the first note,
-    // unless a gap paragraph itself references a note, which makes it body text.
-    var previous: ?usize = null;
-    for (paragraphs, 0..) |p, i| {
-        if (!p.note_start) continue;
-        defer previous = i;
-        const from = previous orelse continue;
-        if (paragraphs[from].section != p.section or i - from - 1 > max_note_gap) continue;
-        const gap = paragraphs[from + 1 .. i];
-        var is_body = false;
-        for (gap) |g| {
-            if (hasNoteReference(g, paragraphs)) is_body = true;
-        }
-        if (is_body) continue;
-        for (gap) |*g| g.note = true;
-    }
-}
-
-/// A paragraph's number counting text only. Saved reading positions use this, so
-/// they stay put whether or not pictures are shown.
-pub fn textIndex(paragraphs: []const Paragraph, para: usize) usize {
-    var n: usize = 0;
-    for (paragraphs[0..@min(para, paragraphs.len)]) |p| {
-        if (p.image == null) n += 1;
-    }
-    return n;
-}
-
-/// The paragraph for a number from `textIndex`.
-pub fn fromTextIndex(paragraphs: []const Paragraph, index: usize) usize {
-    var n: usize = 0;
-    for (paragraphs, 0..) |p, i| {
-        if (p.image != null) continue;
-        if (n == index) return i;
-        n += 1;
-    }
-    return paragraphs.len;
-}
-
-/// Characters before a byte offset, which is how Amazon counts positions.
-pub fn charOffset(text: []const u8, byte: usize) u32 {
-    var bytes: usize = 0;
-    var chars: u32 = 0;
-    while (bytes < byte and bytes < text.len) : (chars += 1) {
-        bytes += std.unicode.utf8ByteSequenceLength(text[bytes]) catch 1;
-    }
-    return chars;
-}
-
-/// Byte offset of the `count`th code point, as KFX offsets count characters.
-pub fn byteOffset(text: []const u8, count: u64) usize {
-    var bytes: usize = 0;
-    var seen: u64 = 0;
-    while (bytes < text.len and seen < count) : (seen += 1) {
-        bytes += std.unicode.utf8ByteSequenceLength(text[bytes]) catch 1;
-    }
-    return @min(bytes, text.len);
-}
-
 const RawLink = struct { para: u32, start: usize, end: usize, anchor: u32 };
-
-/// A table of contents entry: its title, where it starts, and how deep it nests.
-pub const Chapter = struct { title: []const u8, para: u32, depth: u8 };
-
-pub const Book = struct {
-    paragraphs: []Paragraph,
-    chapters: []Chapter = &.{},
-    sections: u32,
-    missing_refs: u32,
-};
 
 const Key = struct { id: u32, kind: u32 };
 
@@ -232,13 +87,13 @@ const MapWalker = struct {
 const Parser = struct {
     alloc: std.mem.Allocator,
     index: std.AutoHashMapUnmanaged(Key, []const u8) = .empty,
-    paragraphs: std.ArrayList(Paragraph) = .empty,
+    paragraphs: std.ArrayList(book.Paragraph) = .empty,
     missing: u32 = 0,
     positions: std.AutoHashMapUnmanaged(u64, u32) = .empty, // Element ID to paragraph
     raw_links: std.ArrayList(RawLink) = .empty,
     section: u32 = 0,
-    looks: std.AutoHashMapUnmanaged(u32, Look) = .empty, // Style name to how it sets text
-    images: std.AutoHashMapUnmanaged(u32, Image) = .empty, // Resource name to picture
+    looks: std.AutoHashMapUnmanaged(u32, book.Look) = .empty, // Style name to how it sets text
+    images: std.AutoHashMapUnmanaged(u32, book.Image) = .empty, // Resource name to picture
 
     /// Pairs each image resource with its bytes. Converted books list both in the
     /// same order, so the n-th resource is the n-th piece of raw media.
@@ -275,7 +130,7 @@ const Parser = struct {
         }
     }
 
-    fn lookFor(p: *const Parser, style: u32) Look {
+    fn lookFor(p: *const Parser, style: u32) book.Look {
         return p.looks.get(style) orelse .{};
     }
 
@@ -309,7 +164,7 @@ const Parser = struct {
 
     fn collectLinks(p: *Parser, item: ion.Value, para: u32, text: []const u8) !void {
         const events = item.get(f_style_events) orelse return;
-        var runs: std.ArrayList(Run) = .empty;
+        var runs: std.ArrayList(book.Run) = .empty;
         defer p.paragraphs.items[para].runs = runs.items;
         var it = events.items();
         while (it.next()) |event| {
@@ -319,8 +174,8 @@ const Parser = struct {
                 const offset = (event.get(f_event_offset) orelse continue).unsigned() orelse continue;
                 const length = (event.get(f_event_length) orelse continue).unsigned() orelse continue;
                 if (look.bold or look.italic) try runs.append(p.alloc, .{
-                    .start = @intCast(byteOffset(text, offset)),
-                    .end = @intCast(byteOffset(text, offset + length)),
+                    .start = @intCast(book.byteOffset(text, offset)),
+                    .end = @intCast(book.byteOffset(text, offset + length)),
                     .bold = look.bold,
                     .italic = look.italic,
                 });
@@ -330,8 +185,8 @@ const Parser = struct {
             const length = (event.get(f_event_length) orelse continue).unsigned() orelse continue;
             try p.raw_links.append(p.alloc, .{
                 .para = para,
-                .start = byteOffset(text, offset),
-                .end = byteOffset(text, offset + length),
+                .start = book.byteOffset(text, offset),
+                .end = book.byteOffset(text, offset + length),
                 .anchor = anchor,
             });
         }
@@ -342,7 +197,7 @@ const Parser = struct {
         var i: usize = 0;
         while (i < p.raw_links.items.len) {
             const para = p.raw_links.items[i].para;
-            var links: std.ArrayList(Link) = .empty;
+            var links: std.ArrayList(book.Link) = .empty;
             while (i < p.raw_links.items.len and p.raw_links.items[i].para == para) : (i += 1) {
                 const raw = p.raw_links.items[i];
                 const anchor = p.entity(raw.anchor, t_anchor) orelse continue;
@@ -357,8 +212,8 @@ const Parser = struct {
 
     /// The book's table of contents, from its navigation. Entries whose target
     /// isn't in the text are skipped.
-    fn readContents(p: *Parser) ![]Chapter {
-        var out: std.ArrayList(Chapter) = .empty;
+    fn readContents(p: *Parser) ![]book.Chapter {
+        var out: std.ArrayList(book.Chapter) = .empty;
         var it = p.index.iterator();
         while (it.next()) |kv| {
             if (kv.key_ptr.kind != t_navigation) continue;
@@ -379,7 +234,7 @@ const Parser = struct {
         return out.toOwnedSlice(p.alloc);
     }
 
-    fn addChapters(p: *Parser, out: *std.ArrayList(Chapter), parent: ion.Value, depth: u8) !void {
+    fn addChapters(p: *Parser, out: *std.ArrayList(book.Chapter), parent: ion.Value, depth: u8) !void {
         if (depth > 8) return;
         var entries = (parent.get(f_nav_entries) orelse return).items();
         while (entries.next()) |entry| {
@@ -469,29 +324,53 @@ const Parser = struct {
 };
 
 const t_raw_media = 417;
+
 const t_style = 157;
+
 const t_resource = 164;
+
 const f_type = 159;
+
 const type_image = 271;
+
 const f_resource = 175;
+
 const f_width = 422;
+
 const f_height = 423;
+
 const f_font_style = 12;
+
 const f_font_weight = 13;
+
 const f_font_size = 16;
+
 const f_text_align = 34;
+
 const f_margin_top = 47;
+
 const f_margin_bottom = 49;
+
 const f_amount = 307;
+
 const f_unit = 306;
+
 const unit_rem = 505;
+
 const unit_lines = 310;
+
 const style_italic = 382;
+
 const weight_bold = 361;
+
 const weight_semibold = 362;
+
 const align_center = 320;
+
 const align_justify = 321;
+
 const align_left = 59;
+
 const align_right = 61;
 
 fn amount(v: ion.Value, unit: u32) ?f64 {
@@ -504,12 +383,12 @@ fn tenths(lines: f64) u8 {
 }
 
 /// How a style sets text, from the fields that matter on a reader's page.
-fn lookOf(v: ion.Value) Look {
-    var look = Look{};
+fn lookOf(v: ion.Value) book.Look {
+    var look = book.Look{};
     if (v.get(f_font_style)) |s| look.italic = s.symbol() == style_italic;
     if (v.get(f_font_weight)) |w| look.bold = w.symbol() == weight_bold or w.symbol() == weight_semibold;
     if (v.get(f_font_size)) |s| {
-        if (amount(s, unit_rem)) |rem| look.size = sizeClass(rem);
+        if (amount(s, unit_rem)) |rem| look.size = book.sizeClass(rem);
     }
     if (v.get(f_text_align)) |a| look.alignment = switch (a.symbol() orelse 0) {
         align_center => .center,
@@ -522,19 +401,33 @@ fn lookOf(v: ion.Value) Look {
     if (v.get(f_margin_bottom)) |m| look.space_after = tenths(amount(m, unit_lines) orelse 0);
     return look;
 }
+
 const t_navigation = 389;
+
 const t_nav_container = 391;
+
 const f_nav_containers = 392;
+
 const f_nav_type = 235;
+
 const nav_contents = 212;
+
 const f_nav_entries = 247;
+
 const f_nav_label = 241;
+
 const f_nav_text = 244;
+
 const f_nav_target = 246;
+
 const t_section_positions = 265;
+
 const t_section_map = 609;
+
 const f_position_rows = 181;
+
 const f_section_name = 174;
+
 const f_section_start = 184;
 
 /// A KFX container: its header info, the entity index (24-byte rows), and the
@@ -629,7 +522,7 @@ pub fn coverImage(data: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
+pub fn parse(alloc: std.mem.Allocator, data: []const u8) !book.Book {
     const c = try openContainer(data);
     if ((c.info.get(f_compression) orelse return error.BadHeader).int != 0) return error.Compressed;
     if ((c.info.get(f_drm) orelse return error.BadHeader).int != 0) return error.Encrypted;
@@ -663,7 +556,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
     }
     try p.resolveLinks();
     try p.resolvePositions();
-    markNotes(p.paragraphs.items);
+    notes.markNotes(p.paragraphs.items);
     const chapters = try p.readContents();
     return .{ .paragraphs = try p.paragraphs.toOwnedSlice(alloc), .chapters = chapters, .sections = count, .missing_refs = p.missing };
 }
@@ -687,101 +580,12 @@ test "offsets that would wrap are rejected" {
     try std.testing.expectError(error.Truncated, parse(std.testing.allocator, &d));
 }
 
-test "offsets count characters, not bytes" {
-    try std.testing.expectEqual(@as(usize, 3), byteOffset("\u{e1}bc", 2));
-    try std.testing.expectEqual(@as(usize, 4), byteOffset("\u{e1}bc", 99));
-}
-
-test "short forward references mark their target as a note" {
-    var paras = [_]Paragraph{
-        .{ .text = "body text with a reference in it", .style = 0, .links = &.{.{ .start = 10, .end = 11, .target = 2 }} },
-        .{ .text = "more body", .style = 0 },
-        .{ .text = "the note", .style = 0, .links = &.{.{ .start = 0, .end = 1, .target = 0 }} },
-    };
-    markNotes(&paras);
-    try std.testing.expect(paras[2].note);
-    try std.testing.expect(!paras[0].note); // Back-link from the note
-    try std.testing.expect(!paras[1].note);
-}
-
-test "a contents line does not hide its chapter" {
-    var paras = [_]Paragraph{
-        .{ .text = "Chapter 1", .style = 0, .links = &.{.{ .start = 0, .end = 9, .target = 1 }} },
-        .{ .text = "Chapter 1 begins", .style = 0 },
-    };
-    markNotes(&paras);
-    try std.testing.expect(!paras[1].note);
-}
-
-test "a number on its own takes the next paragraph with it" {
-    var paras = [_]Paragraph{
-        .{ .text = "body text with a reference in it", .style = 0, .links = &.{.{ .start = 10, .end = 11, .target = 1 }} },
-        .{ .text = "12", .style = 0 },
-        .{ .text = "the note text itself, which is much longer", .style = 0 },
-        .{ .text = "body continues here", .style = 0 },
-    };
-    markNotes(&paras);
-    try std.testing.expect(paras[1].note);
-    try std.testing.expect(paras[2].note);
-    try std.testing.expect(!paras[3].note);
-}
-
-test "paragraphs between notes stay with their note" {
-    var paras = [_]Paragraph{
-        .{ .text = "body text with a reference and another one", .style = 0, .links = &.{ .{ .start = 5, .end = 6, .target = 1 }, .{ .start = 9, .end = 10, .target = 3 } } },
-        .{ .text = "first note", .style = 0, .section = 1 },
-        .{ .text = "second paragraph of the first note", .style = 0, .section = 1 },
-        .{ .text = "second note", .style = 0, .section = 1 },
-        .{ .text = "next chapter", .style = 0, .section = 2 },
-    };
-    markNotes(&paras);
-    try std.testing.expect(paras[2].note);
-    try std.testing.expectEqual(@as(usize, 2), noteLength(&paras, 1));
-    try std.testing.expectEqual(@as(usize, 1), noteLength(&paras, 3));
-    try std.testing.expect(!paras[4].note);
-}
-
-test "inline notes do not swallow body text with references" {
-    var paras = [_]Paragraph{
-        .{ .text = "body text with a reference in it", .style = 0, .links = &.{.{ .start = 5, .end = 6, .target = 1 }} },
-        .{ .text = "inline note", .style = 0 },
-        .{ .text = "more body text with its own reference", .style = 0, .links = &.{.{ .start = 5, .end = 6, .target = 3 }} },
-        .{ .text = "another inline note", .style = 0 },
-    };
-    markNotes(&paras);
-    try std.testing.expect(!paras[2].note);
-}
-
-test "marks are numbers and symbols, not words" {
-    try std.testing.expect(isMark("12"));
-    try std.testing.expect(isMark("[3]"));
-    try std.testing.expect(isMark("*"));
-    try std.testing.expect(isMark("\u{2020}"));
-    try std.testing.expect(isMark("a"));
-    try std.testing.expect(!isMark("Taleb"));
-    try std.testing.expect(!isMark("\u{e9}t\u{e9}"));
-}
-
-test "a linked word does not hide its target" {
-    var paras = [_]Paragraph{
-        .{ .text = "as argued by Popper in the earlier chapter", .style = 0, .links = &.{.{ .start = 13, .end = 19, .target = 1 }} },
-        .{ .text = "a heading that must stay visible", .style = 0 },
-    };
-    markNotes(&paras);
-    try std.testing.expect(!paras[1].note);
-}
-
 test "cover lookup refuses files that aren't books" {
     try std.testing.expect(coverImage("short") == null);
     var d = std.mem.zeroes([18]u8);
     @memcpy(d[0..4], "CONT");
     std.mem.writeInt(u32, d[10..14], 0xFFFFFFF0, .little);
     try std.testing.expect(coverImage(&d) == null);
-}
-
-test "byte and character offsets agree" {
-    try std.testing.expectEqual(@as(u32, 2), charOffset("\u{e1}bc", 3));
-    try std.testing.expectEqual(@as(u32, 0), charOffset("abc", 0));
 }
 
 test "position map finds element 80 where the Kindle stored it" {
@@ -809,20 +613,4 @@ test "a book cut short is not complete" {
     @memcpy(d[0..4], "CONT");
     std.mem.writeInt(u32, d[6..10], 40, .little); // Header longer than the file
     try std.testing.expect(!isComplete(&d));
-}
-
-test "book sizes snap to the reader's steps" {
-    try std.testing.expectEqual(@as(u8, 0), sizeClass(0.8));
-    try std.testing.expectEqual(@as(u8, 1), sizeClass(1.0));
-    try std.testing.expectEqual(@as(u8, 2), sizeClass(1.125));
-    try std.testing.expectEqual(@as(u8, 3), sizeClass(1.5));
-    try std.testing.expectEqual(@as(u8, 4), sizeClass(2.0));
-}
-
-test "saved positions count text paragraphs only" {
-    const img = Image{ .data = "", .width = 1, .height = 1 };
-    const paras = [_]Paragraph{ .{ .text = "a", .style = 0 }, .{ .text = "", .style = 0, .image = img }, .{ .text = "b", .style = 0 } };
-    try std.testing.expectEqual(@as(usize, 1), textIndex(&paras, 2));
-    try std.testing.expectEqual(@as(usize, 2), fromTextIndex(&paras, 1));
-    try std.testing.expectEqual(@as(usize, 0), fromTextIndex(&paras, 0));
 }

@@ -1,6 +1,7 @@
 //! Glyph cache and page layout for 8-bit grayscale pages.
 const std = @import("std");
-const Paragraph = @import("../kindle/kfx.zig").Paragraph;
+const book_model = @import("../model/book.zig");
+const Paragraph = @import("../model/book.zig").Paragraph;
 
 extern fn ft_open(ttf: [*]const u8) ?*anyopaque;
 extern fn ft_scale(f: *anyopaque, px: f32) f32;
@@ -398,7 +399,7 @@ pub const Faces = struct {
 /// Draws a picture into a page. Decoding lives outside layout, which only needs sizes.
 pub const Images = struct {
     ctx: *anyopaque,
-    draw: *const fn (ctx: *anyopaque, page: Page, image: kfx.Image, x: u32, y: u32, w: u32, h: u32) void,
+    draw: *const fn (ctx: *anyopaque, page: Page, image: book_model.Image, x: u32, y: u32, w: u32, h: u32) void,
 };
 
 pub const Layout = struct {
@@ -415,8 +416,7 @@ pub const Layout = struct {
 
 const max_words = 96;
 
-const kfx = @import("../kindle/kfx.zig");
-const Link = kfx.Link;
+const Link = book_model.Link;
 
 fn findReference(links: []const Link, paras: []const Paragraph, start: usize, len: usize) ?Link {
     for (links) |link| {
@@ -446,7 +446,7 @@ fn wordFace(l: Layout, base: *Font, p: Paragraph, word_start: usize) !*Font {
 
 /// A picture's size on the page: as large as fits, but at most twice its own size,
 /// so small ornaments don't turn into blocks.
-pub fn imageSize(img: kfx.Image, max_w: f32, max_h: f32) struct { w: i32, h: i32 } {
+pub fn imageSize(img: book_model.Image, max_w: f32, max_h: f32) struct { w: i32, h: i32 } {
     const w: f32 = @floatFromInt(img.width);
     const h: f32 = @floatFromInt(img.height);
     const scale = @min(@min(max_w / w, max_h / h), 2.0);
@@ -493,9 +493,9 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
         const pf = try face(l, font, look.bold, look.italic, look.size); // Sets the line height
         const space = try pf.measure(" ");
         // Headings and centred lines aren't indented, and only body text is justified.
-        const plain = look.size == kfx.normal_size and (look.alignment == .auto or look.alignment == .justify or look.alignment == .left);
+        const plain = look.size == book_model.normal_size and (look.alignment == .auto or look.alignment == .justify or look.alignment == .left);
         const justify = switch (look.alignment) {
-            .auto => l.justify and look.size == kfx.normal_size,
+            .auto => l.justify and look.size == book_model.normal_size,
             .justify => true,
             else => false,
         };

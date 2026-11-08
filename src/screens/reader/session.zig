@@ -1,5 +1,7 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const book_model = @import("../../model/book.zig");
+const note_rules = @import("../../model/notes.zig");
 const stats = @import("../../model/stats.zig");
 const bookmarks = @import("../../model/bookmarks.zig");
 const icons = @import("../../ui/icons.zig");
@@ -7,7 +9,6 @@ const catalog = @import("../../model/catalog.zig");
 const os = @import("../../linux/os.zig");
 const cache = @import("../../layout/page_cache.zig");
 const highlights = @import("../../model/highlights.zig");
-const kfx = @import("../../kindle/kfx.zig");
 const state = @import("../../linux/state.zig");
 const text = @import("../../layout/text.zig");
 const nowUs = os.nowUs;
@@ -38,18 +39,18 @@ pub const Query = struct {
 
 pub const Session = struct {
     app: *app.App,
-    paragraphs: []const kfx.Paragraph,
+    paragraphs: []const book_model.Paragraph,
     pages: []const text.Pos,
     current: usize,
     anchor: text.Pos, // What the reader is at. Settings changes keep to this, not the page edge
-    note_parts: [kfx.max_note_parts]kfx.Paragraph = undefined,
+    note_parts: [note_rules.max_note_parts]book_model.Paragraph = undefined,
     note_len: usize = 0,
     note_top: u32 = 0,
     note_next: ?text.Pos = null,
     highlights: std.ArrayList(highlights.Highlight) = .empty,
     bookmarks: std.ArrayList(bookmarks.Bookmark) = .empty,
     query: Query = .{}, // The last search, kept while the book is open
-    chapters: []const kfx.Chapter = &.{},
+    chapters: []const book_model.Chapter = &.{},
     text_before: []const u64 = &.{}, // Bytes of text before each paragraph, for time left
     shown_us: u64 = 0, // When the reader started on this page; 0 while not reading
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
@@ -205,7 +206,7 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) voi
     const pos = s.pages[s.current];
     const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();
-    state.save(path, .{ .para = kfx.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = s.seconds_read });
+    state.save(path, .{ .para = book_model.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = s.seconds_read });
     app.saveSpeed(s.app);
     entry.percent = percent;
     entry.last = now;
@@ -213,7 +214,7 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) voi
 }
 
 /// Lays out the whole book so going backwards is exact.
-pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph) ![]const text.Pos {
+pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph) ![]const text.Pos {
     const geometry = a.page(&.{});
     var pages: std.ArrayList(text.Pos) = .empty;
     var pos = text.Pos{};

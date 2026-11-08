@@ -1,6 +1,7 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
 //! Usage: panelshot [panel | notes | toolbar [sheet] | library [page [read]]]
 const std = @import("std");
+const book_model = core.book;
 const catalog = core.catalog;
 const Fonts = core.fonts.Fonts;
 const core = @import("core");
@@ -47,7 +48,7 @@ const PreviewFaces = struct {
         const f: *PreviewFaces = @ptrCast(@alignCast(ctx));
         const which: usize = @as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1;
         const slot = &f.fonts[which][size];
-        if (slot.* == null) slot.* = try text.Font.init(f.alloc, f.files[which], 46 * core.kfx.size_scales[size], 1.35);
+        if (slot.* == null) slot.* = try text.Font.init(f.alloc, f.files[which], 46 * core.book.size_scales[size], 1.35);
         return &slot.*.?;
     }
 };
@@ -93,14 +94,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
         var mark = try text.Font.init(alloc, regular, 28, 1.2);
         const ref1 = std.mem.indexOf(u8, sample, "reference2").? + "reference".len;
         const ref2 = std.mem.indexOf(u8, sample, "[3]").?;
-        const links = [_]kfx.Link{ .{ .start = ref1, .end = ref1 + 1, .target = 1 }, .{ .start = ref2, .end = ref2 + 3, .target = 2 } };
-        const paras = [_]kfx.Paragraph{
+        const links = [_]book_model.Link{ .{ .start = ref1, .end = ref1 + 1, .target = 1 }, .{ .start = ref2, .end = ref2 + 3, .target = 2 } };
+        const paras = [_]book_model.Paragraph{
             .{ .text = sample, .style = 0, .links = &links },
             .{ .text = sample_note, .style = 0, .note = true, .note_start = true },
             .{ .text = sample_note, .style = 0, .note = true, .note_start = true },
         };
         _ = try text.renderPage(&body, page, &paras, .{}, .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &mark }, null);
-        const parts = [_]kfx.Paragraph{.{ .text = sample_note, .style = 0 }};
+        const parts = [_]book_model.Paragraph{.{ .text = sample_note, .style = 0 }};
         const fitted = try notes.fit(&note_font, &parts, .{}, w, w, null);
         const top = h - fitted.height;
         try notes.render(&note_font, fonts, .{ .buf = buf[top * w..], .width = w, .height = fitted.height, .stride = w }, &parts, .{}, false);
@@ -138,11 +139,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const font_root = "/usr/java/lib/fonts/";
         for ([_][*:0]const u8{ font_root ++ "Bookerly-Regular.ttf", font_root ++ "Bookerly-Bold.ttf", font_root ++ "Bookerly-Italic.ttf", font_root ++ "Bookerly-BoldItalic.ttf" }, &faces.files) |path, *f| f.* = try file.map(path);
         const body_text = "This sample paragraph has a few words in bold and some in italics, then carries on as ordinary body text for a line or two more.";
-        const runs = [_]core.kfx.Run{
+        const runs = [_]core.book.Run{
             .{ .start = 26, .end = 39, .bold = true, .italic = false },
             .{ .start = 44, .end = 59, .bold = false, .italic = true },
         };
-        const sample_paras = [_]core.kfx.Paragraph{
+        const sample_paras = [_]core.book.Paragraph{
             .{ .text = "Chapter One", .style = 0, .look = .{ .bold = true, .size = 4, .alignment = .center, .space_after = 10 } },
             .{ .text = "A subtitle in italics", .style = 0, .look = .{ .italic = true, .alignment = .center, .space_after = 10 } },
             .{ .text = body_text, .style = 0, .runs = &runs },
@@ -150,7 +151,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .{ .text = "A Section Heading", .style = 0, .look = .{ .bold = true, .size = 2, .space_before = 10, .space_after = 4 } },
             .{ .text = body_text, .style = 0 },
         };
-        const base = try PreviewFaces.pick(&faces, false, false, core.kfx.normal_size);
+        const base = try PreviewFaces.pick(&faces, false, false, core.book.normal_size);
         _ = try text.renderPage(base, page, &sample_paras, .{}, .{ .faces = .{ .ctx = &faces, .pick = PreviewFaces.pick }, .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 }, null);
         writeImage(buf, w, h);
         return;

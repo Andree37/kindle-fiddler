@@ -1,6 +1,6 @@
 //! Highlights in a book: where they sit in the text, and how they map to a page.
 const std = @import("std");
-const kfx = @import("../kindle/kfx.zig");
+const book_model = @import("book.zig");
 const text = @import("../layout/text.zig");
 
 /// A highlight, plus the Amazon ID that keeps edits on the same record.
@@ -68,7 +68,7 @@ pub fn excerpt(s: []const u8, max: usize) []const u8 {
 }
 
 /// Finds the paragraph and byte for one of Amazon's short positions.
-pub fn locate(paragraphs: []const kfx.Paragraph, short: u32) ?struct { para: u32, byte: u32 } {
+pub fn locate(paragraphs: []const book_model.Paragraph, short: u32) ?struct { para: u32, byte: u32 } {
     var found: ?usize = null;
     for (paragraphs, 0..) |p, i| {
         if (p.position == 0) continue;
@@ -76,11 +76,11 @@ pub fn locate(paragraphs: []const kfx.Paragraph, short: u32) ?struct { para: u32
     }
     const i = found orelse return null;
     const p = paragraphs[i];
-    return .{ .para = @intCast(i), .byte = @intCast(kfx.byteOffset(p.text, short - p.position)) };
+    return .{ .para = @intCast(i), .byte = @intCast(book_model.byteOffset(p.text, short - p.position)) };
 }
 
 /// Reads "id|start|end" lines from the annotation database.
-pub fn parse(alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, lines: []const u8) ![]Highlight {
+pub fn parse(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, lines: []const u8) ![]Highlight {
     var out: std.ArrayList(Highlight) = .empty;
     var it = std.mem.tokenizeScalar(u8, lines, '\n');
     while (it.next()) |line| {
@@ -123,7 +123,7 @@ pub fn freeId(alloc: std.mem.Allocator, list: []const Highlight, short: u32) ![]
 }
 
 /// Adds a highlight, one mark per paragraph it crosses.
-pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const kfx.Paragraph, id: []const u8, span: Span) !void {
+pub fn add(list: *std.ArrayList(Highlight), alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, id: []const u8, span: Span) !void {
     var index = span.first_para;
     while (index <= span.last_para) : (index += 1) {
         const first = if (index == span.first_para) span.first_byte else 0;
@@ -165,12 +165,12 @@ pub fn atWord(list: []const Highlight, w: text.Word) ?[]const u8 {
     return null;
 }
 
-fn sample(content: []const u8, position: u32) kfx.Paragraph {
+fn sample(content: []const u8, position: u32) book_model.Paragraph {
     return .{ .text = content, .style = 0, .position = position };
 }
 
 test "short positions find paragraph and byte" {
-    const paras = [_]kfx.Paragraph{ sample("abcdef", 100), sample("\u{e1}bcd", 106) };
+    const paras = [_]book_model.Paragraph{ sample("abcdef", 100), sample("\u{e1}bcd", 106) };
     const a = locate(&paras, 102).?;
     try std.testing.expectEqual(@as(u32, 0), a.para);
     try std.testing.expectEqual(@as(u32, 2), a.byte);
@@ -183,7 +183,7 @@ test "short positions find paragraph and byte" {
 test "database lines become marks, split across paragraphs" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const paras = [_]kfx.Paragraph{ sample("abcdef", 100), sample("ghijkl", 106) };
+    const paras = [_]book_model.Paragraph{ sample("abcdef", 100), sample("ghijkl", 106) };
     const list = try parse(arena.allocator(), &paras, "kindle.highlight-101|101|104\nkindle.highlight-104|104|108\nbad line\n");
     try std.testing.expectEqual(@as(usize, 3), list.len);
     try std.testing.expectEqual(@as(u32, 1), list[0].mark.start);
@@ -211,7 +211,7 @@ test "a highlight crossing paragraphs covers both and stays one highlight" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const paras = [_]kfx.Paragraph{ sample("first para text here", 100), sample("second para", 121) };
+    const paras = [_]book_model.Paragraph{ sample("first para text here", 100), sample("second para", 121) };
     const words = [_]text.Word{
         .{ .x = 0, .y = 0, .w = 10, .h = 10, .para = 0, .start = 11, .end = 15 },
         .{ .x = 0, .y = 20, .w = 10, .h = 10, .para = 0, .start = 16, .end = 20 },

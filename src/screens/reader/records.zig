@@ -1,8 +1,8 @@
 //! Writing and deleting synced records (highlights and bookmarks) for an open book.
 const std = @import("std");
+const book_model = @import("../../model/book.zig");
 const annotations = @import("../../kindle/annotations.zig");
 const catalog = @import("../../model/catalog.zig");
-const kfx = @import("../../kindle/kfx.zig");
 const os = @import("../../linux/os.zig");
 const annotation_db = @import("../../kindle/annotation_db.zig");
 const safe = @import("../../kindle/safe.zig");
@@ -12,7 +12,7 @@ const sess = @import("session.zig");
 pub fn pointFor(s: *sess.Session, para: u32, byte: u32) ?annotations.Point {
     const p = s.paragraphs[para];
     if (p.position == 0) return null;
-    const chars = kfx.charOffset(p.text, byte);
+    const chars = book_model.charOffset(p.text, byte);
     return .{ .element = p.element, .offset = chars, .short = p.position + chars };
 }
 
