@@ -1,4 +1,6 @@
 test {
+    _ = @import("epub/epub.zig");
+    _ = @import("epub/picture.zig");
     _ = @import("epub/xml.zig");
     _ = @import("epub/zip.zig");
     _ = @import("screens/reader/page_number.zig");
