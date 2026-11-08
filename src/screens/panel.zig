@@ -2,7 +2,8 @@
 const std = @import("std");
 const library = @import("../ui/library.zig");
 const menu = @import("../ui/menu.zig");
-const system = @import("../kindle/system.zig");
+const lipc = @import("../kindle/lipc.zig");
+const quick_model = @import("../model/quick.zig");
 const app = @import("../app.zig");
 
 /// Draws the quick panel over `background` and shows it.
@@ -25,10 +26,10 @@ pub fn rowValue(a: *app.App, row: menu.Row) u32 {
 pub fn setRowValue(a: *app.App, row: menu.Row, level: u32) void {
     if (row.y == menu.warmth_row.y) {
         a.quick.warmth = level;
-        system.setWarmth(level, a.quick.schedule);
+        lipc.setWarmth(level, a.quick.schedule);
     } else {
         a.quick.brightness = level;
-        system.setBrightness(level);
+        lipc.setBrightness(level);
     }
 }
 
@@ -66,23 +67,23 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
 pub fn applyQuick(a: *app.App, change: menu.Hit, x: i32) bool {
     switch (change) {
         .dimmer, .brighter => {
-            a.quick.brightness = system.stepBrightness(a.quick.brightness, change == .brighter);
-            system.setBrightness(a.quick.brightness);
+            a.quick.brightness = quick_model.stepBrightness(a.quick.brightness, change == .brighter);
+            lipc.setBrightness(a.quick.brightness);
         },
         .slider => setRowValue(a, menu.brightness_row, menu.levelAt(menu.brightness_row, x)),
-        .cooler, .warmer => setRowValue(a, menu.warmth_row, system.stepBrightness(a.quick.warmth, change == .warmer)),
+        .cooler, .warmer => setRowValue(a, menu.warmth_row, quick_model.stepBrightness(a.quick.warmth, change == .warmer)),
         .warmth => setRowValue(a, menu.warmth_row, menu.levelAt(menu.warmth_row, x)),
         .sync => {
             a.quick.syncing = true;
-            system.syncNow();
+            lipc.syncNow();
         },
         .schedule => {
             a.quick.schedule = !a.quick.schedule;
-            system.setSchedule(a.quick.schedule);
+            lipc.setSchedule(a.quick.schedule);
         },
         .airplane => {
             a.quick.airplane = !a.quick.airplane;
-            system.setAirplane(a.quick.airplane);
+            lipc.setAirplane(a.quick.airplane);
         },
         else => return false,
     }
@@ -91,7 +92,7 @@ pub fn applyQuick(a: *app.App, change: menu.Hit, x: i32) bool {
 
 /// The quick panel over the library. Returns true to quit to the stock UI.
 pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
-    a.quick = system.read(a.quick);
+    a.quick = lipc.read(a.quick);
     try drawMenu(a, background);
     while (true) {
         switch (a.input.next()) {
@@ -100,7 +101,7 @@ pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
                 if (try panelControl(a, background, choice, t.x)) continue;
                 switch (choice) {
                     .settings => {
-                        system.openSettings();
+                        lipc.openSettings();
                         return true;
                     },
                     .close => {

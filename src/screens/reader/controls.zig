@@ -1,7 +1,6 @@
 //! The reading toolbar and its Aa sheet.
 const std = @import("std");
 const aa = @import("../../ui/aa.zig");
-const menu = @import("../../ui/menu.zig");
 const toolbar = @import("../../ui/toolbar.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");

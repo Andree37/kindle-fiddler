@@ -2,7 +2,7 @@
 const std = @import("std");
 const linux = std.os.linux;
 const os = @import("../linux/os.zig");
-const system = @import("system.zig");
+const lipc = @import("lipc.zig");
 const touch_zones = @import("touch.zig");
 
 const failed = os.failed;
@@ -123,7 +123,7 @@ pub const Input = struct {
 
     /// Starts listening for lock and unlock from powerd.
     fn startWatcher(in: *Input) void {
-        const child = system.watchPowerEvents() orelse {
+        const child = lipc.watchPowerEvents() orelse {
             in.power_events = -1;
             in.watcher_pid = 0;
             return;
@@ -234,7 +234,7 @@ pub const Input = struct {
                 in.startWatcher();
                 std.debug.print("power watcher restarted: {}\n", .{in.power_events >= 0});
                 // A wake-up while no one listened is gone for good, so ask instead.
-                if (in.locked and system.inScreenSaver() == false) return .unlock;
+                if (in.locked and lipc.inScreenSaver() == false) return .unlock;
             }
 
             if (in.power_events >= 0) {

@@ -4,7 +4,8 @@ const annotations = @import("../../kindle/annotations.zig");
 const catalog = @import("../../model/catalog.zig");
 const kfx = @import("../../kindle/kfx.zig");
 const os = @import("../../linux/os.zig");
-const system = @import("../../kindle/system.zig");
+const annotation_db = @import("../../kindle/annotation_db.zig");
+const safe = @import("../../kindle/safe.zig");
 const sess = @import("session.zig");
 
 /// Amazon's position for a place in the text. Null for paragraphs it doesn't number.
@@ -17,8 +18,8 @@ pub fn pointFor(s: *sess.Session, para: u32, byte: u32) ?annotations.Point {
 
 /// Queues a record for sync. True when it was written (or writes are off for testing).
 pub fn write(entry: *const catalog.Entry, kind: annotations.Kind, id: []const u8, start: annotations.Point, end: annotations.Point) bool {
-    if (system.dryRun()) return true;
-    if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id) or !system.safeGuid(entry.guid)) return false;
+    if (annotation_db.dryRun()) return true;
+    if (!safe.safeId(entry.key) or !safe.safeId(entry.kind) or !safe.safeId(id) or !safe.safeGuid(entry.guid)) return false;
     var buf: [1200]u8 = undefined;
     const sql = annotations.insertSql(&buf, .{
         .kind = kind,
@@ -30,14 +31,14 @@ pub fn write(entry: *const catalog.Entry, kind: annotations.Kind, id: []const u8
         .end = end,
         .now_ms = os.unixTime() * 1000,
     }) catch return false;
-    return system.runAnnotationSql(sql);
+    return annotation_db.runAnnotationSql(sql);
 }
 
 /// Queues a record's deletion. True when it was written (or writes are off for testing).
 pub fn delete(entry: *const catalog.Entry, kind: annotations.Kind, id: []const u8) bool {
-    if (system.dryRun()) return true;
-    if (!system.safeId(id) or !system.safeId(entry.key)) return false;
+    if (annotation_db.dryRun()) return true;
+    if (!safe.safeId(id) or !safe.safeId(entry.key)) return false;
     var buf: [900]u8 = undefined;
     const sql = annotations.deleteSql(&buf, kind, id, entry.key, os.unixTime() * 1000) catch return false;
-    return system.runAnnotationSql(sql);
+    return annotation_db.runAnnotationSql(sql);
 }

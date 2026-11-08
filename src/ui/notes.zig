@@ -2,7 +2,6 @@
 const std = @import("std");
 const Fonts = @import("fonts.zig").Fonts;
 const kfx = @import("../kindle/kfx.zig");
-const library = @import("library.zig");
 const text = @import("../layout/text.zig");
 
 pub const max_parts = 8;

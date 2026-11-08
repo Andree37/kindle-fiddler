@@ -5,7 +5,7 @@ const draw = @import("draw.zig");
 const style = @import("style.zig");
 const cover = @import("../gfx/image.zig");
 const icons = @import("icons.zig");
-const system = @import("../kindle/system.zig");
+const quick_model = @import("../model/quick.zig");
 const text = @import("../layout/text.zig");
 const catalog = @import("../model/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
@@ -241,7 +241,7 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog
     _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
 }
 
-fn drawStatus(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
+fn drawStatus(fonts: Fonts, page: text.Page, quick: *const quick_model.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
     // One centre line for everything in the strip.
     const centre = 48;
@@ -271,7 +271,7 @@ fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
     try footer.render(fonts, page, index, pages);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const system.Quick) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const quick_model.Quick) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 

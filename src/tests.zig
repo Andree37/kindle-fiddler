@@ -1,4 +1,13 @@
 test {
+    _ = @import("kindle/catalog.zig");
+    _ = @import("kindle/jpegxr.zig");
+    _ = @import("kindle/annotation_db.zig");
+    _ = @import("kindle/store.zig");
+    _ = @import("kindle/safe.zig");
+    _ = @import("kindle/lipc.zig");
+    _ = @import("model/quick.zig");
+    _ = @import("linux/clock.zig");
+    _ = @import("linux/process.zig");
     _ = @import("app.zig");
     _ = @import("model/stats.zig");
     _ = @import("model/search.zig");
@@ -24,7 +33,6 @@ test {
     _ = @import("ui/sheet.zig");
     _ = @import("ui/slider.zig");
     _ = @import("linux/state.zig");
-    _ = @import("kindle/system.zig");
     _ = @import("layout/text.zig");
     _ = @import("ui/toolbar.zig");
     _ = @import("kindle/touch.zig");

@@ -7,7 +7,9 @@ const kfx = @import("../kindle/kfx.zig");
 const library = @import("../ui/library.zig");
 const book_actions = @import("../ui/sheet.zig");
 const state = @import("../linux/state.zig");
-const system = @import("../kindle/system.zig");
+const catalog_db = @import("../kindle/catalog.zig");
+const lipc = @import("../kindle/lipc.zig");
+const store = @import("../kindle/store.zig");
 const nowUs = os.nowUs;
 const app = @import("../app.zig");
 const panel = @import("panel.zig");
@@ -126,18 +128,18 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change
             },
             .remove => confirming = true,
             .confirm_remove => {
-                system.removeDownload(e.key, e.kind);
+                store.removeDownload(e.key, e.kind);
                 std.debug.print("removed download: {s}\n", .{e.title});
                 return .other;
             },
             .download => {
-                system.downloadBook(e.key, e.kind);
+                store.downloadBook(e.key, e.kind);
                 std.debug.print("download requested: {s}\n", .{e.title});
                 return .downloading;
             },
             .mark_read, .mark_unread => |choice| {
                 const done = choice == .mark_read;
-                system.markRead(e.key, e.kind, done);
+                store.markRead(e.key, e.kind, done);
                 e.finished = done;
                 if (!done and e.isLocal()) forgetFinished(a, e) catch {};
                 return .other;
@@ -174,7 +176,7 @@ pub fn runLibrary(a: *app.App) !void {
         var hero = catalog.pickHero(lib.entries);
         var count = catalog.select(lib.entries, filter, hero, lib.visible);
         index = @min(index, library.pageCount(count) - 1);
-        a.quick = system.read(a.quick);
+        a.quick = lipc.read(a.quick);
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, message, &a.quick);
@@ -238,7 +240,7 @@ pub fn runLibrary(a: *app.App) !void {
                         a.input.tick_us = 0;
                         continue;
                     }
-                    system.exportLibrary();
+                    catalog_db.exportLibrary();
                     var fresh = loadLibrary(a) catch continue;
                     if (fresh.localCount() == lib.localCount()) {
                         fresh.deinit();
@@ -276,7 +278,7 @@ pub fn runLibrary(a: *app.App) !void {
                 if (change != .none) {
                     // Only a download needs watching; nothing else finishes later.
                     if (change == .downloading) watch_until = nowUs() + download_watch_us;
-                    system.exportLibrary();
+                    catalog_db.exportLibrary();
                     var fresh = loadLibrary(a) catch break :browse;
                     lib.deinit();
                     lib = fresh;

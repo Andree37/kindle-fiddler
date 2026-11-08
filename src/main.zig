@@ -11,8 +11,7 @@ const Fonts = @import("ui/fonts.zig").Fonts;
 const file = @import("linux/file.zig");
 const hwtcon = @import("kindle/hwtcon.zig");
 const library = @import("ui/library.zig");
-const menu = @import("ui/menu.zig");
-const system = @import("kindle/system.zig");
+const clock = @import("linux/clock.zig");
 const text = @import("layout/text.zig");
 const input_mod = @import("kindle/input.zig");
 const app = @import("app.zig");
@@ -78,7 +77,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .settings_path = settings_path,
         .speed_path = speed_path,
         .speed = app.loadSpeed(speed_path),
-        .utc_offset = system.utcOffset(),
+        .utc_offset = clock.utcOffset(),
         .settings = app.loadSettings(settings_path),
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
     };

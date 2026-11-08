@@ -3,7 +3,6 @@ const std = @import("std");
 const draw = @import("draw.zig");
 const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
-const library = @import("library.zig");
 const menu = @import("menu.zig");
 const slider = @import("slider.zig");
 const text = @import("../layout/text.zig");

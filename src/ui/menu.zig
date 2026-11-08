@@ -2,10 +2,9 @@
 const std = @import("std");
 const Fonts = @import("fonts.zig").Fonts;
 const icons = @import("icons.zig");
-const library = @import("library.zig");
 const slider = @import("slider.zig");
 const state = @import("../linux/state.zig");
-const system = @import("../kindle/system.zig");
+const quick_model = @import("../model/quick.zig");
 const text = @import("../layout/text.zig");
 
 pub const height = 960;
@@ -14,8 +13,8 @@ const slider_left = 160;
 const slider_right = 1110;
 
 pub const Row = struct { label: []const u8, y: u32, max: u32 };
-pub const brightness_row = Row{ .label = "Brightness", .y = 680, .max = system.max_brightness };
-pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = system.max_warmth };
+pub const brightness_row = Row{ .label = "Brightness", .y = 680, .max = quick_model.max_brightness };
+pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = quick_model.max_warmth };
 const schedule_top = 754;
 const schedule_bottom = 794;
 
@@ -133,7 +132,7 @@ pub fn drawSlider(fonts: Fonts, page: text.Page, row: Row, value: u32, mono: boo
     if (mono) page.threshold(bandTop(row), band_height);
 }
 
-fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
+fn drawIcon(page: text.Page, s: Shortcut, quick: *const quick_model.Quick) void {
     const x: f32 = @floatFromInt(s.x);
     const y: f32 = @floatFromInt(s.y);
     icons.ring(page, x, y, icon_radius);
@@ -148,7 +147,7 @@ fn drawIcon(page: text.Page, s: Shortcut, quick: *const system.Quick) void {
 }
 
 /// Toggles fill when on, like the stock panel.
-pub fn isOn(s: Shortcut, quick: *const system.Quick) bool {
+pub fn isOn(s: Shortcut, quick: *const quick_model.Quick) bool {
     return switch (s.icon) {
         .airplane => quick.airplane,
         .wifi => quick.wifi_on,
@@ -156,7 +155,7 @@ pub fn isOn(s: Shortcut, quick: *const system.Quick) bool {
     };
 }
 
-fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
+fn label(s: Shortcut, quick: *const quick_model.Quick) []const u8 {
     return switch (s.icon) {
         .airplane => if (quick.airplane) "On" else "Off",
         .wifi => if (quick.wifi_on) "Connected" else "Wi-Fi Off",
@@ -166,7 +165,7 @@ fn label(s: Shortcut, quick: *const system.Quick) []const u8 {
     };
 }
 
-pub fn render(fonts: Fonts, page: text.Page, quick: *const system.Quick) !void {
+pub fn render(fonts: Fonts, page: text.Page, quick: *const quick_model.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, height, 0xff);
     page.fillRect(0, height - 4, page.width, 4, 0x00);
@@ -269,8 +268,8 @@ test "defaults match the original reader" {
 }
 
 test "toggles report their state" {
-    const on = system.Quick{ .airplane = true, .wifi_on = true };
-    const off = system.Quick{};
+    const on = quick_model.Quick{ .airplane = true, .wifi_on = true };
+    const off = quick_model.Quick{};
     try std.testing.expect(isOn(shortcuts[0], &on));
     try std.testing.expect(!isOn(shortcuts[0], &off));
     try std.testing.expect(isOn(shortcuts[1], &on));

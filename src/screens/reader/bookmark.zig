@@ -3,7 +3,8 @@ const std = @import("std");
 const annotations = @import("../../kindle/annotations.zig");
 const bookmarks = @import("../../model/bookmarks.zig");
 const catalog = @import("../../model/catalog.zig");
-const system = @import("../../kindle/system.zig");
+const annotation_db = @import("../../kindle/annotation_db.zig");
+const lipc = @import("../../kindle/lipc.zig");
 const app = @import("../../app.zig");
 const records = @import("records.zig");
 const sess = @import("session.zig");
@@ -33,7 +34,7 @@ pub fn toggle(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *c
         try s.bookmarks.append(alloc, .{ .id = id, .para = at.para, .byte = at.byte });
         std.debug.print("bookmark added\n", .{});
     }
-    if (!system.dryRun()) system.syncNow();
+    if (!annotation_db.dryRun()) lipc.syncNow();
 }
 
 /// The first place on a page that Amazon numbers. Pages can open on a heading

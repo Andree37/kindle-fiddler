@@ -12,7 +12,9 @@ const file = @import("linux/file.zig");
 const hwtcon = @import("kindle/hwtcon.zig");
 const library = @import("ui/library.zig");
 const menu = @import("ui/menu.zig");
-const system = @import("kindle/system.zig");
+const clock = @import("linux/clock.zig");
+const jpegxr = @import("kindle/jpegxr.zig");
+const quick_model = @import("model/quick.zig");
 const text = @import("layout/text.zig");
 const os = @import("linux/os.zig");
 const Input = input_mod.Input;
@@ -53,7 +55,7 @@ pub const App = struct {
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
     pictures: Pictures = .{}, // Pictures of the open book, ready to copy onto pages
     settings: menu.Settings,
-    quick: system.Quick = .{},
+    quick: quick_model.Quick = .{},
     utc_offset: i64,
     clock_minute: u64 = 0,
     layout: text.Layout,
@@ -86,7 +88,7 @@ pub const App = struct {
     fn drawImage(ctx: *anyopaque, page_buf: text.Page, image: kfx.Image, x: u32, y: u32, w: u32, h: u32) void {
         const a: *App = @ptrCast(@alignCast(ctx));
         const ready = a.pictures.get(image.data.ptr, w, h) orelse blk: {
-            const made = if (system.isJpegXr(image.data))
+            const made = if (jpegxr.isJpegXr(image.data))
                 preparedJpegXr(a.alloc, image.data, w, h)
             else
                 cover.decodeAndPrepare(a.alloc, image.data, w, h);
@@ -103,7 +105,7 @@ pub const App = struct {
     fn preparedJpegXr(alloc: std.mem.Allocator, data: []const u8, w: u32, h: u32) ?[]u8 {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
-        const gray = system.decodeJpegXr(arena.allocator(), data, w, h) orelse return null;
+        const gray = jpegxr.decodeJpegXr(arena.allocator(), data, w, h) orelse return null;
         return cover.prepare(alloc, gray.pixels, gray.width, gray.height, w, h);
     }
 
@@ -136,7 +138,7 @@ pub const App = struct {
         const left = (a.screen.width - clock_width) / 2;
         target.fillRect(left, clock_top, clock_width, clock_height, 0xff);
         var buf: [8]u8 = undefined;
-        const time = system.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
+        const time = clock.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
         draw.centered(a.ui.caption, target, @floatFromInt(a.screen.width / 2), clock_top + 38, time) catch {};
         a.clock_minute = unixTime() / 60;
     }

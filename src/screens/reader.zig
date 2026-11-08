@@ -9,7 +9,8 @@ const library = @import("../ui/library.zig");
 const menu = @import("../ui/menu.zig");
 const selection = @import("../ui/selection.zig");
 const state = @import("../linux/state.zig");
-const system = @import("../kindle/system.zig");
+const annotation_db = @import("../kindle/annotation_db.zig");
+const lipc = @import("../kindle/lipc.zig");
 const toolbar = @import("../ui/toolbar.zig");
 const touch_zones = @import("../kindle/touch.zig");
 const input_mod = @import("../kindle/input.zig");
@@ -65,8 +66,8 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     text_before[0] = 0;
     for (book.paragraphs, 0..) |p, i| text_before[i + 1] = text_before[i] + (if (p.note) 0 else p.text.len);
     session.text_before = text_before;
-    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, system.readAnnotations(entry.key, .highlight, stored)));
-    try session.bookmarks.appendSlice(alloc, try bookmarks.parse(alloc, book.paragraphs, system.readAnnotations(entry.key, .bookmark, stored)));
+    try session.highlights.appendSlice(alloc, try highlights.parse(alloc, book.paragraphs, annotation_db.readAnnotations(entry.key, .highlight, stored)));
+    try session.bookmarks.appendSlice(alloc, try bookmarks.parse(alloc, book.paragraphs, annotation_db.readAnnotations(entry.key, .bookmark, stored)));
     std.debug.print("{d} bookmarks loaded\n", .{session.bookmarks.items.len});
     std.debug.print("{d} highlights loaded\n", .{session.highlights.items.len});
     try hl.refreshMarks(a, &session, alloc);
@@ -155,7 +156,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     if (try panel.panelControl(a, page, choice, t.x)) continue;
                     switch (choice) {
                         .settings => {
-                            system.openSettings();
+                            lipc.openSettings();
                             return .quit;
                         },
                         .close => {
@@ -231,7 +232,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     if (t.y < touch_zones.top_zone) {
                         view = .toolbar;
                         a.input.grips = false;
-                        a.quick = system.read(a.quick);
+                        a.quick = lipc.read(a.quick);
                         try controls.drawToolbar(a, &session, entry.title, false, false);
                         continue;
                     }
@@ -254,7 +255,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             .pull => {
                 if (view != .page) continue;
                 view = .panel;
-                a.quick = system.read(a.quick);
+                a.quick = lipc.read(a.quick);
                 try panel.drawMenu(a, try session.ensure(session.current, session.current));
             },
             .power, .idle, .stop => return .quit,

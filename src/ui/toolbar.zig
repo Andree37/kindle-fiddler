@@ -8,7 +8,7 @@ const icons = @import("icons.zig");
 const library = @import("library.zig");
 const menu = @import("menu.zig");
 const slider = @import("slider.zig");
-const system = @import("../kindle/system.zig");
+const quick_model = @import("../model/quick.zig");
 const text = @import("../layout/text.zig");
 
 pub const top_height = 228;
@@ -83,7 +83,7 @@ pub fn drawScrub(fonts: Fonts, page: text.Page, index: usize, total: usize, mono
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }
 
-pub fn render(fonts: Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const system.Quick, sheet: ?aa.Tab, chosen: menu.Settings, bookmarked: bool) !void {
+pub fn render(fonts: Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const quick_model.Quick, sheet: ?aa.Tab, chosen: menu.Settings, bookmarked: bool) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, top_height, 0xff);
 

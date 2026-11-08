@@ -5,7 +5,6 @@ const os = @import("../linux/os.zig");
 const cover = @import("../gfx/image.zig");
 const file = @import("../linux/file.zig");
 const kfx = @import("../kindle/kfx.zig");
-const library = @import("../ui/library.zig");
 const nowUs = os.nowUs;
 const app = @import("../app.zig");
 
