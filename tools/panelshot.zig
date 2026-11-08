@@ -57,7 +57,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     @memset(buf, 0xff);
     const page = text.Page{ .buf = buf, .width = w, .height = h, .stride = w };
     const mode = if (argv.len > 1) std.mem.sliceTo(argv[1], 0) else "panel";
-    var quick = system.read();
+    var quick = system.read(.{});
 
     if (std.mem.eql(u8, mode, "library")) {
         const entries = try catalog.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));

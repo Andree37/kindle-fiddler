@@ -195,7 +195,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     if (t.y < touch_zones.top_zone) {
                         view = .toolbar;
                         a.input.grips = false;
-                        a.quick = system.read();
+                        a.quick = system.read(a.quick);
                         try controls.drawToolbar(a, &session, entry.title, false, false);
                         continue;
                     }
@@ -218,7 +218,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             .pull => {
                 if (view != .page) continue;
                 view = .panel;
-                a.quick = system.read();
+                a.quick = system.read(a.quick);
                 try panel.drawMenu(a, try session.ensure(session.current, session.current));
             },
             .power, .idle, .stop => return .quit,

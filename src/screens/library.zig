@@ -170,7 +170,7 @@ pub fn runLibrary(a: *app.App) !void {
         var hero = catalog.pickHero(lib.entries);
         var count = catalog.select(lib.entries, filter, hero, lib.visible);
         index = @min(index, library.pageCount(count) - 1);
-        a.quick = system.read();
+        a.quick = system.read(a.quick);
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, message, &a.quick);

@@ -143,23 +143,32 @@ pub fn signalBars(signal: []const u8) u32 {
 }
 
 /// Everything the panel and status bar show. All reads share one short deadline,
-/// so a hung lipc costs one wait, not one per value.
-pub fn read() Quick {
+/// so a hung lipc costs one wait, not one per value. A value that can't be read keeps
+/// what `previous` had, so the panel never acts on a made-up zero.
+pub fn read(previous: Quick) Quick {
     const deadline = lipcDeadline();
+    var q = previous;
     var state_buf: [32]u8 = undefined;
-    var signal_buf: [16]u8 = undefined;
-    const connected = std.mem.eql(u8, getText("com.lab126.wifid", "cmState", &state_buf, deadline), "CONNECTED");
-    var q = Quick{
-        .wifi_on = connected,
-        .wifi_bars = if (connected) signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf, deadline)) else 0,
-        .brightness = get("com.lab126.powerd", "flIntensity", deadline) orelse 0,
-        .warmth = get("com.lab126.powerd", "currentAmberLevel", deadline) orelse 0,
-        .schedule = (get("com.lab126.powerd", "amberSchedEnable", deadline) orelse 0) == 1,
-        .airplane = (get("com.lab126.cmd", "wirelessEnable", deadline) orelse 1) == 0,
-        .battery = get("com.lab126.powerd", "battLevel", deadline) orelse 0,
-    };
+    const wifi_state = getText("com.lab126.wifid", "cmState", &state_buf, deadline);
+    if (wifi_state.len > 0) {
+        q.wifi_on = std.mem.eql(u8, wifi_state, "CONNECTED");
+        q.wifi_bars = 0;
+        if (q.wifi_on) {
+            var signal_buf: [16]u8 = undefined;
+            q.wifi_bars = signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf, deadline));
+        }
+    }
+    if (get("com.lab126.powerd", "flIntensity", deadline)) |v| q.brightness = v;
+    if (get("com.lab126.powerd", "currentAmberLevel", deadline)) |v| q.warmth = v;
+    if (get("com.lab126.powerd", "amberSchedEnable", deadline)) |v| q.schedule = v == 1;
+    if (get("com.lab126.cmd", "wirelessEnable", deadline)) |v| q.airplane = v == 0;
+    if (get("com.lab126.powerd", "battLevel", deadline)) |v| q.battery = v;
     const argv = [_:null]?[*:0]const u8{ "/bin/date", "+%H:%M - %d %b %Y" };
-    if (runUntil(&argv, &q.clock, deadline)) |n| q.clock_len = std.mem.trimEnd(u8, q.clock[0..n], "\n").len;
+    var clock: [40]u8 = undefined;
+    if (runUntil(&argv, &clock, deadline)) |n| {
+        q.clock = clock;
+        q.clock_len = std.mem.trimEnd(u8, clock[0..n], "\n").len;
+    }
     return q;
 }
 

@@ -91,7 +91,7 @@ pub fn applyQuick(a: *app.App, change: menu.Hit, x: i32) bool {
 
 /// The quick panel over the library. Returns true to quit to the stock UI.
 pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
-    a.quick = system.read();
+    a.quick = system.read(a.quick);
     try drawMenu(a, background);
     while (true) {
         switch (a.input.next()) {
