@@ -1,4 +1,6 @@
 test {
+    _ = @import("model/settings.zig");
+    _ = @import("kindle/fonts.zig");
     _ = @import("gfx/page.zig");
     _ = @import("gfx/font.zig");
     _ = @import("model/book.zig");

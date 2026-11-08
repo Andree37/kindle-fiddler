@@ -9,6 +9,7 @@ pub const jpegxr = @import("kindle/jpegxr.zig");
 pub const kfx = @import("kindle/kfx.zig");
 pub const lipc = @import("kindle/lipc.zig");
 pub const safe = @import("kindle/safe.zig");
+pub const fonts_db = @import("kindle/fonts.zig");
 pub const store = @import("kindle/store.zig");
 
 // Linux.
@@ -21,6 +22,7 @@ pub const process = @import("linux/process.zig");
 pub const book = @import("model/book.zig");
 pub const note_rules = @import("model/notes.zig");
 pub const catalog = @import("model/catalog.zig");
+pub const settings = @import("model/settings.zig");
 pub const quick = @import("model/quick.zig");
 pub const text = @import("layout/text.zig");
 pub const cover = @import("gfx/image.zig");

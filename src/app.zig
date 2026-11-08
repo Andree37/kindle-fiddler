@@ -1,5 +1,7 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const fonts_db = @import("kindle/fonts.zig");
+const settings_model = @import("model/settings.zig");
 const Page = @import("gfx/page.zig").Page;
 const Font = @import("gfx/font.zig").Font;
 const book_model = @import("model/book.zig");
@@ -13,7 +15,6 @@ const aa = @import("ui/aa.zig");
 const file = @import("linux/file.zig");
 const hwtcon = @import("kindle/hwtcon.zig");
 const library = @import("ui/library.zig");
-const menu = @import("ui/menu.zig");
 const clock = @import("linux/clock.zig");
 const jpegxr = @import("kindle/jpegxr.zig");
 const quick_model = @import("model/quick.zig");
@@ -39,8 +40,8 @@ pub const App = struct {
     input: *Input,
     body: *Font,
     // Body fonts by family, face (bold, italic), reader size and book size, made on first use.
-    face_fonts: [menu.families.len][4][menu.sizes.len][book_model.size_scales.len]?Font = @splat(@splat(@splat(@splat(null)))),
-    face_files: [menu.families.len][4]?[]const u8 = @splat(@splat(null)),
+    face_fonts: [settings_model.families.len][4][settings_model.sizes.len][book_model.size_scales.len]?Font = @splat(@splat(@splat(@splat(null)))),
+    face_files: [settings_model.families.len][4]?[]const u8 = @splat(@splat(null)),
     tab: aa.Tab = .font,
     turns: u32 = 0,
     note_font: *Font,
@@ -56,7 +57,7 @@ pub const App = struct {
     speed_path: [*:0]const u8,
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
     pictures: Pictures = .{}, // Pictures of the open book, ready to copy onto pages
-    settings: menu.Settings,
+    settings: settings_model.Settings,
     quick: quick_model.Quick = .{},
     utc_offset: i64,
     clock_minute: u64 = 0,
@@ -67,18 +68,17 @@ pub const App = struct {
         a.body = try a.face(false, false, book_model.normal_size);
         a.layout.faces = .{ .ctx = a, .pick = pickFace };
         a.layout.images = .{ .ctx = a, .draw = drawImage };
-        a.layout.margin_x = menu.margins[a.settings.margin];
+        a.layout.margin_x = settings_model.margins[a.settings.margin];
         a.layout.justify = !a.settings.left_align;
     }
 
     /// The body font for a weight, slant and book size, in the reader's family and size.
     /// The reader's Bold setting makes everything bold.
     pub fn face(a: *App, bold_text: bool, italic: bool, size: u8) !*Font {
-        const family = menu.families[a.settings.font];
         const bold = bold_text or a.settings.bold;
         const which: usize = @as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1;
         const file_slot = &a.face_files[a.settings.font][which];
-        if (file_slot.* == null) file_slot.* = try file.map(family.path(bold, italic));
+        if (file_slot.* == null) file_slot.* = try file.map(fonts_db.path(a.settings.font, bold, italic));
         const scale = book_model.size_scales[size];
         const slot = &a.face_fonts[a.settings.font][which][a.settings.size][size];
         if (slot.* == null) slot.* = try Font.init(a.alloc, file_slot.*.?, a.settings.px() * scale, 1);
@@ -244,12 +244,13 @@ pub fn saveSpeed(a: *const App) void {
     state.writeSmall(a.speed_path, stats.format(&buf, a.speed));
 }
 
-pub fn loadSettings(path: [*:0]const u8) menu.Settings {
-    return menu.decode(state.load(path));
+pub fn loadSettings(path: [*:0]const u8) settings_model.Settings {
+    return settings_model.decode(state.load(path));
 }
 
-pub fn saveSettings(path: [*:0]const u8, s: menu.Settings) void {
-    state.save(path, menu.encode(s));
+pub fn saveSettings(path: [*:0]const u8, s: settings_model.Settings) void {
+    const packed_settings = settings_model.encode(s);
+    state.save(path, .{ .para = packed_settings.para, .byte = packed_settings.byte, .opened = packed_settings.opened });
 }
 
 /// The last few pictures drawn, decoded, scaled and dithered, so drawing a page

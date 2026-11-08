@@ -3,6 +3,7 @@ const std = @import("std");
 const Page = @import("../gfx/page.zig").Page;
 const Font = @import("../gfx/font.zig").Font;
 const Fonts = @import("fonts.zig").Fonts;
+const draw = @import("draw.zig");
 const icons = @import("icons.zig");
 const slider = @import("slider.zig");
 const state = @import("../linux/state.zig");
@@ -18,48 +19,6 @@ pub const brightness_row = Row{ .label = "Brightness", .y = 680, .max = quick_mo
 pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = quick_model.max_warmth };
 const schedule_top = 754;
 const schedule_bottom = 794;
-
-/// A typeface's four files: regular, bold, italic and bold italic, in that order.
-pub const Family = struct {
-    label: []const u8,
-    faces: [4][*:0]const u8,
-
-    /// The file for a weight and slant.
-    pub fn path(f: Family, bold: bool, italic: bool) [*:0]const u8 {
-        return f.faces[@as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1];
-    }
-};
-const font_dir = "/usr/java/lib/fonts/";
-pub const families = [_]Family{
-    .{ .label = "Ember", .faces = .{ font_dir ++ "Amazon-Ember-Regular.ttf", font_dir ++ "Amazon-Ember-Bold.ttf", font_dir ++ "Amazon-Ember-RegularItalic.ttf", font_dir ++ "Amazon-Ember-BoldItalic.ttf" } },
-    .{ .label = "Bookerly", .faces = .{ font_dir ++ "Bookerly-Regular.ttf", font_dir ++ "Bookerly-Bold.ttf", font_dir ++ "Bookerly-Italic.ttf", font_dir ++ "Bookerly-BoldItalic.ttf" } },
-    .{ .label = "Baskerville", .faces = .{ font_dir ++ "Baskerville-Regular.ttf", font_dir ++ "Baskerville-Bold.ttf", font_dir ++ "Baskerville-Italic.ttf", font_dir ++ "Baskerville-BoldItalic.ttf" } },
-    .{ .label = "Serif", .faces = .{ font_dir ++ "AmazonEmberSerif_Rg.ttf", font_dir ++ "AmazonEmberSerif_Bd.ttf", font_dir ++ "AmazonEmberSerif_RgIt.ttf", font_dir ++ "AmazonEmberSerif_BdIt.ttf" } },
-};
-
-pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
-pub const spacings = [_]f32{ 1.2, 1.35, 1.5, 1.7 };
-pub const margins = [_]i32{ 60, 100, 150, 210 };
-
-pub const Settings = struct {
-    size: usize = 2,
-    spacing: usize = 1,
-    font: usize = 0,
-    margin: usize = 1,
-    bold: bool = false,
-    left_align: bool = false,
-    clock: bool = true,
-    refresh: bool = false,
-    time_left: bool = true,
-
-    pub fn px(s: Settings) f32 {
-        return sizes[s.size];
-    }
-
-    pub fn lineHeight(s: Settings) i32 {
-        return @intFromFloat(sizes[s.size] * spacings[s.spacing]);
-    }
-};
 
 pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, settings, sync };
 
@@ -103,11 +62,6 @@ pub fn hit(x: i32, y: i32) Hit {
     return .none;
 }
 
-fn centered(font: *Font, page: Page, cx: i32, y: i32, s: []const u8) !void {
-    const w: i32 = @intFromFloat(try font.measure(s));
-    try font.draw(page, @floatFromInt(cx - @divTrunc(w, 2)), y, s);
-}
-
 const band_above = 60;
 const band_below = 50;
 
@@ -124,7 +78,7 @@ pub fn drawSlider(fonts: Fonts, page: Page, row: Row, value: u32, mono: bool) !v
     const bar = rowSlider(row);
     const knob = slider.knobAt(bar, value, row.max);
     var level: [8]u8 = undefined;
-    try centered(fonts.small, page, @intCast(knob), @intCast(row.y - 40), std.fmt.bufPrint(&level, "{d}", .{value}) catch "");
+    try draw.centered(fonts.small, page, @floatFromInt(@as(i32, @intCast(knob))), @intCast(row.y - 40), std.fmt.bufPrint(&level, "{d}", .{value}) catch "");
     const y: f32 = @floatFromInt(row.y);
     page.stroke(70, y, 110, y, 4);
     page.stroke(1160, y, 1200, y, 4);
@@ -177,7 +131,7 @@ pub fn render(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
 
     for (shortcuts) |s| {
         drawIcon(page, s, quick);
-        try centered(fonts.small, page, s.x, s.y + 92, label(s, quick));
+        try draw.centered(fonts.small, page, @floatFromInt(s.x), s.y + 92, label(s, quick));
     }
 
     page.fillRect(40, 560, page.width - 80, 2, 0x80);
@@ -192,49 +146,6 @@ pub fn render(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
     try drawSlider(fonts, page, warmth_row, quick.warmth, false);
     icons.chevron(page, w / 2, 934);
 
-}
-
-const format_packed = 2;
-
-/// Settings share the state file format, with everything packed into two numbers.
-pub fn decode(saved: state.State) Settings {
-    if (saved.opened == 0) return .{};
-    if (saved.opened != format_packed) {
-        return .{ .size = @min(saved.para, sizes.len - 1), .spacing = @min(saved.byte, spacings.len - 1), .font = @min(saved.percent orelse 0, families.len - 1) };
-    }
-    const flags = saved.byte;
-    return .{
-        .size = @min(saved.para & 15, sizes.len - 1),
-        .spacing = @min((saved.para >> 4) & 15, spacings.len - 1),
-        .font = @min((saved.para >> 8) & 15, families.len - 1),
-        .margin = @min((saved.para >> 12) & 15, margins.len - 1),
-        .bold = flags & 1 != 0,
-        .left_align = flags & 2 != 0,
-        .clock = flags & 4 == 0,
-        .refresh = flags & 8 != 0,
-        .time_left = flags & 16 == 0,
-    };
-}
-
-pub fn encode(s: Settings) state.State {
-    const flags = @as(usize, @intFromBool(s.bold)) | @as(usize, @intFromBool(s.left_align)) << 1 |
-        @as(usize, @intFromBool(!s.clock)) << 2 | @as(usize, @intFromBool(s.refresh)) << 3 |
-        @as(usize, @intFromBool(!s.time_left)) << 4;
-    return .{ .para = s.size | s.spacing << 4 | s.font << 8 | s.margin << 12, .byte = flags, .opened = format_packed };
-}
-
-test "settings survive being saved" {
-    const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true };
-    try std.testing.expectEqual(s, decode(encode(s)));
-    try std.testing.expectEqual(Settings{}, decode(encode(.{})));
-}
-
-test "settings saved by older versions still load" {
-    const s = decode(.{ .para = 3, .byte = 2, .percent = 1, .opened = 1 });
-    try std.testing.expectEqual(@as(usize, 3), s.size);
-    try std.testing.expectEqual(@as(usize, 2), s.spacing);
-    try std.testing.expectEqual(@as(usize, 1), s.font);
-    try std.testing.expect(s.clock);
 }
 
 test "panel maps taps like the stock layout" {
@@ -260,12 +171,6 @@ test "sliders map position to level" {
     try std.testing.expectEqual(@as(u32, 24), levelAt(brightness_row, 1110));
     try std.testing.expectEqual(@as(u32, 12), levelAt(warmth_row, 635));
     try std.testing.expectEqual(@as(u32, 24), levelAt(warmth_row, 1200));
-}
-
-test "defaults match the original reader" {
-    const s = Settings{};
-    try std.testing.expectEqual(@as(f32, 46), s.px());
-    try std.testing.expectEqual(@as(i32, 62), s.lineHeight());
 }
 
 test "toggles report their state" {

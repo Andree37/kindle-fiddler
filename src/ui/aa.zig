@@ -1,11 +1,11 @@
 //! The Aa sheet: reading settings, in four tabs.
 const std = @import("std");
+const settings_model = @import("../model/settings.zig");
 const Page = @import("../gfx/page.zig").Page;
 const Font = @import("../gfx/font.zig").Font;
 const draw = @import("draw.zig");
 const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
-const menu = @import("menu.zig");
 const slider = @import("slider.zig");
 const text = @import("../layout/text.zig");
 
@@ -35,9 +35,9 @@ pub const Hit = union(enum) {
 };
 
 pub const Row = struct { hit: Hit, label: []const u8, top: u32, steps: usize };
-pub const size_row = Row{ .hit = .text_size, .label = "Text size", .top = content_top + 256, .steps = menu.sizes.len };
-pub const spacing_row = Row{ .hit = .spacing, .label = "Line spacing", .top = content_top, .steps = menu.spacings.len };
-pub const margin_row = Row{ .hit = .margins, .label = "Margins", .top = content_top + 146, .steps = menu.margins.len };
+pub const size_row = Row{ .hit = .text_size, .label = "Text size", .top = content_top + 256, .steps = settings_model.sizes.len };
+pub const spacing_row = Row{ .hit = .spacing, .label = "Line spacing", .top = content_top, .steps = settings_model.spacings.len };
+pub const margin_row = Row{ .hit = .margins, .label = "Margins", .top = content_top + 146, .steps = settings_model.margins.len };
 pub const row_height = 146;
 
 const family_top = content_top;
@@ -147,7 +147,7 @@ fn drawTabs(fonts: Fonts, page: Page, tab: Tab) !void {
     page.fillRect(0, top + tabs_height - 2, page.width, 1, style.rule);
 }
 
-fn drawThemes(fonts: Fonts, page: Page, chosen: menu.Settings) !void {
+fn drawThemes(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
     for (themes, 0..) |t, i| {
         const left: u32 = margin + @as(u32, @intCast(i)) * (theme_width + theme_gap);
         const active = chosen.size == t.size and chosen.spacing == t.spacing and chosen.margin == t.margin;
@@ -166,18 +166,18 @@ fn drawThemes(fonts: Fonts, page: Page, chosen: menu.Settings) !void {
     }
 }
 
-fn drawFont(fonts: Fonts, page: Page, chosen: menu.Settings) !void {
-    for (menu.families, 0..) |f, i| {
+fn drawFont(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
+    for (settings_model.families, 0..) |family, i| {
         const row: u32 = @intCast(i / 2);
         const left: u32 = margin + @as(u32, @intCast(i % 2)) * family_width;
         const y = family_top + row * family_height;
-        try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), f.label, i == chosen.font, y + 70);
+        try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), family, i == chosen.font, y + 70);
     }
     try drawToggle(fonts, page, bold_top, "Bold", chosen.bold);
     try drawRow(fonts, page, size_row, chosen.size, false);
 }
 
-pub fn render(fonts: Fonts, page: Page, tab: Tab, chosen: menu.Settings) !void {
+pub fn render(fonts: Fonts, page: Page, tab: Tab, chosen: settings_model.Settings) !void {
     page.fillRect(0, top, page.width, height - top, 0xff);
     page.fillRect(0, height - 4, page.width, 4, 0x00);
     try drawTabs(fonts, page, tab);

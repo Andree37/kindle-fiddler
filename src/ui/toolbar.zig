@@ -1,5 +1,6 @@
 //! Reading toolbar: a single tap at the top of a page opens it.
 const std = @import("std");
+const settings_model = @import("../model/settings.zig");
 const Page = @import("../gfx/page.zig").Page;
 const draw = @import("draw.zig");
 const style = @import("style.zig");
@@ -7,7 +8,6 @@ const Fonts = @import("fonts.zig").Fonts;
 const aa = @import("aa.zig");
 const icons = @import("icons.zig");
 const library = @import("library.zig");
-const menu = @import("menu.zig");
 const slider = @import("slider.zig");
 const quick_model = @import("../model/quick.zig");
 const text = @import("../layout/text.zig");
@@ -84,7 +84,7 @@ pub fn drawScrub(fonts: Fonts, page: Page, index: usize, total: usize, mono: boo
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }
 
-pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: usize, quick: *const quick_model.Quick, sheet: ?aa.Tab, chosen: menu.Settings, bookmarked: bool) !void {
+pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: usize, quick: *const quick_model.Quick, sheet: ?aa.Tab, chosen: settings_model.Settings, bookmarked: bool) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, top_height, 0xff);
 
