@@ -84,6 +84,8 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     defer a.input.deferred = false;
     defer a.input.edge_zones = true;
     while (true) {
+        // The reading clock runs only while the page itself is in front of the reader.
+        if (view == .page) session.resumeClock() else session.pauseClock();
         a.input.deferred = view == .page;
         a.input.edge_zones = view != .highlight;
         switch (a.input.next()) {
@@ -107,6 +109,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 }
             },
             .lock => {
+                session.pauseClock(); // Asleep isn't reading
                 try lock.lockScreen(a, entry);
                 if (view == .page) try a.updateClock();
             },

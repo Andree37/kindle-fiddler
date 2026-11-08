@@ -3,18 +3,18 @@
 const std = @import("std");
 
 const min_page_seconds = 3; // Quicker than this is flicking past, not reading
-pub const max_page_seconds = 300; // Longer than this, the reader stepped away
+pub const max_page_seconds = 300; // Longer than this, the reader stepped away: not reading
 
 /// Text read and time spent reading it, summed over every book.
 pub const Speed = struct {
     bytes: u64 = 0,
     seconds: u64 = 0,
 
-    /// Counts one page read forward. Flicks are ignored and long pauses capped.
+    /// Counts one page read forward. Flicks and pages left open are ignored.
     pub fn record(s: *Speed, bytes: u64, seconds: u64) void {
-        if (seconds < min_page_seconds or bytes == 0) return;
+        if (seconds < min_page_seconds or seconds > max_page_seconds or bytes == 0) return;
         s.bytes += bytes;
-        s.seconds += @min(seconds, max_page_seconds);
+        s.seconds += seconds;
     }
 
     /// Enough reading to give honest estimates: five minutes over a few pages.
@@ -30,9 +30,9 @@ pub const Speed = struct {
     }
 };
 
-/// Time counted toward a book: the time on a page, without long pauses.
+/// Time counted toward a book: the time on a page, unless it was left open.
 pub fn countedSeconds(seconds: u64) u64 {
-    return @min(seconds, max_page_seconds);
+    return if (seconds > max_page_seconds) 0 else seconds;
 }
 
 /// "12 min", "1 h 5 min", "3 h".
@@ -59,12 +59,15 @@ test "speed learns from real reading only" {
     var s = Speed{};
     s.record(1000, 1); // A flick
     try std.testing.expectEqual(@as(u64, 0), s.bytes);
-    s.record(1500, 60);
-    s.record(1500, 9999); // Stepped away: capped
+    s.record(1500, 9999); // Stepped away: not counted at all
+    try std.testing.expectEqual(@as(u64, 0), s.seconds);
+    s.record(1500, 180);
+    s.record(1500, 180);
     try std.testing.expectEqual(@as(u64, 360), s.seconds);
     try std.testing.expect(s.known());
     // 3000 bytes in 360 s: 6000 more takes 720 s, 12 minutes.
     try std.testing.expectEqual(@as(u64, 12), s.minutesFor(6000).?);
+    try std.testing.expectEqual(@as(u64, 0), countedSeconds(9999));
     try std.testing.expect((Speed{}).minutesFor(100) == null);
 }
 

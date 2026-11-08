@@ -53,7 +53,7 @@ pub const Session = struct {
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const kfx.Chapter = &.{},
     text_before: []const u64 = &.{}, // Bytes of text before each paragraph, for time left
-    shown_us: u64 = 0, // When the current page went up
+    shown_us: u64 = 0, // When the reader started on this page; 0 while not reading
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
 
     /// Bytes of text from the start of the book to a position.
@@ -88,7 +88,23 @@ pub const Session = struct {
         if (s.shown_us == 0) return;
         const seconds = (nowUs() -| s.shown_us) / 1_000_000;
         s.seconds_read += stats.countedSeconds(seconds);
-        if (to == s.current + 1) s.app.speed.record(s.textOnPage(s.current), seconds);
+        if (to != s.current + 1) return;
+        const speed = &s.app.speed;
+        const was_known = speed.known();
+        speed.record(s.textOnPage(s.current), seconds);
+        // Pages already drawn have no time left on them yet.
+        if (!was_known and speed.known()) s.app.forgetPages();
+    }
+
+    /// Stops the reading clock while something covers the page, or the Kindle sleeps.
+    pub fn pauseClock(s: *Session) void {
+        s.leavePage(s.current);
+        s.shown_us = 0;
+    }
+
+    /// Starts the clock again when the page is back in front of the reader.
+    pub fn resumeClock(s: *Session) void {
+        if (s.shown_us == 0) s.shown_us = nowUs();
     }
 
     /// Where a page ends: the next page's start, or null on the last page.
@@ -100,9 +116,12 @@ pub const Session = struct {
         return bookmarks.anyOnPage(s.bookmarks.items, s.pages[index], s.pageEnd(index));
     }
 
+    /// Every move to another page comes through here, so reading time stays right.
     pub fn setPage(s: *Session, index: usize) void {
+        s.leavePage(index);
         s.current = index;
         s.anchor = s.pages[index];
+        if (s.shown_us != 0) s.shown_us = nowUs();
     }
 
     pub fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
@@ -153,12 +172,10 @@ pub const Session = struct {
 
     pub fn show(s: *Session, index: usize, touched_us: ?u64, force_clean: bool) !void {
         const a = s.app;
-        s.leavePage(index);
-        defer s.shown_us = nowUs();
+        s.setPage(index);
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);
         a.stampClock();
-        s.setPage(index);
         a.turns += 1;
         const clean = force_clean or (a.settings.refresh and a.turns % 20 == 0);
         const marker = if (clean)
@@ -185,7 +202,8 @@ pub const Session = struct {
     }
 };
 
-pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *const Session) void {
+pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) void {
+    s.pauseClock(); // Counts the page being read; the reader's loop starts it again
     const pos = s.pages[s.current];
     const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();
@@ -193,6 +211,7 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *const Sessio
     app.saveSpeed(s.app);
     entry.percent = percent;
     entry.last = now;
+    entry.seconds_read = s.seconds_read;
 }
 
 /// Lays out the whole book so going backwards is exact.
