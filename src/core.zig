@@ -8,6 +8,7 @@ pub const hwtcon = @import("platform/hwtcon.zig");
 pub const kfx = @import("book/kfx.zig");
 pub const library = @import("ui/library.zig");
 pub const menu = @import("ui/menu.zig");
+pub const os = @import("platform/os.zig");
 pub const notes = @import("ui/notes.zig");
 pub const sheet = @import("ui/sheet.zig");
 pub const system = @import("platform/system.zig");

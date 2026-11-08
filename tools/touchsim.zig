@@ -2,6 +2,8 @@
 //! Usage: touchsim tap <x> <y>
 //!        touchsim drag <x0> <y0> <x1> <y1> <steps> <delay-ms> [hold-ms]
 const std = @import("std");
+const core = @import("core");
+const sleepMs = core.os.sleepMs;
 const linux = std.os.linux;
 
 const InputEvent = extern struct { sec: u32 = 0, usec: u32 = 0, kind: u16, code: u16, value: i32 };
@@ -19,11 +21,6 @@ var next_id: i32 = 9000;
 fn send(kind: u16, code: u16, value: i32) void {
     var e = InputEvent{ .kind = kind, .code = code, .value = value };
     _ = linux.write(fd, @ptrCast(&e), @sizeOf(InputEvent));
-}
-
-fn sleepMs(ms: u64) void {
-    var req = linux.timespec{ .sec = @intCast(ms / 1000), .nsec = @intCast((ms % 1000) * 1_000_000) };
-    _ = linux.nanosleep(&req, null);
 }
 
 fn down(x: i32, y: i32) void {

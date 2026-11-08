@@ -2,6 +2,8 @@
 //! Saves the screen first and restores it when done.
 const std = @import("std");
 const core = @import("core");
+const nowUs = core.os.nowUs;
+const sleepMs = core.os.sleepMs;
 const linux = std.os.linux;
 const file = core.file;
 const hwtcon = core.hwtcon;
@@ -31,17 +33,6 @@ fn installSignals() void {
     var act = std.mem.zeroes(linux.Sigaction);
     act.handler = .{ .handler = onSignal };
     for ([_]linux.SIG{ .TERM, .INT, .HUP }) |sig| _ = linux.sigaction(sig, &act, null);
-}
-
-fn nowUs() u64 {
-    var ts: linux.timespec = undefined;
-    _ = linux.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @intCast(ts.sec)) * 1_000_000 + @as(u64, @intCast(ts.nsec)) / 1000;
-}
-
-fn sleepMs(ms: u64) void {
-    var req = linux.timespec{ .sec = @intCast(ms / 1000), .nsec = @intCast((ms % 1000) * 1_000_000) };
-    _ = linux.nanosleep(&req, null);
 }
 
 fn show(screen: *hwtcon.Screen, src: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode) !u64 {

@@ -16,6 +16,13 @@ const system = core.system;
 const text = core.text;
 const toolbar = core.toolbar;
 
+/// Writes a grayscale screen to stdout as a PGM image.
+fn writeImage(pixels: []const u8, w: usize, h: usize) void {
+    var head: [32]u8 = undefined;
+    write(std.fmt.bufPrint(&head, "P5\n{d} {d}\n255\n", .{ w, h }) catch return);
+    write(pixels);
+}
+
 fn write(data: []const u8) void {
     var at: usize = 0;
     while (at < data.len) {
@@ -49,7 +56,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const buf = try alloc.alloc(u8, w * h);
     @memset(buf, 0xff);
     const page = text.Page{ .buf = buf, .width = w, .height = h, .stride = w };
-    var head_buf: [32]u8 = undefined;
     const mode = if (argv.len > 1) std.mem.sliceTo(argv[1], 0) else "panel";
     var quick = system.read();
 
@@ -62,8 +68,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const count = catalog.select(entries, filter, lead, visible);
         const index: usize = if (argv.len > 2) try std.fmt.parseInt(usize, std.mem.sliceTo(argv[2], 0), 10) else 0;
         try library.render(alloc, fonts, page, entries, lead, visible[0..count], index, filter, .recent, "", &quick);
-        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
-        write(buf);
+        writeImage(buf, w, h);
         return;
     }
 
@@ -84,8 +89,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const fitted = try notes.fit(&note_font, &parts, .{}, w, w, null);
         const top = h - fitted.height;
         try notes.render(&note_font, fonts, .{ .buf = buf[top * w..], .width = w, .height = fitted.height, .stride = w }, &parts, .{}, false);
-        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
-        write(buf);
+        writeImage(buf, w, h);
         return;
     }
 
@@ -100,8 +104,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const confirming = argv.len > 2;
         const opts = sheet.options(&entries[visible[0]], confirming, &list);
         try sheet.render(fonts, page, &entries[visible[0]], opts, confirming);
-        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
-        write(buf);
+        writeImage(buf, w, h);
         return;
     }
 
@@ -110,8 +113,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const jpeg = kfx.coverImage(data) orelse return error.NoCover;
         std.debug.print("jpeg {d} bytes\n", .{jpeg.len});
         if (!cover.fillScreen(alloc, jpeg, buf, w, h, w)) return error.DecodeFailed;
-        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
-        write(buf);
+        writeImage(buf, w, h);
         return;
     }
 
@@ -119,13 +121,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const tab: ?core.aa.Tab = if (argv.len > 2) @enumFromInt(argv[2][0] - '0') else null;
         @memset(buf, 0xe8);
         try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, tab, .{});
-        write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, h }));
-        write(buf);
+        writeImage(buf, w, h);
         return;
     }
 
     quick.brightness = 11;
     try menu.render(fonts, page, &quick);
-    write(try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ w, menu.height }));
-    write(buf[0 .. w * menu.height]);
+    writeImage(buf[0 .. w * menu.height], w, menu.height);
 }

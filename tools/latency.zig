@@ -2,6 +2,7 @@
 //! Saves the current screen first and restores it when done.
 const std = @import("std");
 const core = @import("core");
+const nowUs = core.os.nowUs;
 const linux = std.os.linux;
 const hwtcon = core.hwtcon;
 
@@ -18,12 +19,6 @@ const cases = [_]Case{
 };
 
 const flips = 4;
-
-fn nowUs() u64 {
-    var ts: linux.timespec = undefined;
-    _ = linux.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @intCast(ts.sec)) * 1_000_000 + @as(u64, @intCast(ts.nsec)) / 1000;
-}
 
 /// Fake page of text: rows of black word-sized blocks on white. `seed` shifts the words.
 fn drawPage(buf: []u8, width: u32, height: u32, stride: u32, seed: u32) void {
