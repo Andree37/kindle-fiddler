@@ -1,5 +1,5 @@
-//! Writes highlights into the Kindle's annotation outbox, in the exact format its
-//! own reader uses. Stock's sync service then sends them to Amazon.
+//! Writes highlights and bookmarks into the Kindle's annotation outbox, in the exact
+//! format its own reader uses. Stock's sync service then sends them to Amazon.
 const std = @import("std");
 
 /// Amazon's long position: a version byte, element ID and character offset, in base64.
@@ -13,25 +13,62 @@ pub fn longPosition(buf: *[12]u8, element: u32, offset: u32) []const u8 {
 
 pub const Point = struct { element: u32, offset: u32, short: u32 };
 
-pub const Highlight = struct {
+/// What a record is. Each kind has its own dataset in the database.
+pub const Kind = enum {
+    highlight,
+    bookmark,
+
+    pub fn dataset(k: Kind) u8 {
+        return switch (k) {
+            .highlight => 1,
+            .bookmark => 2,
+        };
+    }
+
+    /// Record IDs are this plus the start's short position.
+    pub fn prefix(k: Kind) []const u8 {
+        return switch (k) {
+            .highlight => "kindle.highlight-",
+            .bookmark => "kindle.bookmark-",
+        };
+    }
+
+    fn label(k: Kind) []const u8 {
+        return switch (k) {
+            .highlight => "HIGHLIGHT",
+            .bookmark => "BOOKMARK",
+        };
+    }
+
+    /// Stock gives bookmarks a colour; highlights carry nothing.
+    fn metadata(k: Kind) []const u8 {
+        return switch (k) {
+            .highlight => "{}",
+            .bookmark => "{\\\"mchl_color\\\":\\\"dark_blue\\\"}",
+        };
+    }
+};
+
+pub const Record = struct {
+    kind: Kind = .highlight,
     id: []const u8,
     key: []const u8,
-    kind: []const u8,
+    content_type: []const u8, // PDOC, EBOK and so on
     guid: []const u8,
     start: Point,
     end: Point,
     now_ms: u64,
 };
 
-/// The statement that queues a highlight for sync.
-pub fn insertSql(buf: []u8, h: Highlight) ![]const u8 {
+/// The statement that queues a record for sync.
+pub fn insertSql(buf: []u8, h: Record) ![]const u8 {
     var start_buf: [12]u8 = undefined;
     var end_buf: [12]u8 = undefined;
     const start = longPosition(&start_buf, h.start.element, h.start.offset);
     const end = longPosition(&end_buf, h.end.element, h.end.offset);
     return std.fmt.bufPrint(buf,
-        \\insert or replace into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) values ('{s}',1,1,'{s}-{s}-{s}-1','{{"book_data":{{"asin":"{s}","contentType":"{s}","guid":"{s}","isOwnedByCustomer":1,"isSample":0}},"created_time":{d},"end_position":{{"longPosition":"{s}","shortPosition":{d}}},"json_metadata":"{{}}","last_modified":{d},"position_type":0,"start_position":{{"longPosition":"{s}","shortPosition":{d}}},"type":"HIGHLIGHT"}}',0,{d},{d},0,'');
-    , .{ h.id, h.key, h.kind, h.guid, h.key, h.kind, h.guid, h.now_ms, end, h.end.short, h.now_ms, start, h.start.short, h.now_ms, h.now_ms });
+        \\insert or replace into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) values ('{s}',1,{d},'{s}-{s}-{s}-1','{{"book_data":{{"asin":"{s}","contentType":"{s}","guid":"{s}","isOwnedByCustomer":1,"isSample":0}},"created_time":{d},"end_position":{{"longPosition":"{s}","shortPosition":{d}}},"json_metadata":"{s}","last_modified":{d},"position_type":0,"start_position":{{"longPosition":"{s}","shortPosition":{d}}},"type":"{s}"}}',0,{d},{d},0,'');
+    , .{ h.id, h.kind.dataset(), h.key, h.content_type, h.guid, h.key, h.content_type, h.guid, h.now_ms, end, h.end.short, h.kind.metadata(), h.now_ms, start, h.start.short, h.kind.label(), h.now_ms, h.now_ms });
 }
 
 const action_delete = 3;
@@ -42,17 +79,17 @@ pub fn bookMatch(buf: []u8, key: []const u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "substr(dataset_id, 1, {d}) = '{s}-'", .{ key.len + 1, key });
 }
 
-/// Deletes a highlight the way stock does. An unsent one just loses its row. A
+/// Deletes a record the way stock does. An unsent one just loses its row. A
 /// sent one gets a delete row: Amazon's own record, with a new modified time.
-pub fn deleteSql(buf: []u8, id: []const u8, key: []const u8, now_ms: u64) ![]const u8 {
+pub fn deleteSql(buf: []u8, kind: Kind, id: []const u8, key: []const u8, now_ms: u64) ![]const u8 {
     var match_buf: [128]u8 = undefined;
     const book = try bookMatch(&match_buf, key);
     return std.fmt.bufPrint(buf,
         \\begin;
         \\delete from local_edit where annotation_id='{s}' and {s};
-        \\insert into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) select annotation_id, {d}, dataset, dataset_id, json_set(serialized_payload, '$.last_modified', {d}), 0, created_time, {d}, 0, '' from server_view where annotation_id='{s}' and {s} and dataset=1;
+        \\insert into local_edit (annotation_id, action, dataset, dataset_id, serialized_payload, dirty_flag, created_time, modified_time, retry_count, expiration_timestamp) select annotation_id, {d}, dataset, dataset_id, json_set(serialized_payload, '$.last_modified', {d}), 0, created_time, {d}, 0, '' from server_view where annotation_id='{s}' and {s} and dataset={d};
         \\commit;
-    , .{ id, book, action_delete, now_ms, now_ms, id, book });
+    , .{ id, book, action_delete, now_ms, now_ms, id, book, kind.dataset() });
 }
 
 test "long positions match what the Kindle stores" {
@@ -66,7 +103,7 @@ test "row matches the one the stock reader wrote" {
     const sql = try insertSql(&buf, .{
         .id = "kindle.highlight-381908",
         .key = "0123456789ABCDEF0123456789ABCDEF",
-        .kind = "PDOC",
+        .content_type = "PDOC",
         .guid = "CR!0000000000000000000000000000",
         .start = .{ .element = 80, .offset = 4570, .short = 381908 },
         .end = .{ .element = 80, .offset = 4705, .short = 382043 },
@@ -86,7 +123,7 @@ test "row matches the one the stock reader wrote" {
 
 test "delete clears any unsent row, then queues Amazon's record" {
     var buf: [900]u8 = undefined;
-    const sql = try deleteSql(&buf, "kindle.highlight-382334", "BOOKKEY", 1794053974114);
+    const sql = try deleteSql(&buf, .highlight, "kindle.highlight-382334", "BOOKKEY", 1794053974114);
     const first = std.mem.indexOf(u8, sql, "delete from local_edit where annotation_id='kindle.highlight-382334' and substr(dataset_id, 1, 8) = 'BOOKKEY-';").?;
     const second = std.mem.indexOf(u8, sql, "select annotation_id, 3, dataset").?;
     try std.testing.expect(first < second);
@@ -97,4 +134,33 @@ test "delete clears any unsent row, then queues Amazon's record" {
 test "a book matches by exact key, never by wildcard" {
     var buf: [128]u8 = undefined;
     try std.testing.expectEqualStrings("substr(dataset_id, 1, 6) = 'AB_CD-'", try bookMatch(&buf, "AB_CD"));
+}
+
+test "bookmark row matches the one the stock reader wrote" {
+    var buf: [1200]u8 = undefined;
+    const sql = try insertSql(&buf, .{
+        .kind = .bookmark,
+        .id = "kindle.bookmark-381741",
+        .key = "0123456789ABCDEF0123456789ABCDEF",
+        .content_type = "PDOC",
+        .guid = "CR!0000000000000000000000000000",
+        .start = .{ .element = 80, .offset = 4403, .short = 381741 },
+        .end = .{ .element = 80, .offset = 4403, .short = 381741 },
+        .now_ms = 1793991983543,
+    });
+    const has = struct {
+        fn f(hay: []const u8, needle: []const u8) bool {
+            return std.mem.indexOf(u8, hay, needle) != null;
+        }
+    }.f;
+    try std.testing.expect(has(sql, "values ('kindle.bookmark-381741',1,2,'0123456789ABCDEF0123456789ABCDEF-PDOC-"));
+    try std.testing.expect(has(sql, "\"end_position\":{\"longPosition\":\"AVAAAAAzEQAA\",\"shortPosition\":381741}"));
+    try std.testing.expect(has(sql, "\"json_metadata\":\"{\\\"mchl_color\\\":\\\"dark_blue\\\"}\""));
+    try std.testing.expect(has(sql, "\"type\":\"BOOKMARK\"}'"));
+}
+
+test "deleting a bookmark looks in the bookmark dataset" {
+    var buf: [900]u8 = undefined;
+    const sql = try deleteSql(&buf, .bookmark, "kindle.bookmark-5", "BOOKKEY", 1);
+    try std.testing.expect(std.mem.indexOf(u8, sql, "and dataset=2;") != null);
 }
