@@ -36,6 +36,6 @@ pub const keyboard = @import("ui/keyboard.zig");
 pub const library = @import("ui/library.zig");
 pub const menu = @import("ui/menu.zig");
 pub const notes = @import("ui/notes.zig");
-pub const search_ui = @import("ui/search.zig");
+pub const field = @import("ui/field.zig");
 pub const sheet = @import("ui/sheet.zig");
 pub const toolbar = @import("ui/toolbar.zig");

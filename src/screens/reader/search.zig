@@ -3,7 +3,7 @@
 const std = @import("std");
 const goto = @import("../../ui/goto.zig");
 const keyboard = @import("../../ui/keyboard.zig");
-const search_ui = @import("../../ui/search.zig");
+const field = @import("../../ui/field.zig");
 const search = @import("../../model/search.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
@@ -21,7 +21,9 @@ pub fn run(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator) !?usize {
         @memcpy(a.overlay, a.screen.pixels);
         if (whole) @memcpy(a.overlay[goto.top * a.screen.stride ..], background[goto.top * a.screen.stride ..]);
         const page = a.page(a.overlay);
-        try search_ui.renderField(a.ui, page, s.query.slice(), typing, if (typing) null else results.len);
+        var count_buf: [32]u8 = undefined;
+        const count: []const u8 = if (typing) "" else if (results.len >= max_results) "500+ results" else std.fmt.bufPrint(&count_buf, "{d} result{s}", .{ results.len, if (results.len == 1) "" else "s" }) catch "";
+        try field.render(a.ui, page, s.query.slice(), "Search this book", typing, count);
         if (typing) {
             try keyboard.render(a.ui, page);
         } else if (whole) {
@@ -53,7 +55,7 @@ pub fn run(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator) !?usize {
                     }
                     continue;
                 }
-                if (search_ui.inField(t.y)) {
+                if (field.inField(t.y)) {
                     typing = true;
                     whole = true;
                     continue;

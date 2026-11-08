@@ -20,6 +20,7 @@ const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
+const more = @import("reader/more.zig");
 const page_store = @import("reader/page_store.zig");
 const search = @import("reader/search.zig");
 const bookmark = @import("reader/bookmark.zig");
@@ -194,7 +195,20 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 .toolbar, .sheet => {
                     const sheet = view == .sheet;
                     switch (toolbar.hit(t.x, t.y, sheet)) {
-                        .stay, .more => {},
+                        .stay => {},
+                        .more => switch (try more.run(a, &session, entry)) {
+                            .stay => try controls.drawToolbar(a, &session, entry.title, sheet, true),
+                            .page => |target| {
+                                view = .page;
+                                a.input.grips = true;
+                                try session.show(target, null, true);
+                            },
+                            .refresh => {
+                                view = .page;
+                                a.input.grips = true;
+                                try session.show(session.current, null, true);
+                            },
+                        },
                         .search => {
                             if (try search.run(a, &session, scratch)) |target| {
                                 view = .page;
