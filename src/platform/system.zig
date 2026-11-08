@@ -173,6 +173,15 @@ pub fn safeId(id: []const u8) bool {
     return true;
 }
 
+/// Book GUIDs look like "CR!0123ABC". Empty is fine: sideloaded books have none.
+pub fn safeGuid(guid: []const u8) bool {
+    if (guid.len > 64) return false;
+    for (guid) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '!' and c != '-' and c != '_' and c != '.') return false;
+    }
+    return true;
+}
+
 fn readNowAction(prop: []const u8, comptime fields: []const u8, args: anytype) void {
     var buf: [320]u8 = undefined;
     const command = std.fmt.bufPrintSentinel(
@@ -368,4 +377,11 @@ test "brightness stops at both ends" {
     try std.testing.expectEqual(@as(u32, 24), stepBrightness(23, true));
     try std.testing.expectEqual(@as(u32, 0), stepBrightness(1, false));
     try std.testing.expectEqual(@as(u32, 12), stepBrightness(10, true));
+}
+
+test "guids are checked before they reach SQL" {
+    try std.testing.expect(safeGuid("CR!0000000000000000000000000000"));
+    try std.testing.expect(safeGuid(""));
+    try std.testing.expect(!safeGuid("CR!1' or 1=1 --"));
+    try std.testing.expect(!safeGuid("a\"b"));
 }

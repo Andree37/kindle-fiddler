@@ -23,7 +23,7 @@ pub fn pointFor(s: *sess.Session, para: u32, byte: u32) ?annotations.Point {
 
 pub fn saveHighlight(s: *sess.Session, entry: *const catalog.Entry, id: []const u8, span: highlights.Span) bool {
     if (system.dryRun()) return true;
-    if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id)) return false;
+    if (!system.safeId(entry.key) or !system.safeId(entry.kind) or !system.safeId(id) or !system.safeGuid(entry.guid)) return false;
     const start = pointFor(s, span.first_para, span.first_byte) orelse return false;
     const end = pointFor(s, span.last_para, span.last_byte) orelse return false;
     var buf: [1200]u8 = undefined;
