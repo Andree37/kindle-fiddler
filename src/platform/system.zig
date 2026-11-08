@@ -172,6 +172,14 @@ pub fn read(previous: Quick) Quick {
     return q;
 }
 
+/// Whether the Kindle is showing its lock screen. Null when powerd can't be asked.
+pub fn inScreenSaver() ?bool {
+    var buf: [32]u8 = undefined;
+    const state = getText("com.lab126.powerd", "state", &buf, lipcDeadline());
+    if (state.len == 0) return null;
+    return std.mem.eql(u8, state, "screenSaver");
+}
+
 /// Catalog IDs go into a shell command, so only plain ones are accepted.
 pub fn safeId(id: []const u8) bool {
     if (id.len == 0 or id.len > 64) return false;

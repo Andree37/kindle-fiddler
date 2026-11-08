@@ -199,9 +199,12 @@ pub const Input = struct {
                 return .tick;
             }
 
+            // The power key matters only while locked with no watcher, as the way to unlock.
+            const key_fd = if (in.locked and in.power_events < 0) in.power else -1;
             var fds = [_]linux.pollfd{
                 .{ .fd = in.touch, .events = linux.POLL.IN, .revents = 0 },
                 .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
+                .{ .fd = key_fd, .events = linux.POLL.IN, .revents = 0 },
             };
             // Locked with no watcher, wake now and then to start a new one.
             const sleep_ms: i32 = if (in.power_events < 0) watcher_retry_ms else -1;
@@ -218,6 +221,8 @@ pub const Input = struct {
                 in.watcher_retry_us = nowUs() + watcher_retry_ms * 1000;
                 in.power_events = system.watchPowerEvents() orelse -1;
                 std.debug.print("power watcher restarted: {}\n", .{in.power_events >= 0});
+                // A wake-up while no one listened is gone for good, so ask instead.
+                if (in.locked and system.inScreenSaver() == false) return .unlock;
             }
 
             if (in.power_events >= 0) {
