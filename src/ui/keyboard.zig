@@ -1,9 +1,9 @@
 //! An on-screen keyboard along the bottom of the screen. Letters and digits only:
 //! search ignores case and accents, so nothing else is needed.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
 const draw = @import("draw.zig");
 const style = @import("style.zig");
-const text = @import("../layout/text.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const rows = [_][]const u8{ "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm" };
@@ -45,12 +45,12 @@ pub fn hit(x: i32, y: i32) ?Key {
     return null;
 }
 
-fn key(fonts: Fonts, page: text.Page, x: i32, y: u32, w: u32, label: []const u8) !void {
+fn key(fonts: Fonts, page: Page, x: i32, y: u32, w: u32, label: []const u8) !void {
     draw.box(page, @intCast(x), y, w, key_height);
     try draw.centered(fonts.small, page, @floatFromInt(x + @as(i32, @intCast(w / 2))), @intCast(y + 72), label);
 }
 
-pub fn render(fonts: Fonts, page: text.Page) !void {
+pub fn render(fonts: Fonts, page: Page) !void {
     page.fillRect(0, top - 16, page.width, page.height - (top - 16), style.white);
     page.fillRect(0, top - 16, page.width, 1, style.rule);
     for (rows, 0..) |r, row| {

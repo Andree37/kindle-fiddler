@@ -1,6 +1,8 @@
 //! Renders the quick panel to a PGM image on stdout, so it can be checked by eye.
 //! Usage: panelshot [panel | notes | toolbar [sheet] | library [page [read]]]
 const std = @import("std");
+const Page = core.page.Page;
+const Font = core.font.Font;
 const book_model = core.book;
 const catalog = core.catalog;
 const Fonts = core.fonts.Fonts;
@@ -41,14 +43,14 @@ const sample_note = note_line ++ note_line ++ note_line;
 /// Faces for the format preview: the four Bookerly files at any size, made on first use.
 const PreviewFaces = struct {
     files: [4][]const u8,
-    fonts: [4][5]?text.Font = @splat(@splat(null)),
+    fonts: [4][5]?Font = @splat(@splat(null)),
     alloc: std.mem.Allocator,
 
-    fn pick(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*text.Font {
+    fn pick(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*Font {
         const f: *PreviewFaces = @ptrCast(@alignCast(ctx));
         const which: usize = @as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1;
         const slot = &f.fonts[which][size];
-        if (slot.* == null) slot.* = try text.Font.init(f.alloc, f.files[which], 46 * core.book.size_scales[size], 1.35);
+        if (slot.* == null) slot.* = try Font.init(f.alloc, f.files[which], 46 * core.book.size_scales[size], 1.35);
         return &slot.*.?;
     }
 };
@@ -61,17 +63,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const book_bold = try file.map(dir ++ "Bookerly-Bold.ttf");
     const ui_regular = try file.map(dir ++ "Amazon-Ember-Regular.ttf");
     const ui_bold = try file.map(dir ++ "Amazon-Ember-Bold.ttf");
-    var title = try text.Font.init(alloc, ui_bold, 34, 1.2);
-    var small = try text.Font.init(alloc, ui_regular, 34, 1.2);
-    var caption = try text.Font.init(alloc, ui_regular, 26, 1.2);
-    var hero = try text.Font.init(alloc, book_bold, 56, 1.2);
-    var cover_type = try text.Font.init(alloc, book_bold, 36, 1.2);
+    var title = try Font.init(alloc, ui_bold, 34, 1.2);
+    var small = try Font.init(alloc, ui_regular, 34, 1.2);
+    var caption = try Font.init(alloc, ui_regular, 26, 1.2);
+    var hero = try Font.init(alloc, book_bold, 56, 1.2);
+    var cover_type = try Font.init(alloc, book_bold, 36, 1.2);
     const fonts = Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
     const w = 1272;
     const h = 1696;
     const buf = try alloc.alloc(u8, w * h);
     @memset(buf, 0xff);
-    const page = text.Page{ .buf = buf, .width = w, .height = h, .stride = w };
+    const page = Page{ .buf = buf, .width = w, .height = h, .stride = w };
     const mode = if (argv.len > 1) std.mem.sliceTo(argv[1], 0) else "panel";
     var quick = lipc.read(.{});
 
@@ -89,9 +91,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     if (std.mem.eql(u8, mode, "notes")) {
-        var body = try text.Font.init(alloc, regular, 46, 1.35);
-        var note_font = try text.Font.init(alloc, regular, 36, 1.3);
-        var mark = try text.Font.init(alloc, regular, 28, 1.2);
+        var body = try Font.init(alloc, regular, 46, 1.35);
+        var note_font = try Font.init(alloc, regular, 36, 1.3);
+        var mark = try Font.init(alloc, regular, 28, 1.2);
         const ref1 = std.mem.indexOf(u8, sample, "reference2").? + "reference".len;
         const ref2 = std.mem.indexOf(u8, sample, "[3]").?;
         const links = [_]book_model.Link{ .{ .start = ref1, .end = ref1 + 1, .target = 1 }, .{ .start = ref2, .end = ref2 + 3, .target = 2 } };

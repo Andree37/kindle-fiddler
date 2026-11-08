@@ -1,10 +1,10 @@
 //! The interface fonts every screen draws with.
-const text = @import("../layout/text.zig");
+const Font = @import("../gfx/font.zig").Font;
 
 pub const Fonts = struct {
-    title: *text.Font, // UI bold
-    small: *text.Font, // UI regular
-    caption: *text.Font,
-    hero: *text.Font, // Book title, in the reading typeface
-    cover: *text.Font,
+    title: *Font, // UI bold
+    small: *Font, // UI regular
+    caption: *Font,
+    hero: *Font, // Book title, in the reading typeface
+    cover: *Font,
 };

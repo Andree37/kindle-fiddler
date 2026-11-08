@@ -1,6 +1,8 @@
 //! Shows real book pages in each e-ink waveform so they can be compared by eye.
 //! Saves the screen first and restores it when done.
 const std = @import("std");
+const Page = core.page.Page;
+const Font = core.font.Font;
 const core = @import("core");
 const nowUs = core.os.nowUs;
 const sleepMs = core.os.sleepMs;
@@ -54,16 +56,16 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const size = screen.pixels.len;
 
     // 10pt at the panel's 300 ppi is about 42 px.
-    var font = try text.Font.init(alloc, ttf, 46, 1.35);
-    var label_font = try text.Font.init(alloc, ttf, 30, 1.2);
+    var font = try Font.init(alloc, ttf, 46, 1.35);
+    var label_font = try Font.init(alloc, ttf, 30, 1.2);
     const layout = text.Layout{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60 };
 
     const a = try alloc.alloc(u8, size);
     const b = try alloc.alloc(u8, size);
     const shown = try alloc.alloc(u8, size);
     const shown_b = try alloc.alloc(u8, size);
-    const page = text.Page{ .buf = a, .width = screen.width, .height = screen.height, .stride = screen.stride };
-    const page_b = text.Page{ .buf = b, .width = screen.width, .height = screen.height, .stride = screen.stride };
+    const page = Page{ .buf = a, .width = screen.width, .height = screen.height, .stride = screen.stride };
+    const page_b = Page{ .buf = b, .width = screen.width, .height = screen.height, .stride = screen.stride };
 
     // Skip front matter: start in the first long text block.
     var start: text.Pos = .{};
@@ -95,7 +97,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         if (stop_requested.load(.acquire)) break;
         for ([_][]const u8{ a, b }, [_][]u8{ shown, shown_b }) |src, dst| {
             if (c.mono) text.threshold(src, dst) else @memcpy(dst, src);
-            const label = text.Page{ .buf = dst, .width = screen.width, .height = screen.height, .stride = screen.stride };
+            const label = Page{ .buf = dst, .width = screen.width, .height = screen.height, .stride = screen.stride };
             try label_font.draw(label, 100, @intCast(screen.height - 70), c.name);
         }
         // Clean start, so any ghosting comes from this mode alone.

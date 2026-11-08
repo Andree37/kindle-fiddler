@@ -1,5 +1,6 @@
 //! Reading toolbar: a single tap at the top of a page opens it.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
 const draw = @import("draw.zig");
 const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
@@ -74,7 +75,7 @@ pub fn chapterTarget(sections: []const u32, current: usize, forward: bool) usize
 }
 
 /// Band that changes while dragging, redrawn alone in pure black and white when `mono`.
-pub fn drawScrub(fonts: Fonts, page: text.Page, index: usize, total: usize, mono: bool) !void {
+pub fn drawScrub(fonts: Fonts, page: Page, index: usize, total: usize, mono: bool) !void {
     page.fillRect(0, scrub_top, page.width, screen_height - scrub_top, 0xff);
     var label: [32]u8 = undefined;
     const s = std.fmt.bufPrint(&label, "Page {d} of {d}", .{ index + 1, total }) catch "";
@@ -83,7 +84,7 @@ pub fn drawScrub(fonts: Fonts, page: text.Page, index: usize, total: usize, mono
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }
 
-pub fn render(fonts: Fonts, page: text.Page, title: []const u8, index: usize, total: usize, quick: *const quick_model.Quick, sheet: ?aa.Tab, chosen: menu.Settings, bookmarked: bool) !void {
+pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: usize, quick: *const quick_model.Quick, sheet: ?aa.Tab, chosen: menu.Settings, bookmarked: bool) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, top_height, 0xff);
 

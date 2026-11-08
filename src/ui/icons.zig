@@ -1,9 +1,11 @@
 //! Panel icons, drawn as smooth vector shapes.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
+const Font = @import("../gfx/font.zig").Font;
 const text = @import("../layout/text.zig");
 
 const Pen = struct {
-    page: text.Page,
+    page: Page,
     cx: f32,
     cy: f32,
     scale: f32 = 1,
@@ -27,11 +29,11 @@ const Pen = struct {
 
 const pi: f32 = std.math.pi;
 
-pub fn ring(page: text.Page, cx: f32, cy: f32, radius: f32) void {
+pub fn ring(page: Page, cx: f32, cy: f32, radius: f32) void {
     page.arc(cx, cy, radius, 0, 2 * pi, 3);
 }
 
-pub fn airplane(page: text.Page, cx: f32, cy: f32) void {
+pub fn airplane(page: Page, cx: f32, cy: f32) void {
     const outline = [_][2]f32{
         .{ 0, -36 },  .{ 4, -31 },  .{ 5, -11 },  .{ 33, 7 },   .{ 33, 14 },  .{ 5, 4 },
         .{ 4, 21 },   .{ 13, 29 },  .{ 13, 34 },  .{ 0, 29 },   .{ -13, 34 }, .{ -13, 29 },
@@ -45,7 +47,7 @@ pub fn airplane(page: text.Page, cx: f32, cy: f32) void {
     page.fillPoly(&points);
 }
 
-pub fn bluetooth(page: text.Page, cx: f32, cy: f32) void {
+pub fn bluetooth(page: Page, cx: f32, cy: f32) void {
     const p = Pen{ .page = page, .cx = cx, .cy = cy };
     p.line(0, -32, 0, 32, 4);
     p.line(0, -32, 17, -16, 4);
@@ -54,7 +56,7 @@ pub fn bluetooth(page: text.Page, cx: f32, cy: f32) void {
     p.line(17, 16, 0, 32, 4);
 }
 
-pub fn wifi(page: text.Page, cx: f32, cy: f32, scale: f32, bars: u32) void {
+pub fn wifi(page: Page, cx: f32, cy: f32, scale: f32, bars: u32) void {
     // Drawn around its own middle, so it can share a line with text.
     const p = Pen{ .page = page, .cx = cx, .cy = cy + 2 * scale, .scale = scale };
     page.disc(@intFromFloat(p.x(0)), @intFromFloat(p.y(24)), @intFromFloat(@max(6 * scale, 2)), 0, 0x00);
@@ -65,7 +67,7 @@ pub fn wifi(page: text.Page, cx: f32, cy: f32, scale: f32, bars: u32) void {
     }
 }
 
-pub fn sync(page: text.Page, cx: f32, cy: f32) void {
+pub fn sync(page: Page, cx: f32, cy: f32) void {
     const p = Pen{ .page = page, .cx = cx, .cy = cy };
     p.arc(0, 0, 28, 200, 330, 4);
     p.arc(0, 0, 28, 20, 150, 4);
@@ -85,7 +87,7 @@ fn arrowHead(p: Pen, radius: f32, degrees: f32) void {
     }
 }
 
-pub fn gear(page: text.Page, cx: f32, cy: f32) void {
+pub fn gear(page: Page, cx: f32, cy: f32) void {
     const p = Pen{ .page = page, .cx = cx, .cy = cy };
     p.arc(0, 0, 25, 0, 360, 5);
     p.arc(0, 0, 11, 0, 360, 4);
@@ -105,7 +107,7 @@ pub fn batteryFill(inner: u32, percent: u32) u32 {
 pub const battery_width = 85; // Including the terminal
 
 /// `cy` is the vertical centre.
-pub fn battery(page: text.Page, x: f32, cy: f32, percent: u32) void {
+pub fn battery(page: Page, x: f32, cy: f32, percent: u32) void {
     const w = 78;
     const h = 36;
     const y = cy - h / 2;
@@ -118,13 +120,13 @@ pub fn battery(page: text.Page, x: f32, cy: f32, percent: u32) void {
     if (fill > 0) page.fillRect(@intFromFloat(x + 5), @intFromFloat(y + 5), fill, h - 10, 0x00);
 }
 
-pub fn back(page: text.Page, cx: f32, cy: f32) void {
+pub fn back(page: Page, cx: f32, cy: f32) void {
     page.stroke(cx - 18, cy, cx + 18, cy, 4);
     page.stroke(cx - 18, cy, cx - 4, cy - 14, 4);
     page.stroke(cx - 18, cy, cx - 4, cy + 14, 4);
 }
 
-pub fn lines(page: text.Page, cx: f32, cy: f32) void {
+pub fn lines(page: Page, cx: f32, cy: f32) void {
     var i: f32 = -1;
     while (i <= 1) : (i += 1) {
         page.stroke(cx - 22, cy + i * 14, cx - 16, cy + i * 14, 4);
@@ -133,7 +135,7 @@ pub fn lines(page: text.Page, cx: f32, cy: f32) void {
 }
 
 /// The toolbar's bookmark, filled when the page has one.
-pub fn bookmarkFilled(page: text.Page, cx: f32, cy: f32) void {
+pub fn bookmarkFilled(page: Page, cx: f32, cy: f32) void {
     const left: u32 = @intFromFloat(cx - 17);
     const top: u32 = @intFromFloat(cy - 24);
     page.fillRect(left, top, 34, 33, 0x00);
@@ -148,12 +150,12 @@ pub fn bookmarkFilled(page: text.Page, cx: f32, cy: f32) void {
 }
 
 /// The ribbon in a bookmarked page's top-right corner.
-pub fn ribbon(page: text.Page, screen_width: u32) void {
+pub fn ribbon(page: Page, screen_width: u32) void {
     const right: f32 = @floatFromInt(screen_width - 60);
     bookmarkFilled(page, right, 24);
 }
 
-pub fn bookmark(page: text.Page, cx: f32, cy: f32) void {
+pub fn bookmark(page: Page, cx: f32, cy: f32) void {
     page.stroke(cx - 15, cy - 22, cx + 15, cy - 22, 4);
     page.stroke(cx - 15, cy - 22, cx - 15, cy + 22, 4);
     page.stroke(cx + 15, cy - 22, cx + 15, cy + 22, 4);
@@ -161,12 +163,12 @@ pub fn bookmark(page: text.Page, cx: f32, cy: f32) void {
     page.stroke(cx, cy + 9, cx + 15, cy + 22, 4);
 }
 
-pub fn search(page: text.Page, cx: f32, cy: f32) void {
+pub fn search(page: Page, cx: f32, cy: f32) void {
     page.arc(cx - 5, cy - 5, 17, 0, 2 * pi, 4);
     page.stroke(cx + 8, cy + 8, cx + 23, cy + 23, 5);
 }
 
-pub fn dots(page: text.Page, cx: f32, cy: f32) void {
+pub fn dots(page: Page, cx: f32, cy: f32) void {
     const x: i32 = @intFromFloat(cx);
     const y: i32 = @intFromFloat(cy);
     page.disc(x, y - 16, 4, 0, 0x00);
@@ -175,21 +177,21 @@ pub fn dots(page: text.Page, cx: f32, cy: f32) void {
 }
 
 /// Chapter skip: a bar and a triangle, pointing right when `forward`.
-pub fn skip(page: text.Page, cx: f32, cy: f32, forward: bool) void {
+pub fn skip(page: Page, cx: f32, cy: f32, forward: bool) void {
     const dir: f32 = if (forward) 1 else -1;
     const pts = [_][2]f32{ .{ cx - 14 * dir, cy - 18 }, .{ cx + 12 * dir, cy }, .{ cx - 14 * dir, cy + 18 } };
     page.fillPoly(&pts);
     page.stroke(cx + 15 * dir, cy - 18, cx + 15 * dir, cy + 18, 5);
 }
 
-pub fn menu(page: text.Page, x: f32, y: f32) void {
+pub fn menu(page: Page, x: f32, y: f32) void {
     page.stroke(x, y, x + 44, y, 4);
     page.stroke(x, y + 14, x + 44, y + 14, 4);
     page.stroke(x, y + 28, x + 44, y + 28, 4);
 }
 
 /// Wi-Fi, percent and battery on one centre line, right-aligned to `right`.
-pub fn statusCluster(page: text.Page, font: *text.Font, right: f32, cy: f32, baseline: i32, quick: anytype, large: bool) !void {
+pub fn statusCluster(page: Page, font: *Font, right: f32, cy: f32, baseline: i32, quick: anytype, large: bool) !void {
     const battery_w: f32 = if (large) battery_width else battery_small_width;
     const gap: f32 = if (large) 20 else 16;
     const battery_x = right - battery_w;
@@ -202,7 +204,7 @@ pub fn statusCluster(page: text.Page, font: *text.Font, right: f32, cy: f32, bas
 }
 
 /// Badge for a book that isn't on the device.
-pub fn cloud(page: text.Page, cx: f32, cy: f32) void {
+pub fn cloud(page: Page, cx: f32, cy: f32) void {
     const x: i32 = @intFromFloat(cx);
     const y: i32 = @intFromFloat(cy);
     page.disc(x, y, 30, 0, 0xff);
@@ -213,7 +215,7 @@ pub fn cloud(page: text.Page, cx: f32, cy: f32) void {
     page.fillRect(@intCast(x - 11), @intCast(y + 3), 22, 9, 0xff);
 }
 
-pub fn check(page: text.Page, cx: f32, cy: f32) void {
+pub fn check(page: Page, cx: f32, cy: f32) void {
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 25, 0, 0xff);
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 22, 0, 0x00);
     page.fillPolyWhiteCheck(cx, cy);
@@ -222,7 +224,7 @@ pub fn check(page: text.Page, cx: f32, cy: f32) void {
 pub const battery_small_width = 59; // Including the terminal
 
 /// `cy` is the vertical centre.
-pub fn batterySmall(page: text.Page, x: f32, cy: f32, percent: u32) void {
+pub fn batterySmall(page: Page, x: f32, cy: f32, percent: u32) void {
     const w = 54;
     const h = 26;
     const y = cy - h / 2;
@@ -235,7 +237,7 @@ pub fn batterySmall(page: text.Page, x: f32, cy: f32, percent: u32) void {
     if (fill > 0) page.fillRect(@intFromFloat(x + 4), @intFromFloat(y + 4), fill, h - 8, 0x00);
 }
 
-pub fn chevron(page: text.Page, cx: f32, cy: f32) void {
+pub fn chevron(page: Page, cx: f32, cy: f32) void {
     page.stroke(cx - 42, cy + 13, cx, cy - 7, 4);
     page.stroke(cx, cy - 7, cx + 42, cy + 13, 4);
 }

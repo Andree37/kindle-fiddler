@@ -1,5 +1,6 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
+const Page = @import("../../gfx/page.zig").Page;
 const book_model = @import("../../model/book.zig");
 const note_rules = @import("../../model/notes.zig");
 const stats = @import("../../model/stats.zig");
@@ -129,7 +130,7 @@ pub const Session = struct {
     }
 
     /// "12 min left in chapter" on the left of the footer, the book's on the right.
-    fn drawTimeLeft(s: *const Session, page: text.Page, index: usize) !void {
+    fn drawTimeLeft(s: *const Session, page: Page, index: usize) !void {
         const a = s.app;
         const left = s.timeLeft(index);
         const y: i32 = @intCast(a.screen.height - 60);

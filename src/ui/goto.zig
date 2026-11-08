@@ -1,6 +1,7 @@
 //! The Go To sheet under the toolbar: the book's contents, or its bookmarks and
 //! highlights, a page of rows at a time.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
 const book_model = @import("../model/book.zig");
 const draw = @import("draw.zig");
 const icons = @import("icons.zig");
@@ -60,7 +61,7 @@ pub fn hit(x: i32, y: i32, list_page: usize, count: usize) Hit {
     return if (index < count) .{ .row = index } else .none;
 }
 
-fn drawMark(page: text.Page, mark: Mark, x: f32, y: u32) void {
+fn drawMark(page: Page, mark: Mark, x: f32, y: u32) void {
     const cy: f32 = @floatFromInt(y + row_height / 2);
     switch (mark) {
         .none => {},
@@ -70,7 +71,7 @@ fn drawMark(page: text.Page, mark: Mark, x: f32, y: u32) void {
 }
 
 /// Draws one page of rows. `reading` marks the row the reader is in.
-pub fn render(fonts: Fonts, page: text.Page, tab: Tab, list: []const Row, reading: ?usize, list_page: usize) !void {
+pub fn render(fonts: Fonts, page: Page, tab: Tab, list: []const Row, reading: ?usize, list_page: usize) !void {
     page.fillRect(0, top, page.width, page.height - top, style.white);
     page.fillRect(0, top, page.width, 1, style.rule);
     const half: f32 = @floatFromInt(page.width / 2);
@@ -81,7 +82,7 @@ pub fn render(fonts: Fonts, page: text.Page, tab: Tab, list: []const Row, readin
 }
 
 /// The rows under the header, with the pager below. `empty` shows when there are none.
-pub fn renderList(fonts: Fonts, page: text.Page, list: []const Row, reading: ?usize, list_page: usize, empty: []const u8) !void {
+pub fn renderList(fonts: Fonts, page: Page, list: []const Row, reading: ?usize, list_page: usize, empty: []const u8) !void {
     page.fillRect(0, list_top - 12, page.width, page.height - (list_top - 12), style.white);
     page.fillRect(style.margin, list_top - 12, page.width - 2 * style.margin, 1, style.rule);
     if (list.len == 0) {

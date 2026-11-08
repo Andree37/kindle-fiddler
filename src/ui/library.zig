@@ -1,6 +1,8 @@
 //! Book list, read from the tab-separated file start.sh exports from the
 //! Kindle's own database: path, title, author, percent, last opened.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
+const Font = @import("../gfx/font.zig").Font;
 const draw = @import("draw.zig");
 const style = @import("style.zig");
 const cover = @import("../gfx/image.zig");
@@ -120,7 +122,7 @@ pub fn bookRect(index: usize, page: usize) Rect {
     return .{ .x = margin + column * cell_step, .y = top + row * row_height, .w = cover.width, .h = cover.height };
 }
 
-pub fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
+pub fn drawClipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
     const w = try font.measure(s);
     if (w <= avail) return font.draw(page, x, y, s);
     const dots = "...";
@@ -133,7 +135,7 @@ pub fn drawClipped(font: *text.Font, page: text.Page, x: f32, y: i32, s: []const
 }
 
 /// Bytes of `s` that fit on one line, breaking at a space when possible.
-fn lineBreak(font: *text.Font, s: []const u8, avail: f32) !usize {
+fn lineBreak(font: *Font, s: []const u8, avail: f32) !usize {
     if (try font.measure(s) <= avail) return s.len;
     const cut = try font.fit(s, avail);
     if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
@@ -143,7 +145,7 @@ fn lineBreak(font: *text.Font, s: []const u8, avail: f32) !usize {
 }
 
 /// Wraps text over at most `lines`, clipping the last, and returns the lines used.
-fn drawWrapped(font: *text.Font, page: text.Page, x: f32, y: i32, step: i32, s: []const u8, avail: f32, lines: u32) !u32 {
+fn drawWrapped(font: *Font, page: Page, x: f32, y: i32, step: i32, s: []const u8, avail: f32, lines: u32) !u32 {
     var rest = s;
     var line: u32 = 0;
     while (rest.len > 0 and line < lines) : (line += 1) {
@@ -159,13 +161,13 @@ fn drawWrapped(font: *text.Font, page: text.Page, x: f32, y: i32, step: i32, s: 
     return line;
 }
 
-fn progressBar(page: text.Page, x: u32, y: u32, w: u32, percent: u32) void {
+fn progressBar(page: Page, x: u32, y: u32, w: u32, percent: u32) void {
     page.fillRect(x, y + 2, w, 2, 0xc0);
     page.fillRect(x, y, w * @min(percent, 100) / 100, 6, 0x00);
 }
 
 /// A book with no thumbnail still gets a real cover: its title set in type.
-fn typeCover(fonts: Fonts, page: text.Page, x: u32, y: u32, w: u32, h: u32, e: *const catalog.Entry) !void {
+fn typeCover(fonts: Fonts, page: Page, x: u32, y: u32, w: u32, h: u32, e: *const catalog.Entry) !void {
     page.fillRect(x, y, w, h, 0xf0);
     page.fillRect(x, y, w, 2, 0x00);
     page.fillRect(x, y + h - 2, w, 2, 0x00);
@@ -179,7 +181,7 @@ fn typeCover(fonts: Fonts, page: text.Page, x: u32, y: u32, w: u32, h: u32, e: *
     try drawClipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
 }
 
-fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog.Entry, x: u32, y: u32) !void {
+fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, x: u32, y: u32) !void {
     if (!e.cover_tried) {
         e.cover_tried = true;
         if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail, cover.width, cover.height);
@@ -191,7 +193,7 @@ fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalo
     }
 }
 
-fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog.Entry) !void {
+fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry) !void {
     if (!e.hero_tried) {
         e.hero_tried = true;
         if (e.thumbnail.len > 0) e.hero = cover.load(alloc, e.thumbnail, cover.hero_width, cover.hero_height);
@@ -222,7 +224,7 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog
     page.tint(left_px, bar_y + 16, @intFromFloat(avail), 34, 0x50);
 }
 
-fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog.Entry, x: u32, y: u32) !void {
+fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, x: u32, y: u32) !void {
     try drawCover(alloc, fonts, page, e, x, y);
     const bar_y = y + cover.height + 8;
     const dots_x: f32 = @floatFromInt(x + cover.width - 8);
@@ -241,7 +243,7 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, e: *catalog
     _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
 }
 
-fn drawStatus(fonts: Fonts, page: text.Page, quick: *const quick_model.Quick) !void {
+fn drawStatus(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
     // One centre line for everything in the strip.
     const centre = 48;
@@ -253,7 +255,7 @@ fn drawStatus(fonts: Fonts, page: text.Page, quick: *const quick_model.Quick) !v
     try icons.statusCluster(page, fonts.caption, w - margin, centre, baseline, quick, false);
 }
 
-fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: catalog.Filter, order: catalog.Order) !void {
+fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: catalog.Order) !void {
     const y = top + 54;
     for (tabs) |t| {
         const left: u32 = @intCast(t.left);
@@ -267,11 +269,11 @@ fn drawTabs(fonts: Fonts, page: text.Page, top: i32, filter: catalog.Filter, ord
     page.fillRect(margin, @intCast(top + tabs_height - 4), page.width - 2 * margin, 1, style.rule);
 }
 
-fn drawFooter(fonts: Fonts, page: text.Page, index: usize, pages: usize) !void {
+fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
     try footer.render(fonts, page, index, pages);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: text.Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const quick_model.Quick) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const quick_model.Quick) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 

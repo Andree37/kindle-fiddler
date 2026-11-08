@@ -1,11 +1,12 @@
 //! Quick panel: drag down from the top of any screen to open it.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
+const Font = @import("../gfx/font.zig").Font;
 const Fonts = @import("fonts.zig").Fonts;
 const icons = @import("icons.zig");
 const slider = @import("slider.zig");
 const state = @import("../linux/state.zig");
 const quick_model = @import("../model/quick.zig");
-const text = @import("../layout/text.zig");
 
 pub const height = 960;
 
@@ -102,7 +103,7 @@ pub fn hit(x: i32, y: i32) Hit {
     return .none;
 }
 
-fn centered(font: *text.Font, page: text.Page, cx: i32, y: i32, s: []const u8) !void {
+fn centered(font: *Font, page: Page, cx: i32, y: i32, s: []const u8) !void {
     const w: i32 = @intFromFloat(try font.measure(s));
     try font.draw(page, @floatFromInt(cx - @divTrunc(w, 2)), y, s);
 }
@@ -118,7 +119,7 @@ pub const band_height = band_above + band_below;
 
 /// One slider row, redrawn alone while dragging. `mono` is pure black and white
 /// for the fast waveform, which breaks up gray.
-pub fn drawSlider(fonts: Fonts, page: text.Page, row: Row, value: u32, mono: bool) !void {
+pub fn drawSlider(fonts: Fonts, page: Page, row: Row, value: u32, mono: bool) !void {
     page.fillRect(0, bandTop(row), page.width, band_height, 0xff);
     const bar = rowSlider(row);
     const knob = slider.knobAt(bar, value, row.max);
@@ -132,7 +133,7 @@ pub fn drawSlider(fonts: Fonts, page: text.Page, row: Row, value: u32, mono: boo
     if (mono) page.threshold(bandTop(row), band_height);
 }
 
-fn drawIcon(page: text.Page, s: Shortcut, quick: *const quick_model.Quick) void {
+fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
     const x: f32 = @floatFromInt(s.x);
     const y: f32 = @floatFromInt(s.y);
     icons.ring(page, x, y, icon_radius);
@@ -165,7 +166,7 @@ fn label(s: Shortcut, quick: *const quick_model.Quick) []const u8 {
     };
 }
 
-pub fn render(fonts: Fonts, page: text.Page, quick: *const quick_model.Quick) !void {
+pub fn render(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
     const w: f32 = @floatFromInt(page.width);
     page.fillRect(0, 0, page.width, height, 0xff);
     page.fillRect(0, height - 4, page.width, 4, 0x00);

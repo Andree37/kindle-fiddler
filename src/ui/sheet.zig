@@ -1,5 +1,6 @@
 //! Actions for one book, opened from the three dots beside its cover.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
 const stats = @import("../model/stats.zig");
 const draw = @import("draw.zig");
 const style = @import("style.zig");
@@ -7,7 +8,6 @@ const catalog = @import("../model/catalog.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const cover = @import("../gfx/image.zig");
 const library = @import("library.zig");
-const text = @import("../layout/text.zig");
 
 pub const Option = enum { download, remove, mark_read, mark_unread, confirm_remove, cancel };
 
@@ -77,7 +77,7 @@ pub fn hit(x: i32, y: i32, rows: usize) ?usize {
     return @intCast(@divTrunc(y - first, row));
 }
 
-pub fn render(fonts: Fonts, page: text.Page, e: *const catalog.Entry, list: []const Option, confirming: bool) !void {
+pub fn render(fonts: Fonts, page: Page, e: *const catalog.Entry, list: []const Option, confirming: bool) !void {
     const card_top = top(list.len);
     const h = height(list.len);
     page.fillRect(left - 6, card_top - 6, width + 12, h + 12, 0xff);

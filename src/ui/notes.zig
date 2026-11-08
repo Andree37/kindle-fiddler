@@ -1,5 +1,7 @@
 //! Note popup, anchored to the bottom of the page.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
+const Font = @import("../gfx/font.zig").Font;
 const book_model = @import("../model/book.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const text = @import("../layout/text.zig");
@@ -13,7 +15,7 @@ fn layout() text.Layout {
     return .{ .margin_x = margin, .margin_top = header + 24, .margin_bottom = 36, .indent = 0 };
 }
 
-fn geometry(width: u32, height: u32, stride: u32) text.Page {
+fn geometry(width: u32, height: u32, stride: u32) Page {
     return .{ .buf = &.{}, .width = width, .height = height, .stride = stride };
 }
 
@@ -21,7 +23,7 @@ pub const Fit = struct { height: u32, next: ?text.Pos };
 
 /// Picks the smallest panel that holds the text from `start`.
 /// A fixed `height` keeps the panel steady while paging through a long note.
-pub fn fit(font: *text.Font, parts: []const book_model.Paragraph, start: text.Pos, width: u32, stride: u32, fixed: ?u32) !Fit {
+pub fn fit(font: *Font, parts: []const book_model.Paragraph, start: text.Pos, width: u32, stride: u32, fixed: ?u32) !Fit {
     if (fixed) |h| {
         const next = try text.layoutPage(font, null, geometry(width, h, stride), parts, start, layout(), null);
         return .{ .height = h, .next = if (next.para >= parts.len) null else next };
@@ -36,7 +38,7 @@ pub fn fit(font: *text.Font, parts: []const book_model.Paragraph, start: text.Po
 }
 
 /// Draws into `panel`, whose buffer starts at the panel's top row.
-pub fn render(font: *text.Font, fonts: Fonts, panel: text.Page, parts: []const book_model.Paragraph, start: text.Pos, more: bool) !void {
+pub fn render(font: *Font, fonts: Fonts, panel: Page, parts: []const book_model.Paragraph, start: text.Pos, more: bool) !void {
     _ = try text.renderPage(font, panel, parts, start, layout(), null);
     panel.fillRect(0, 0, panel.width, 4, 0x00);
     try fonts.title.draw(panel, margin, 62, "Note");

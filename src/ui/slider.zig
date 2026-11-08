@@ -1,7 +1,7 @@
 //! The one slider used everywhere. Pure black and white with pixel-aligned edges,
 //! so it looks the same at rest and under the fast waveform used while dragging.
 const std = @import("std");
-const text = @import("../layout/text.zig");
+const Page = @import("../gfx/page.zig").Page;
 
 pub const Slider = struct { left: u32, right: u32, y: u32 };
 
@@ -26,7 +26,7 @@ pub fn valueAt(s: Slider, x: i32, max: u32) u32 {
 }
 
 /// Marks each step, for sliders with only a few positions.
-pub fn drawTicks(page: text.Page, s: Slider, max: u32) void {
+pub fn drawTicks(page: Page, s: Slider, max: u32) void {
     var i: u32 = 0;
     while (i <= max) : (i += 1) {
         const x = knobAt(s, i, max);
@@ -34,7 +34,7 @@ pub fn drawTicks(page: text.Page, s: Slider, max: u32) void {
     }
 }
 
-pub fn draw(page: text.Page, s: Slider, knob: u32) void {
+pub fn draw(page: Page, s: Slider, knob: u32) void {
     const width = s.right - s.left;
     const top = s.y - half_height;
     const height = 2 * half_height;

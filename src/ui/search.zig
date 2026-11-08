@@ -1,9 +1,9 @@
 //! The search sheet's query field, in the space Go To uses for its tabs.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
 const draw = @import("draw.zig");
 const goto = @import("goto.zig");
 const style = @import("style.zig");
-const text = @import("../layout/text.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const field_top = goto.top + 14;
@@ -16,7 +16,7 @@ pub fn inField(y: i32) bool {
 }
 
 /// `found` is the number of results once searched, or null while typing.
-pub fn renderField(fonts: Fonts, page: text.Page, query: []const u8, typing: bool, found: ?usize) !void {
+pub fn renderField(fonts: Fonts, page: Page, query: []const u8, typing: bool, found: ?usize) !void {
     page.fillRect(0, goto.top, page.width, goto.list_top - goto.top, style.white);
     page.fillRect(0, goto.top, page.width, 1, style.rule);
     var count_buf: [32]u8 = undefined;

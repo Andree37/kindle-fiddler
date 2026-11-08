@@ -1,5 +1,7 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const Page = @import("gfx/page.zig").Page;
+const Font = @import("gfx/font.zig").Font;
 const book_model = @import("model/book.zig");
 const stats = @import("model/stats.zig");
 const cover = @import("gfx/image.zig");
@@ -35,14 +37,14 @@ pub const App = struct {
     alloc: std.mem.Allocator,
     screen: *hwtcon.Screen,
     input: *Input,
-    body: *text.Font,
+    body: *Font,
     // Body fonts by family, face (bold, italic), reader size and book size, made on first use.
-    face_fonts: [menu.families.len][4][menu.sizes.len][book_model.size_scales.len]?text.Font = @splat(@splat(@splat(@splat(null)))),
+    face_fonts: [menu.families.len][4][menu.sizes.len][book_model.size_scales.len]?Font = @splat(@splat(@splat(@splat(null)))),
     face_files: [menu.families.len][4]?[]const u8 = @splat(@splat(null)),
     tab: aa.Tab = .font,
     turns: u32 = 0,
-    note_font: *text.Font,
-    footer: *text.Font,
+    note_font: *Font,
+    footer: *Font,
     ui: Fonts,
     slots: [3]Slot,
     overlay: []u8,
@@ -71,7 +73,7 @@ pub const App = struct {
 
     /// The body font for a weight, slant and book size, in the reader's family and size.
     /// The reader's Bold setting makes everything bold.
-    pub fn face(a: *App, bold_text: bool, italic: bool, size: u8) !*text.Font {
+    pub fn face(a: *App, bold_text: bool, italic: bool, size: u8) !*Font {
         const family = menu.families[a.settings.font];
         const bold = bold_text or a.settings.bold;
         const which: usize = @as(usize, @intFromBool(bold)) | @as(usize, @intFromBool(italic)) << 1;
@@ -79,13 +81,13 @@ pub const App = struct {
         if (file_slot.* == null) file_slot.* = try file.map(family.path(bold, italic));
         const scale = book_model.size_scales[size];
         const slot = &a.face_fonts[a.settings.font][which][a.settings.size][size];
-        if (slot.* == null) slot.* = try text.Font.init(a.alloc, file_slot.*.?, a.settings.px() * scale, 1);
+        if (slot.* == null) slot.* = try Font.init(a.alloc, file_slot.*.?, a.settings.px() * scale, 1);
         // Spacing can change without the font changing, so set it every time.
         slot.*.?.line_height = @intFromFloat(@as(f32, @floatFromInt(a.settings.lineHeight())) * scale);
         return &slot.*.?;
     }
 
-    fn drawImage(ctx: *anyopaque, page_buf: text.Page, image: book_model.Image, x: u32, y: u32, w: u32, h: u32) void {
+    fn drawImage(ctx: *anyopaque, page_buf: Page, image: book_model.Image, x: u32, y: u32, w: u32, h: u32) void {
         const a: *App = @ptrCast(@alignCast(ctx));
         const ready = a.pictures.get(image.data.ptr, w, h) orelse blk: {
             const made = if (jpegxr.isJpegXr(image.data))
@@ -109,12 +111,12 @@ pub const App = struct {
         return cover.prepare(alloc, gray.pixels, gray.width, gray.height, w, h);
     }
 
-    fn pickFace(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*text.Font {
+    fn pickFace(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*Font {
         const a: *App = @ptrCast(@alignCast(ctx));
         return a.face(bold, italic, size) catch a.face(false, false, size);
     }
 
-    pub fn page(a: *App, buf: []u8) text.Page {
+    pub fn page(a: *App, buf: []u8) Page {
         return .{ .buf = buf, .width = a.screen.width, .height = a.screen.height, .stride = a.screen.stride };
     }
 

@@ -1,5 +1,6 @@
 //! Text selection on a page: which words a finger covers, and how they look.
 const std = @import("std");
+const Page = @import("../gfx/page.zig").Page;
 const text = @import("../layout/text.zig");
 
 /// The word exactly under a point, if any.
@@ -50,7 +51,7 @@ pub fn nearHandle(h: Handle, x: i32, y: i32) bool {
 }
 
 /// Underlines the selected words line by line, with a handle at each end.
-pub fn draw(page: text.Page, selected: []const text.Word) void {
+pub fn draw(page: Page, selected: []const text.Word) void {
     var i: usize = 0;
     while (i < selected.len) {
         var j = i;

@@ -1,7 +1,7 @@
 //! Book thumbnails, decoded once and scaled to library size.
 const std = @import("std");
 const file = @import("../linux/file.zig");
-const text = @import("../layout/text.zig");
+const Page = @import("page.zig").Page;
 
 extern fn img_gray(data: [*]const u8, len: c_int, w: *c_int, h: *c_int) ?[*]u8;
 extern fn img_free(p: [*]u8) void;
@@ -113,7 +113,7 @@ pub fn decodeAndPrepare(alloc: std.mem.Allocator, encoded: []const u8, w: usize,
 }
 
 /// Copies a prepared picture into a box on a page.
-pub fn blit(page: text.Page, ready: []const u8, x: u32, y: u32, w: u32, h: u32) void {
+pub fn blit(page: Page, ready: []const u8, x: u32, y: u32, w: u32, h: u32) void {
     if (x + w > page.width or y + h > page.height or ready.len < @as(usize, w) * h) return;
     for (0..h) |row| @memcpy(page.buf[(y + row) * page.stride + x ..][0..w], ready[row * w ..][0..w]);
 }

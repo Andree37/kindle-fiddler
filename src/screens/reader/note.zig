@@ -1,5 +1,6 @@
 //! Notes shown in a panel over the page, from a tapped reference.
 const std = @import("std");
+const Page = @import("../../gfx/page.zig").Page;
 const note_rules = @import("../../model/notes.zig");
 const notes = @import("../../ui/notes.zig");
 const text = @import("../../layout/text.zig");
@@ -13,7 +14,7 @@ pub fn showNote(a: *app.App, s: *sess.Session, start: text.Pos, fixed: ?u32) !vo
     const stride = a.screen.stride;
     const fitted = try notes.fit(font, s.note_parts[0..s.note_len], start, a.screen.width, stride, fixed);
     const top = a.screen.height - fitted.height;
-    const panel = text.Page{ .buf = a.overlay[top * stride..], .width = a.screen.width, .height = fitted.height, .stride = stride };
+    const panel = Page{ .buf = a.overlay[top * stride..], .width = a.screen.width, .height = fitted.height, .stride = stride };
     try notes.render(font, a.ui, panel, s.note_parts[0..s.note_len], start, fitted.next != null);
     @memcpy(a.screen.pixels, a.overlay);
     try a.showBand(top, fitted.height);
