@@ -91,15 +91,20 @@ pub fn fillScreen(alloc: std.mem.Allocator, jpeg: []const u8, buf: []u8, width_p
 
 /// Decodes a picture and draws it into a box on a page, scaled and dithered for the panel.
 pub fn place(alloc: std.mem.Allocator, encoded: []const u8, page: text.Page, x: u32, y: u32, w: u32, h: u32) bool {
-    if (w == 0 or h == 0 or x + w > page.width or y + h > page.height) return false;
     var sw: c_int = 0;
     var sh: c_int = 0;
     const pixels = img_gray(encoded.ptr, @intCast(encoded.len), &sw, &sh) orelse return false;
     defer img_free(pixels);
     if (sw <= 0 or sh <= 0) return false;
+    return placeGray(alloc, pixels[0..@intCast(sw * sh)], @intCast(sw), @intCast(sh), page, x, y, w, h);
+}
+
+/// Draws already-decoded grayscale pixels into a box on a page.
+pub fn placeGray(alloc: std.mem.Allocator, pixels: []const u8, sw: usize, sh: usize, page: text.Page, x: u32, y: u32, w: u32, h: u32) bool {
+    if (w == 0 or h == 0 or x + w > page.width or y + h > page.height or pixels.len < sw * sh) return false;
     const scaled = alloc.alloc(u8, w * h) catch return false;
     defer alloc.free(scaled);
-    scale(pixels[0..@intCast(sw * sh)], @intCast(sw), @intCast(sh), scaled, w, h);
+    scale(pixels[0 .. sw * sh], sw, sh, scaled, w, h);
     dither(alloc, scaled, w) catch return false;
     for (0..h) |row| @memcpy(page.buf[(y + row) * page.stride + x ..][0..w], scaled[row * w ..][0..w]);
     return true;

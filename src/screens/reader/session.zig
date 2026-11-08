@@ -128,7 +128,7 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *const Sessio
     const pos = s.pages[s.current];
     const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();
-    state.save(path, .{ .para = pos.para, .byte = pos.byte, .percent = percent, .opened = now });
+    state.save(path, .{ .para = kfx.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now });
     entry.percent = percent;
     entry.last = now;
 }

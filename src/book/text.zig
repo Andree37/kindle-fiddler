@@ -395,8 +395,15 @@ pub const Faces = struct {
     pick: *const fn (ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*Font,
 };
 
+/// Draws a picture into a page. Decoding lives outside layout, which only needs sizes.
+pub const Images = struct {
+    ctx: *anyopaque,
+    draw: *const fn (ctx: *anyopaque, page: Page, image: kfx.Image, x: u32, y: u32, w: u32, h: u32) void,
+};
+
 pub const Layout = struct {
     faces: ?Faces = null,
+    images: ?Images = null,
     margin_x: i32,
     margin_top: i32,
     margin_bottom: i32,
@@ -437,6 +444,15 @@ fn wordFace(l: Layout, base: *Font, p: Paragraph, word_start: usize) !*Font {
     return face(l, base, bold, italic, p.look.size);
 }
 
+/// A picture's size on the page: as large as fits, but at most twice its own size,
+/// so small ornaments don't turn into blocks.
+pub fn imageSize(img: kfx.Image, max_w: f32, max_h: f32) struct { w: i32, h: i32 } {
+    const w: f32 = @floatFromInt(img.width);
+    const h: f32 = @floatFromInt(img.height);
+    const scale = @min(@min(max_w / w, max_h / h), 2.0);
+    return .{ .w = @max(1, @as(i32, @intFromFloat(w * scale))), .h = @max(1, @as(i32, @intFromFloat(h * scale))) };
+}
+
 fn spaceLines(tenths: u8, base: *Font) i32 {
     return @divTrunc(@as(i32, tenths) * base.line_height, 10);
 }
@@ -457,6 +473,20 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
     }) {
         const para = paras[pos.para];
         if (para.note) continue;
+        if (para.image) |img| {
+            const room: f32 = @floatFromInt(bottom - l.margin_top);
+            const size = imageSize(img, line_width, room);
+            // A picture never splits: it starts the next page unless it opens this one.
+            if (top + size.h > bottom + font.ascent and top > l.margin_top) return .{ .para = pos.para, .byte = 0 };
+            if (maybe_page) |p| {
+                if (l.images) |im| {
+                    const x: u32 = @intCast(l.margin_x + @divTrunc(@as(i32, @intFromFloat(line_width)) - size.w, 2));
+                    im.draw(im.ctx, p, img, x, @intCast(top), @intCast(size.w), @intCast(size.h));
+                }
+            }
+            top += size.h + @divTrunc(font.line_height, 2);
+            continue;
+        }
         const text = para.text;
         const links = para.links;
         const look = para.look;
@@ -596,4 +626,14 @@ pub fn renderPage(font: *Font, page: Page, paras: []const Paragraph, start: Pos,
 /// Hard black and white, for waveforms that cannot show gray.
 pub fn threshold(src: []const u8, dst: []u8) void {
     for (src, dst) |s, *d| d.* = if (s < 128) 0x00 else 0xff;
+}
+
+test "pictures fit the page and small ones stay small" {
+    const big = imageSize(.{ .data = "", .width = 2000, .height = 1000 }, 1000, 1400);
+    try std.testing.expectEqual(@as(i32, 1000), big.w);
+    try std.testing.expectEqual(@as(i32, 500), big.h);
+    const tall = imageSize(.{ .data = "", .width = 500, .height = 3000 }, 1000, 1400);
+    try std.testing.expectEqual(@as(i32, 1400), tall.h);
+    const ornament = imageSize(.{ .data = "", .width = 50, .height = 16 }, 1000, 1400);
+    try std.testing.expectEqual(@as(i32, 100), ornament.w);
 }

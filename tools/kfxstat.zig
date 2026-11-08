@@ -34,6 +34,18 @@ pub fn main(init: std.process.Init.Minimal) !void {
         if (p.look.alignment == .center) centred += 1;
         runs += p.runs.len;
     }
+    var pictures: usize = 0;
+    var decodable: usize = 0;
+    var first_picture: ?usize = null;
+    for (book.paragraphs, 0..) |p, i| {
+        const img = p.image orelse continue;
+        pictures += 1;
+        if (first_picture == null and img.width > 200) first_picture = kfx.textIndex(book.paragraphs, i);
+        const jpeg = img.data.len > 2 and img.data[0] == 0xff and img.data[1] == 0xd8;
+        const png = img.data.len > 8 and std.mem.eql(u8, img.data[1..4], "PNG");
+        if (jpeg or png) decodable += 1;
+    }
+    std.debug.print("pictures {d}, jpeg or png {d}, first large at text paragraph {?d}\n", .{ pictures, decodable, first_picture });
     std.debug.print("looks: bold {d}, italic {d}, larger {d}, centred {d}, inline runs {d}\n", .{ bold, italic, headings, centred, runs });
     _ = linux.clock_gettime(.MONOTONIC, &ts1);
 

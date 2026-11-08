@@ -1,5 +1,6 @@
 //! What every screen shares: the screen, input, fonts, settings and page buffers.
 const std = @import("std");
+const cover = @import("ui/cover.zig");
 const kfx = @import("book/kfx.zig");
 const draw = @import("ui/draw.zig");
 const state = @import("platform/state.zig");
@@ -57,6 +58,7 @@ pub const App = struct {
     pub fn applySettings(a: *App) !void {
         a.body = try a.face(false, false, kfx.normal_size);
         a.layout.faces = .{ .ctx = a, .pick = pickFace };
+        a.layout.images = .{ .ctx = a, .draw = drawImage };
         a.layout.margin_x = menu.margins[a.settings.margin];
         a.layout.justify = !a.settings.left_align;
     }
@@ -75,6 +77,17 @@ pub const App = struct {
         // Spacing can change without the font changing, so set it every time.
         slot.*.?.line_height = @intFromFloat(@as(f32, @floatFromInt(a.settings.lineHeight())) * scale);
         return &slot.*.?;
+    }
+
+    fn drawImage(ctx: *anyopaque, page_buf: text.Page, image: kfx.Image, x: u32, y: u32, w: u32, h: u32) void {
+        const a: *App = @ptrCast(@alignCast(ctx));
+        const drawn = if (system.isJpegXr(image.data)) blk: {
+            var arena = std.heap.ArenaAllocator.init(a.alloc);
+            defer arena.deinit();
+            const gray = system.decodeJpegXr(arena.allocator(), image.data, image.width, image.height) orelse break :blk false;
+            break :blk cover.placeGray(a.alloc, gray.pixels, gray.width, gray.height, page_buf, x, y, w, h);
+        } else cover.place(a.alloc, image.data, page_buf, x, y, w, h);
+        if (!drawn) std.debug.print("picture not drawn\n", .{});
     }
 
     fn pickFace(ctx: *anyopaque, bold: bool, italic: bool, size: u8) anyerror!*text.Font {

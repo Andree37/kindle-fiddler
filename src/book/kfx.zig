@@ -60,7 +60,11 @@ pub fn sizeClass(rem: f64) u8 {
 /// Bold or italic over part of a paragraph.
 pub const Run = struct { start: u32, end: u32, bold: bool, italic: bool };
 
+/// A picture in the text: its encoded bytes (JPEG or PNG) and size in pixels.
+pub const Image = struct { data: []const u8, width: u32, height: u32 };
+
 pub const Paragraph = struct {
+    image: ?Image = null, // A picture standing alone, in place of text
     text: []const u8,
     style: u32,
     look: Look = .{},
@@ -145,6 +149,27 @@ pub fn markNotes(paragraphs: []Paragraph) void {
     }
 }
 
+/// A paragraph's number counting text only. Saved reading positions use this, so
+/// they stay put whether or not pictures are shown.
+pub fn textIndex(paragraphs: []const Paragraph, para: usize) usize {
+    var n: usize = 0;
+    for (paragraphs[0..@min(para, paragraphs.len)]) |p| {
+        if (p.image == null) n += 1;
+    }
+    return n;
+}
+
+/// The paragraph for a number from `textIndex`.
+pub fn fromTextIndex(paragraphs: []const Paragraph, index: usize) usize {
+    var n: usize = 0;
+    for (paragraphs, 0..) |p, i| {
+        if (p.image != null) continue;
+        if (n == index) return i;
+        n += 1;
+    }
+    return paragraphs.len;
+}
+
 /// Characters before a byte offset, which is how Amazon counts positions.
 pub fn charOffset(text: []const u8, byte: usize) u32 {
     var bytes: usize = 0;
@@ -213,6 +238,32 @@ const Parser = struct {
     raw_links: std.ArrayList(RawLink) = .empty,
     section: u32 = 0,
     looks: std.AutoHashMapUnmanaged(u32, Look) = .empty, // Style name to how it sets text
+    images: std.AutoHashMapUnmanaged(u32, Image) = .empty, // Resource name to picture
+
+    /// Pairs each image resource with its bytes. Converted books list both in the
+    /// same order, so the n-th resource is the n-th piece of raw media.
+    fn readImages(p: *Parser) !void {
+        var resources: std.ArrayList(u32) = .empty;
+        var media: std.ArrayList(u32) = .empty;
+        var it = p.index.iterator();
+        while (it.next()) |kv| {
+            if (kv.key_ptr.kind == t_resource) try resources.append(p.alloc, kv.key_ptr.id);
+            if (kv.key_ptr.kind == t_raw_media) try media.append(p.alloc, kv.key_ptr.id);
+        }
+        if (resources.items.len != media.items.len) return; // Can't pair them safely
+        std.mem.sort(u32, resources.items, {}, std.sort.asc(u32));
+        std.mem.sort(u32, media.items, {}, std.sort.asc(u32));
+        for (resources.items, media.items) |r, m| {
+            const res = p.entity(r, t_resource) orelse continue;
+            const width = (res.get(f_width) orelse continue).unsigned() orelse continue;
+            const height = (res.get(f_height) orelse continue).unsigned() orelse continue;
+            const raw = p.index.get(.{ .id = m, .kind = t_raw_media }) orelse continue;
+            if (raw.len < 10 or !std.mem.eql(u8, raw[0..4], "ENTY")) continue;
+            const hdr = std.mem.readInt(u32, raw[6..10], .little);
+            if (hdr >= raw.len or width == 0 or height == 0) continue;
+            try p.images.put(p.alloc, r, .{ .data = raw[hdr..], .width = @intCast(width), .height = @intCast(height) });
+        }
+    }
 
     /// Reads every style once, keeping what changes how text looks.
     fn readLooks(p: *Parser) !void {
@@ -386,6 +437,12 @@ const Parser = struct {
             if (!slot.found_existing) slot.value_ptr.* = @intCast(p.paragraphs.items.len);
         }
 
+        if ((if (item.get(f_type)) |t| t.symbol() else null) == type_image) {
+            const resource = if (item.get(f_resource)) |r| r.symbol() else null;
+            if (resource) |r| {
+                if (p.images.get(r)) |img| try p.paragraphs.append(p.alloc, .{ .text = "", .style = style, .look = p.lookFor(style), .image = img, .section = p.section });
+            }
+        }
         if (item.get(f_content_ref)) |ref| {
             if (try p.addContent(ref, style)) {
                 const para: u32 = @intCast(p.paragraphs.items.len - 1);
@@ -413,6 +470,12 @@ const Parser = struct {
 
 const t_raw_media = 417;
 const t_style = 157;
+const t_resource = 164;
+const f_type = 159;
+const type_image = 271;
+const f_resource = 175;
+const f_width = 422;
+const f_height = 423;
 const f_font_style = 12;
 const f_font_weight = 13;
 const f_font_size = 16;
@@ -579,6 +642,7 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
         try p.index.put(alloc, .{ .id = r.id, .kind = r.kind }, c.body[@intCast(r.off)..][0..@intCast(r.len)]);
     }
     try p.readLooks();
+    try p.readImages();
 
     const doc = findDocument(&p) orelse return error.NoReadingOrder;
     var orders = (doc.get(f_reading_orders) orelse return error.NoReadingOrder).items();
@@ -753,4 +817,12 @@ test "book sizes snap to the reader's steps" {
     try std.testing.expectEqual(@as(u8, 2), sizeClass(1.125));
     try std.testing.expectEqual(@as(u8, 3), sizeClass(1.5));
     try std.testing.expectEqual(@as(u8, 4), sizeClass(2.0));
+}
+
+test "saved positions count text paragraphs only" {
+    const img = Image{ .data = "", .width = 1, .height = 1 };
+    const paras = [_]Paragraph{ .{ .text = "a", .style = 0 }, .{ .text = "", .style = 0, .image = img }, .{ .text = "b", .style = 0 } };
+    try std.testing.expectEqual(@as(usize, 1), textIndex(&paras, 2));
+    try std.testing.expectEqual(@as(usize, 2), fromTextIndex(&paras, 1));
+    try std.testing.expectEqual(@as(usize, 0), fromTextIndex(&paras, 0));
 }

@@ -13,7 +13,9 @@ Open it from the home search bar with `;kpm launch noface`.
 - `src/book/`: reads and lays out books, highlights and their sync records. No hardware.
 - `src/ui/`: draws screens and maps taps to controls.
 - `src/core.zig`: the parts the tools share. `src/tests.zig` runs every test.
-- `device/`: scripts installed on the Kindle.
+- `device/`: scripts installed on the Kindle, and `jxr2pgm`, the picture helper that
+  decodes JPEG XR with the Kindle's own library. Install both `noface` and `jxr2pgm`
+  from `zig-out/bin` into `/mnt/us/noface/`.
 - `tools/`: development tools, not part of the app.
 - `third_party/`: stb libraries.
 

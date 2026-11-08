@@ -22,6 +22,26 @@ pub fn build(b: *std.Build) void {
     addFontAndImageCode(b, noface.root_module);
     b.installArtifact(noface);
 
+    // The picture helper. Built against the Kindle's own glibc, because it loads the
+    // Kindle's JPEG XR decoder at run time, which a static musl program can't.
+    const jxr = b.addExecutable(.{
+        .name = "jxr2pgm",
+        .root_module = b.createModule(.{
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+                .glibc_version = .{ .major = 2, .minor = 35, .patch = 0 },
+                .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a7 },
+            }),
+            .optimize = .ReleaseFast,
+            .strip = true,
+            .link_libc = true,
+        }),
+    });
+    jxr.root_module.addCSourceFile(.{ .file = b.path("device/jxr/jxr2pgm.c"), .flags = &.{"-O2"} });
+    b.installArtifact(jxr);
+
     // Development tools, kept out of the app. Built with `zig build tools`.
     const core = b.createModule(.{
         .root_source_file = b.path("src/core.zig"),

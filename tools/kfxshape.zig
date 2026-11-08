@@ -90,6 +90,35 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (argv.len < 2) return error.Usage;
     const data = try core.file.map(argv[1]);
     if (argv.len > 2 and std.mem.eql(u8, std.mem.sliceTo(argv[2], 0), "styles")) return styleSummary(data);
+    if (argv.len > 3 and std.mem.eql(u8, std.mem.sliceTo(argv[2], 0), "dump")) {
+        // Writes one raw media entity's bytes to stdout, for testing decoders.
+        const want_id = try std.fmt.parseInt(u32, std.mem.sliceTo(argv[3], 0), 10);
+        var all = try core.kfx.entities(data);
+        while (all.next()) |e| {
+            if (e.kind != 417 or e.id != want_id) continue;
+            const hdr = std.mem.readInt(u32, e.raw[6..10], .little);
+            _ = std.os.linux.write(1, e.raw[hdr..].ptr, e.raw.len - hdr);
+        }
+        return;
+    }
+    if (argv.len > 2 and std.mem.eql(u8, std.mem.sliceTo(argv[2], 0), "media")) {
+        // Raw media: id, size, header length and first bytes; resources: id, format, size, location length.
+        var all = try core.kfx.entities(data);
+        while (all.next()) |e| {
+            if (e.kind == 417) {
+                const hdr = if (e.raw.len >= 10) std.mem.readInt(u32, e.raw[6..10], .little) else 0;
+                const body = if (hdr < e.raw.len) e.raw[hdr..] else "";
+                print("media ${d}: {d} bytes, header {d}, starts {x}\n", .{ e.id, e.raw.len, hdr, body[0..@min(8, body.len)] });
+            }
+            if (e.kind == 164) {
+                const v = core.kfx.entityValue(e.raw) orelse continue;
+                const fmt = if (v.get(161)) |f| f.symbol() orelse 0 else 0;
+                const loc = if (v.get(165)) |l| l.text() orelse "" else "";
+                print("resource ${d}: format ${d}, {d}x{d}, location {d} chars\n", .{ e.id, fmt, if (v.get(422)) |x| x.int else 0, if (v.get(423)) |x| x.int else 0, loc.len });
+            }
+        }
+        return;
+    }
     var counts: [2048]u32 = @splat(0);
     var it = try core.kfx.entities(data);
     const want: ?u32 = if (argv.len > 2) try std.fmt.parseInt(u32, std.mem.sliceTo(argv[2], 0), 10) else null;
