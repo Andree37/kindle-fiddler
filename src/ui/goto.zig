@@ -1,6 +1,8 @@
-//! The Go To sheet: the book's contents, a page of entries at a time, under the toolbar.
+//! The Go To sheet under the toolbar: the book's contents, or its bookmarks and
+//! highlights, a page of rows at a time.
 const std = @import("std");
 const draw = @import("draw.zig");
+const icons = @import("icons.zig");
 const library = @import("library.zig");
 const style = @import("style.zig");
 const kfx = @import("../book/kfx.zig");
@@ -8,21 +10,29 @@ const text = @import("../book/text.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 pub const top = 228; // Under the toolbar, which stays visible above
-const heading_baseline = top + 72;
+const tabs_baseline = top + 72;
 const list_top = top + 112;
 const row_height = 100;
 pub const rows = 11;
 const indent = 48; // Per level of nesting
+const mark_width = 56; // Room for a bookmark or highlight sign before the text
 const page_label_width = 140;
 const pager = draw.Pager{ .top = list_top + rows * row_height + 20, .bottom = list_top + rows * row_height + 140 };
 
-pub fn pageCount(chapters: usize) usize {
-    return @max(1, (chapters + rows - 1) / rows);
+pub const Tab = enum { contents, notes };
+
+pub const Mark = enum { none, bookmark, highlight };
+
+/// One row: a chapter, a bookmark or a highlight.
+pub const Row = struct { label: []const u8, page: usize, depth: u8 = 0, mark: Mark = .none };
+
+pub fn pageCount(count: usize) usize {
+    return @max(1, (count + rows - 1) / rows);
 }
 
-/// The list page holding a chapter, so the sheet opens where the reader is.
-pub fn listPageOf(chapter: usize) usize {
-    return chapter / rows;
+/// The list page holding a row, so the sheet opens where the reader is.
+pub fn listPageOf(row: usize) usize {
+    return row / rows;
 }
 
 /// The chapter being read: the last one starting at or before `para`.
@@ -38,44 +48,60 @@ pub fn current(chapters: []const kfx.Chapter, para: usize) ?usize {
     return found;
 }
 
-pub const Hit = union(enum) { none, close, chapter: usize, prev, next };
+pub const Hit = union(enum) { none, close, tab: Tab, row: usize, prev, next };
 
-pub fn hit(x: i32, y: i32, list_page: usize, chapters: usize) Hit {
+pub fn hit(x: i32, y: i32, list_page: usize, count: usize) Hit {
     if (y < top) return .close;
+    if (y < list_top) return .{ .tab = if (x < style.screen_width / 2) .contents else .notes };
     if (pager.hit(x, y)) |h| return if (h == .prev) .prev else .next;
-    if (y < list_top) return .none;
     const row: usize = @intCast(@divTrunc(y - list_top, row_height));
     if (row >= rows) return .none;
     const index = list_page * rows + row;
-    return if (index < chapters) .{ .chapter = index } else .none;
+    return if (index < count) .{ .row = index } else .none;
 }
 
-/// Draws one page of the list. `page_of` holds each chapter's page number.
-pub fn render(fonts: Fonts, page: text.Page, chapters: []const kfx.Chapter, page_of: []const usize, reading: ?usize, list_page: usize) !void {
+fn drawMark(page: text.Page, mark: Mark, x: f32, y: u32) void {
+    const cy: f32 = @floatFromInt(y + row_height / 2);
+    switch (mark) {
+        .none => {},
+        .bookmark => icons.bookmarkFilled(page, x + 17, cy),
+        .highlight => page.fillRect(@intFromFloat(x), y + 30, 34, 40, 0xc8),
+    }
+}
+
+/// Draws one page of rows. `reading` marks the row the reader is in.
+pub fn render(fonts: Fonts, page: text.Page, tab: Tab, list: []const Row, reading: ?usize, list_page: usize) !void {
     page.fillRect(0, top, page.width, page.height - top, style.white);
     page.fillRect(0, top, page.width, 1, style.rule);
-    try fonts.title.draw(page, style.margin, heading_baseline, "Contents");
+    const half: f32 = @floatFromInt(page.width / 2);
+    try draw.choice(fonts, page, half / 2, .center, tabs_baseline, "Contents", tab == .contents, tabs_baseline + 14);
+    try draw.choice(fonts, page, half + half / 2, .center, tabs_baseline, "Notes", tab == .notes, tabs_baseline + 14);
     page.fillRect(style.margin, list_top - 12, page.width - 2 * style.margin, 1, style.rule);
-    if (chapters.len == 0) {
-        try draw.centered(fonts.small, page, @floatFromInt(page.width / 2), list_top + 200, "This book has no contents list.");
+    if (list.len == 0) {
+        const empty = if (tab == .contents) "This book has no contents list." else "No bookmarks or highlights yet.";
+        try draw.centered(fonts.small, page, half, list_top + 200, empty);
         return;
     }
     const first = list_page * rows;
-    const end = @min(first + rows, chapters.len);
+    const end = @min(first + rows, list.len);
     const right: f32 = @floatFromInt(page.width - style.margin);
-    for (chapters[first..end], first..) |c, i| {
+    for (list[first..end], first..) |r, i| {
         const y: u32 = list_top + @as(u32, @intCast(i - first)) * row_height;
         const baseline: i32 = @intCast(y + 62);
         const here = reading == i;
-        const left: f32 = @floatFromInt(style.margin + @as(u32, @min(c.depth, 4)) * indent);
+        var left: f32 = @floatFromInt(style.margin + @as(u32, @min(r.depth, 4)) * indent);
+        if (r.mark != .none) {
+            drawMark(page, r.mark, left, y);
+            left += mark_width;
+        }
         const font = if (here) fonts.title else fonts.small;
-        try library.drawClipped(font, page, left, baseline, c.title, right - page_label_width - left);
+        try library.drawClipped(font, page, left, baseline, r.label, right - page_label_width - left);
         if (here) page.fillRect(style.margin - 28, y + 22, 8, 56, style.black);
         var label: [16]u8 = undefined;
-        const number = std.fmt.bufPrint(&label, "{d}", .{page_of[i] + 1}) catch "";
+        const number = std.fmt.bufPrint(&label, "{d}", .{r.page + 1}) catch "";
         try fonts.caption.draw(page, right - try fonts.caption.measure(number), baseline, number);
     }
-    try pager.render(fonts, page, list_page, pageCount(chapters.len));
+    try pager.render(fonts, page, list_page, pageCount(list.len));
 }
 
 test "the current chapter is the last one started" {
@@ -92,10 +118,12 @@ test "the current chapter is the last one started" {
     try std.testing.expect(current(&late, 5) == null);
 }
 
-test "rows map to chapters on the shown page" {
+test "taps pick a tab, a row on the shown page, or close" {
     try std.testing.expectEqual(Hit.close, hit(600, 100, 0, 30));
-    try std.testing.expectEqual(Hit{ .chapter = 0 }, hit(600, list_top + 10, 0, 30));
-    try std.testing.expectEqual(Hit{ .chapter = rows + 2 }, hit(600, list_top + 2 * row_height + 10, 1, 30));
+    try std.testing.expectEqual(Hit{ .tab = .contents }, hit(300, top + 60, 0, 30));
+    try std.testing.expectEqual(Hit{ .tab = .notes }, hit(900, top + 60, 0, 30));
+    try std.testing.expectEqual(Hit{ .row = 0 }, hit(600, list_top + 10, 0, 30));
+    try std.testing.expectEqual(Hit{ .row = rows + 2 }, hit(600, list_top + 2 * row_height + 10, 1, 30));
     try std.testing.expectEqual(Hit.none, hit(600, list_top + 9 * row_height + 10, 2, 30)); // Past the last
     try std.testing.expectEqual(@as(usize, 3), pageCount(30));
     try std.testing.expectEqual(@as(usize, 1), pageCount(0));

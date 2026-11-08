@@ -54,6 +54,19 @@ pub fn dragged(whole: Span, fixed: text.Word, head: text.Word, grab_start: bool,
     return out;
 }
 
+/// The start of `s`, at most `max` bytes, ending at a word and never inside a
+/// character, for showing a highlight or bookmark in a list.
+pub fn excerpt(s: []const u8, max: usize) []const u8 {
+    const trimmed = std.mem.trimStart(u8, s, " ");
+    if (trimmed.len <= max) return trimmed;
+    var end = max;
+    while (end > 0 and trimmed[end] & 0xc0 == 0x80) end -= 1; // Inside a UTF-8 character
+    if (std.mem.lastIndexOfScalar(u8, trimmed[0..end], ' ')) |space| {
+        if (space > max / 2) end = space;
+    }
+    return trimmed[0..end];
+}
+
 /// Finds the paragraph and byte for one of Amazon's short positions.
 pub fn locate(paragraphs: []const kfx.Paragraph, short: u32) ?struct { para: u32, byte: u32 } {
     var found: ?usize = null;
@@ -250,4 +263,11 @@ test "a new highlight never takes an ID in use" {
     const list = [_]Highlight{ .{ .mark = mark, .id = "kindle.highlight-100" }, .{ .mark = mark, .id = "kindle.highlight-101" } };
     try std.testing.expectEqualStrings("kindle.highlight-99", try freeId(arena.allocator(), &list, 99));
     try std.testing.expectEqualStrings("kindle.highlight-102", try freeId(arena.allocator(), &list, 100));
+}
+
+test "excerpts end at a word and never split a character" {
+    try std.testing.expectEqualStrings("short", excerpt("short", 20));
+    try std.testing.expectEqualStrings("one two", excerpt("one two three", 10));
+    try std.testing.expectEqualStrings("caf", excerpt("caf\u{e9}", 4)); // The accent is two bytes
+    try std.testing.expectEqualStrings("lead", excerpt("  lead", 20));
 }

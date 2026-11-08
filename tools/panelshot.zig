@@ -117,18 +117,18 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    if (std.mem.eql(u8, mode, "contents")) {
-        // Invented titles, nested the way books do.
+    if (std.mem.eql(u8, mode, "goto")) {
+        // Invented rows, nested and marked the way books are.
         const names = [_][]const u8{ "Cover", "Part One", "A first chapter title", "A second chapter", "Interlude", "A much longer chapter title that has to be clipped at the edge of the page", "Part Two", "Short", "Another chapter", "Notes" };
-        var list: [24]core.kfx.Chapter = undefined;
-        var page_of: [24]usize = undefined;
-        for (&list, &page_of, 0..) |*c, *p, i| {
-            c.* = .{ .title = names[i % names.len], .para = @intCast(i * 10), .depth = if (i % 5 == 2 or i % 5 == 3) 1 else 0 };
-            p.* = i * 17;
+        const notes_tab = argv.len > 2;
+        var list: [24]core.goto.Row = undefined;
+        for (&list, 0..) |*r, i| {
+            r.* = .{ .label = names[i % names.len], .page = i * 17, .depth = if (!notes_tab and (i % 5 == 2 or i % 5 == 3)) 1 else 0 };
+            if (notes_tab) r.mark = if (i % 3 == 0) .bookmark else .highlight;
         }
         @memset(buf, 0xe8);
         try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, null, .{}, false);
-        try core.contents.render(fonts, page, &list, &page_of, 3, 0);
+        try core.goto.render(fonts, page, if (notes_tab) .notes else .contents, &list, if (notes_tab) null else 3, 0);
         writeImage(buf, w, h);
         return;
     }
