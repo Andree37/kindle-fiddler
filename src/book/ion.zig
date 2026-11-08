@@ -23,6 +23,11 @@ pub const Value = struct {
         return null;
     }
 
+    /// Every field of a struct, in order.
+    pub fn fields(v: Value) Fields {
+        return .{ .data = if (v.kind == .struct_) v.body else &.{} };
+    }
+
     pub fn text(v: Value) ?[]const u8 {
         return if (v.kind == .string) v.body else null;
     }
@@ -68,6 +73,22 @@ fn beInt(d: []const u8) u64 {
 
 /// Decode the value at `pos`, looking through annotations.
 /// Padding comes back as `.pad`: inside a struct a field ID follows it, not a value.
+pub const Field = struct { key: u64, value: Value };
+
+pub const Fields = struct {
+    data: []const u8,
+    pos: usize = 0,
+
+    pub fn next(f: *Fields) ?Field {
+        while (f.pos < f.data.len) {
+            const key = readVarUint(f.data, &f.pos) catch return null;
+            const value = decode(f.data, &f.pos) catch return null;
+            if (value.kind != .pad) return .{ .key = key, .value = value };
+        }
+        return null;
+    }
+};
+
 pub fn decode(d: []const u8, pos: *usize) anyerror!Value {
     while (true) {
         if (pos.* >= d.len) return error.Truncated;

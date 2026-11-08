@@ -5,6 +5,7 @@ pub const cover = @import("ui/cover.zig");
 pub const file = @import("platform/file.zig");
 pub const fonts = @import("ui/fonts.zig");
 pub const hwtcon = @import("platform/hwtcon.zig");
+pub const ion = @import("book/ion.zig");
 pub const kfx = @import("book/kfx.zig");
 pub const library = @import("ui/library.zig");
 pub const menu = @import("ui/menu.zig");

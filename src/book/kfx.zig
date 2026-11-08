@@ -137,8 +137,12 @@ pub fn byteOffset(text: []const u8, count: u64) usize {
 
 const RawLink = struct { para: u32, start: usize, end: usize, anchor: u32 };
 
+/// A table of contents entry: its title, where it starts, and how deep it nests.
+pub const Chapter = struct { title: []const u8, para: u32, depth: u8 };
+
 pub const Book = struct {
     paragraphs: []Paragraph,
+    chapters: []Chapter = &.{},
     sections: u32,
     missing_refs: u32,
 };
@@ -241,12 +245,50 @@ const Parser = struct {
         }
     }
 
+    /// The book's table of contents, from its navigation. Entries whose target
+    /// isn't in the text are skipped.
+    fn readContents(p: *Parser) ![]Chapter {
+        var out: std.ArrayList(Chapter) = .empty;
+        var it = p.index.iterator();
+        while (it.next()) |kv| {
+            if (kv.key_ptr.kind != t_navigation) continue;
+            const nav = p.entity(kv.key_ptr.id, kv.key_ptr.kind) orelse continue;
+            var orders = nav.items();
+            while (orders.next()) |order| {
+                var containers = (order.get(f_nav_containers) orelse continue).items();
+                while (containers.next()) |ref| {
+                    // Containers are listed by name, or written inline.
+                    const container = if (ref.symbol()) |id| p.entity(id, t_nav_container) else if (ref.kind == .struct_) ref else null;
+                    const c = container orelse continue;
+                    if ((c.get(f_nav_type) orelse continue).symbol() != nav_contents) continue;
+                    try p.addChapters(&out, c, 0);
+                }
+            }
+            break;
+        }
+        return out.toOwnedSlice(p.alloc);
+    }
+
+    fn addChapters(p: *Parser, out: *std.ArrayList(Chapter), parent: ion.Value, depth: u8) !void {
+        if (depth > 8) return;
+        var entries = (parent.get(f_nav_entries) orelse return).items();
+        while (entries.next()) |entry| {
+            const title = blk: {
+                const shown = entry.get(f_nav_label) orelse break :blk null;
+                break :blk (shown.get(f_nav_text) orelse break :blk null).text();
+            };
+            const target = entry.get(f_nav_target);
+            const element = if (target) |t| t.get(f_id) else null;
+            const para = if (element) |e| p.positions.get(e.int) else null;
+            if (title != null and para != null and para.? < p.paragraphs.items.len) {
+                try out.append(p.alloc, .{ .title = title.?, .para = para.?, .depth = depth });
+            }
+            try p.addChapters(out, entry, depth + 1);
+        }
+    }
+
     fn entity(p: *Parser, id: u32, kind: u32) ?ion.Value {
-        const raw = p.index.get(.{ .id = id, .kind = kind }) orelse return null;
-        if (raw.len < 10 or !std.mem.eql(u8, raw[0..4], "ENTY")) return null;
-        const hdr = std.mem.readInt(u32, raw[6..10], .little);
-        if (hdr > raw.len) return null;
-        return ion.parse(raw[hdr..]) catch null;
+        return entityValue(p.index.get(.{ .id = id, .kind = kind }) orelse return null);
     }
 
     /// Resolves a text reference. False means it pointed at nothing usable.
@@ -311,6 +353,15 @@ const Parser = struct {
 };
 
 const t_raw_media = 417;
+const t_navigation = 389;
+const t_nav_container = 391;
+const f_nav_containers = 392;
+const f_nav_type = 235;
+const nav_contents = 212;
+const f_nav_entries = 247;
+const f_nav_label = 241;
+const f_nav_text = 244;
+const f_nav_target = 246;
 const t_section_positions = 265;
 const t_section_map = 609;
 const f_position_rows = 181;
@@ -344,6 +395,36 @@ fn readRow(row: *const [24]u8) Row {
         .off = std.mem.readInt(u64, row[8..16], .little),
         .len = std.mem.readInt(u64, row[16..24], .little),
     };
+}
+
+/// An entity's value, past its "ENTY" header.
+pub fn entityValue(raw: []const u8) ?ion.Value {
+    if (raw.len < 10 or !std.mem.eql(u8, raw[0..4], "ENTY")) return null;
+    const hdr = std.mem.readInt(u32, raw[6..10], .little);
+    if (hdr > raw.len) return null;
+    return ion.parse(raw[hdr..]) catch null;
+}
+
+pub const Entity = struct { id: u32, kind: u32, raw: []const u8 };
+
+/// Walks every entity in the book, skipping any that point outside the file.
+pub const Entities = struct {
+    c: Container,
+    at: usize = 0,
+
+    pub fn next(it: *Entities) ?Entity {
+        while (it.at + 24 <= it.c.index.len) {
+            const r = readRow(it.c.index[it.at..][0..24]);
+            it.at += 24;
+            if (r.off > it.c.body.len or r.len > it.c.body.len - r.off) continue;
+            return .{ .id = r.id, .kind = r.kind, .raw = it.c.body[@intCast(r.off)..][0..@intCast(r.len)] };
+        }
+        return null;
+    }
+};
+
+pub fn entities(data: []const u8) !Entities {
+    return .{ .c = try openContainer(data) };
 }
 
 /// True when every entity the index lists is inside the file. A download still in
@@ -412,7 +493,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) !Book {
     try p.resolveLinks();
     try p.resolvePositions();
     markNotes(p.paragraphs.items);
-    return .{ .paragraphs = try p.paragraphs.toOwnedSlice(alloc), .sections = count, .missing_refs = p.missing };
+    const chapters = try p.readContents();
+    return .{ .paragraphs = try p.paragraphs.toOwnedSlice(alloc), .chapters = chapters, .sections = count, .missing_refs = p.missing };
 }
 
 fn findDocument(p: *Parser) ?ion.Value {

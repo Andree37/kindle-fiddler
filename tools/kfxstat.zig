@@ -15,6 +15,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
     _ = linux.clock_gettime(.MONOTONIC, &ts0);
     std.debug.print("complete {}\n", .{kfx.isComplete(data)});
     const book = try kfx.parse(std.heap.page_allocator, data);
+    var deepest: u8 = 0;
+    var ordered = true;
+    for (book.chapters, 0..) |c, i| {
+        deepest = @max(deepest, c.depth);
+        if (i > 0 and c.para < book.chapters[i - 1].para) ordered = false;
+    }
+    std.debug.print("chapters {d}, deepest {d}, in reading order {}\n", .{ book.chapters.len, deepest, ordered });
     _ = linux.clock_gettime(.MONOTONIC, &ts1);
 
     var bytes: usize = 0;

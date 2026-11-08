@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     addFontAndImageCode(b, core);
 
     const tools_step = b.step("tools", "Build the development tools in tools/");
-    for ([_][]const u8{ "latency", "kfxstat", "pagetest", "panelshot", "touchsim", "fbcap" }) |name| {
+    for ([_][]const u8{ "latency", "kfxstat", "pagetest", "panelshot", "touchsim", "fbcap", "kfxshape" }) |name| {
         const tool = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
