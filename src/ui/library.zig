@@ -46,7 +46,11 @@ const button_height = 66;
 const footer = draw.Pager{ .top = 1450, .bottom = 1570 };
 const sort_left = 860;
 
-pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, tab: catalog.Filter };
+pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
+
+// The round search button, just right of the filter button
+const search_cx = 552;
+const search_reach = 44; // Taps this far either side of its centre
 
 fn gridSize(hero: bool) usize {
     return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
@@ -77,11 +81,13 @@ fn gridTop(hero: bool) i32 {
     return if (hero) hero_grid_top else plain_grid_top;
 }
 
-/// What a tap on this library page lands on.
-pub fn hit(x: i32, y: i32, page: usize, books: usize) Hit {
+/// What a tap on this library page lands on. While `searching`, the hero's place
+/// holds the search, and tapping it clears the search.
+pub fn hit(x: i32, y: i32, page: usize, books: usize, searching: bool) Hit {
     const hero = page == 0;
     if (y < status_height) return if (x < 220) .menu else .none;
     if (hero and y >= hero_top and y < hero_bottom) {
+        if (searching) return .clear_search;
         if (x >= 1100 and y < hero_top + 90) return .hero_dots;
         return .hero;
     }
@@ -89,6 +95,7 @@ pub fn hit(x: i32, y: i32, page: usize, books: usize) Hit {
     const tabs_top = tabsTop(hero);
     if (y >= tabs_top and y < tabs_top + tabs_height) {
         if (x >= sort_left) return .sort;
+        if (@abs(x - search_cx) <= search_reach) return .search;
         for (tabs) |t| {
             if (x >= t.left and x < t.right) return .{ .tab = t.filter };
         }
@@ -282,9 +289,35 @@ fn drawStatus(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
     try icons.statusCluster(page, fonts.caption, w - margin, centre, baseline, quick, false);
 }
 
-fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: catalog.Order) !void {
+/// In the hero's place while searching: what was searched for, how many books have
+/// it, and a button to clear it.
+fn drawSearchHeader(fonts: Fonts, page: Page, query: []const u8, found: usize) !void {
+    const left: f32 = margin;
+    const avail: f32 = @floatFromInt(page.width - 2 * margin);
+    try fonts.caption.draw(page, left, hero_top + 34, "Search results");
+    page.tint(margin, hero_top + 8, @intFromFloat(avail), 36, 0x60);
+    var quoted: [80]u8 = undefined;
+    const shown = std.fmt.bufPrint(&quoted, "\u{201c}{s}\u{201d}", .{query}) catch query;
+    try draw.clipped(fonts.hero, page, left, hero_top + 120, shown, avail);
+    var count: [32]u8 = undefined;
+    const books = std.fmt.bufPrint(&count, "{d} book{s}", .{ found, if (found == 1) "" else "s" }) catch "";
+    try fonts.small.draw(page, left, hero_top + 190, books);
+    const label = "Clear search";
+    const w = try fonts.small.measure(label);
+    const top: i32 = hero_top + 236 - button_top;
+    buttonOutline(page, left, left + w + 60, top);
+    try fonts.small.draw(page, left + 30, top + 55, label);
+}
+
+fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: catalog.Order, searching: bool) !void {
     const y = top + 55;
     const cy: f32 = @floatFromInt(top + button_top + button_height / 2);
+    const r: f32 = button_height / 2;
+    page.pill(search_cx, search_cx, cy, r, 0x00);
+    page.pill(search_cx, search_cx, cy, r - 2, 0xff);
+    icons.search(page, search_cx, cy);
+    // Filled while a search is showing, like a toggle that's on
+    if (searching) page.invertDisc(search_cx, @intFromFloat(cy), @intFromFloat(r - 2));
     buttonOutline(page, margin, @floatFromInt(tabs[tabs.len - 1].right), top);
     icons.funnel(page, margin + 34, cy);
     for (tabs) |t| {
@@ -305,15 +338,17 @@ fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
     try footer.render(fonts, page, index, pages);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, message: []const u8, quick: *const quick_model.Quick) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, query: []const u8, message: []const u8, quick: *const quick_model.Quick) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 
     const with_hero = index == 0;
     if (with_hero) {
-        if (hero) |h| try drawHero(alloc, fonts, page, &entries[h]);
+        if (query.len > 0) {
+            try drawSearchHeader(fonts, page, query, visible.len);
+        } else if (hero) |h| try drawHero(alloc, fonts, page, &entries[h]);
     }
-    try drawTabs(fonts, page, tabsTop(with_hero), filter, order);
+    try drawTabs(fonts, page, tabsTop(with_hero), filter, order, query.len > 0);
 
     const first = firstBook(index);
     const shown = visible[@min(first, visible.len)..@min(first + gridSize(with_hero), visible.len)];
@@ -323,35 +358,35 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []cat
         const y: u32 = top + @as(u32, @intCast(i / columns)) * row_height;
         try drawCell(alloc, fonts, page, &entries[entry_index], x, y);
     }
-    if (visible.len == 0) try fonts.small.draw(page, margin, @intCast(top + 60), "No books here yet.");
+    if (visible.len == 0) try fonts.small.draw(page, margin, @intCast(top + 60), if (query.len > 0) "No books match." else "No books here yet.");
     try drawFooter(fonts, page, index, pageCount(visible.len));
     if (message.len > 0) try fonts.caption.draw(page, margin, 1640, message);
 }
 
 test "the current book stays on page one of every view" {
-    try std.testing.expectEqual(Hit.hero, hit(300, 200, 0, 79));
-    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 700, 0, 79));
-    try std.testing.expectEqual(Hit{ .book = 3 }, hit(1000, 700, 0, 79));
-    try std.testing.expectEqual(Hit{ .book = 4 }, hit(100, 1100, 0, 79));
+    try std.testing.expectEqual(Hit.hero, hit(300, 200, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(100, 700, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .book = 3 }, hit(1000, 700, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .book = 4 }, hit(100, 1100, 0, 79, false));
 }
 
 test "later pages are four by three" {
-    try std.testing.expectEqual(Hit{ .book = 8 }, hit(100, 300, 1, 79));
-    try std.testing.expectEqual(Hit{ .book = 19 }, hit(1000, 1100, 1, 79));
+    try std.testing.expectEqual(Hit{ .book = 8 }, hit(100, 300, 1, 79, false));
+    try std.testing.expectEqual(Hit{ .book = 19 }, hit(1000, 1100, 1, 79, false));
 }
 
 test "header and footer controls" {
-    try std.testing.expectEqual(Hit.menu, hit(100, 50, 0, 79));
-    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(250, 560, 0, 79));
-    try std.testing.expectEqual(Hit{ .tab = .read }, hit(400, 560, 0, 79));
-    try std.testing.expectEqual(Hit.none, hit(600, 560, 0, 79));
-    try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79));
-    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 0, 79));
-    try std.testing.expectEqual(Hit.next, hit(800, 1500, 0, 79));
+    try std.testing.expectEqual(Hit.menu, hit(100, 50, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(250, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .tab = .read }, hit(400, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.none, hit(600, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 0, 79, false));
+    try std.testing.expectEqual(Hit.next, hit(800, 1500, 0, 79, false));
 }
 
 test "tapping past the last book does nothing" {
-    try std.testing.expectEqual(Hit.none, hit(1000, 1100, 0, 3));
+    try std.testing.expectEqual(Hit.none, hit(1000, 1100, 0, 3, false));
 }
 
 test "page count follows the layout" {
@@ -361,8 +396,16 @@ test "page count follows the layout" {
     try std.testing.expectEqual(@as(usize, 7), pageCount(78));
 }
 
+test "search button sits beside the filter, and the search takes the hero's place" {
+    try std.testing.expectEqual(Hit.search, hit(552, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .tab = .read }, hit(480, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.search, hit(552, 140, 1, 79, false));
+    try std.testing.expectEqual(Hit.clear_search, hit(300, 300, 0, 79, true));
+    try std.testing.expectEqual(Hit.hero, hit(300, 300, 0, 79, false));
+}
+
 test "three dots sit beside the title" {
-    try std.testing.expectEqual(Hit{ .dots = 0 }, hit(300, 975, 0, 79));
-    try std.testing.expectEqual(Hit{ .book = 0 }, hit(120, 975, 0, 79));
-    try std.testing.expectEqual(Hit.hero_dots, hit(1180, 130, 0, 79));
+    try std.testing.expectEqual(Hit{ .dots = 0 }, hit(300, 975, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(120, 975, 0, 79, false));
+    try std.testing.expectEqual(Hit.hero_dots, hit(1180, 130, 0, 79, false));
 }

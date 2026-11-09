@@ -5,6 +5,32 @@ const book_model = @import("book.zig");
 
 pub const Match = struct { para: u32, byte: u32 };
 
+/// What's typed into a search box.
+pub const Query = struct {
+    buf: [64]u8 = undefined,
+    len: usize = 0,
+
+    pub fn slice(q: *const Query) []const u8 {
+        return q.buf[0..q.len];
+    }
+
+    pub fn push(q: *Query, c: u8) void {
+        if (q.len < q.buf.len) {
+            q.buf[q.len] = c;
+            q.len += 1;
+        }
+    }
+
+    pub fn pop(q: *Query) void {
+        q.len -|= 1;
+    }
+
+    /// What's typed, without spaces at either end.
+    pub fn words(q: *const Query) []const u8 {
+        return std.mem.trim(u8, q.slice(), " ");
+    }
+};
+
 const Folded = struct { cp: u32, len: usize };
 
 /// The character at `i`, lowercased and without its accent where that's simple.
@@ -52,6 +78,36 @@ pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, 
         }
     }
     return out.toOwnedSlice(alloc);
+}
+
+/// Whether `query` appears anywhere in `s`, ignoring case and accents. For short
+/// texts like titles; queries past 64 characters never match.
+pub fn contains(s: []const u8, query: []const u8) bool {
+    var wanted: [64]u32 = undefined;
+    var n: usize = 0;
+    var q: usize = 0;
+    while (q < query.len) {
+        if (n == wanted.len) return false;
+        const f = foldAt(query, q);
+        wanted[n] = f.cp;
+        n += 1;
+        q += f.len;
+    }
+    if (n == 0) return true;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (matchesAt(s, i, wanted[0..n])) return true;
+        i += foldAt(s, i).len;
+    }
+    return false;
+}
+
+test "contains ignores case and accents" {
+    try std.testing.expect(contains("As intermitências da morte", "intermitencias"));
+    try std.testing.expect(contains("Project Hail Mary", "hail"));
+    try std.testing.expect(contains("anything", ""));
+    try std.testing.expect(!contains("Artemis", "weir"));
+    try std.testing.expect(!contains("ab", "abc"));
 }
 
 fn matchesAt(s: []const u8, start: usize, wanted: []const u32) bool {

@@ -1,6 +1,7 @@
 //! The library catalog: the books on this Kindle and in the cloud, how they sort,
 //! filter, and which one leads the home screen. Plain data, no drawing.
 const std = @import("std");
+const search = @import("search.zig");
 
 pub const Availability = enum { local, cloud, downloading };
 
@@ -125,11 +126,13 @@ pub fn pickHero(entries: []const Entry) ?usize {
     return best;
 }
 
-/// Fills `out` with indexes of matching entries, leaving out the hero, and returns how many.
-pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, out: []usize) usize {
+/// Fills `out` with indexes of matching entries, leaving out the hero, and returns how
+/// many. A non-empty `query` keeps only books whose title or author has it in.
+pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, query: []const u8, out: []usize) usize {
     var n: usize = 0;
     for (entries, 0..) |e, i| {
         if (i == hero) continue;
+        if (query.len > 0 and !search.contains(e.title, query) and !search.contains(e.author, query)) continue;
         const matches = switch (filter) {
             .all => true,
             .read => e.isRead(),
@@ -195,11 +198,25 @@ test "hero is the latest book in progress, and leaves the grid" {
     const hero = pickHero(&rows);
     try std.testing.expectEqual(@as(usize, 2), hero.?);
     var out: [3]usize = undefined;
-    try std.testing.expectEqual(@as(usize, 2), select(&rows, .all, hero, &out));
-    try std.testing.expectEqual(@as(usize, 1), select(&rows, .unread, hero, &out));
+    try std.testing.expectEqual(@as(usize, 2), select(&rows, .all, hero, "", &out));
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .unread, hero, "", &out));
     try std.testing.expectEqual(@as(usize, 1), out[0]);
-    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, hero, &out));
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, hero, "", &out));
     try std.testing.expectEqual(@as(usize, 0), out[0]);
+}
+
+test "search keeps books whose title or author match" {
+    const rows = [_]Entry{
+        .{ .path = "/a", .title = "Artemis", .author = "Andy Weir", .percent = 0, .last = 1 },
+        .{ .path = "/b", .title = "Skeleton Crew", .author = "King, Stephen", .percent = 0, .last = 1 },
+        .{ .path = "/c", .title = "Project Hail Mary", .author = "Andy Weir", .percent = 100, .last = 1 },
+    };
+    var out: [3]usize = undefined;
+    try std.testing.expectEqual(@as(usize, 2), select(&rows, .all, null, "weir", &out));
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .all, null, "SKELETON", &out));
+    try std.testing.expectEqual(@as(usize, 1), out[0]);
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, null, "weir", &out));
+    try std.testing.expectEqual(@as(usize, 0), select(&rows, .all, null, "tolkien", &out));
 }
 
 test "with nothing in progress the hero is the latest opened" {

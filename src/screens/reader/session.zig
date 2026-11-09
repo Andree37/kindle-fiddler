@@ -20,26 +20,7 @@ const unixTime = os.unixTime;
 const failed = os.failed;
 const app = @import("../../app.zig");
 
-/// What's typed into search.
-pub const Query = struct {
-    buf: [64]u8 = undefined,
-    len: usize = 0,
-
-    pub fn slice(q: *const Query) []const u8 {
-        return q.buf[0..q.len];
-    }
-
-    pub fn push(q: *Query, c: u8) void {
-        if (q.len < q.buf.len) {
-            q.buf[q.len] = c;
-            q.len += 1;
-        }
-    }
-
-    pub fn pop(q: *Query) void {
-        q.len -|= 1;
-    }
-};
+pub const Query = @import("../../model/search.zig").Query;
 
 pub const Session = struct {
     app: *app.App,

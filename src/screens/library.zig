@@ -18,13 +18,17 @@ const app = @import("../app.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const reader = @import("reader.zig");
+const keyboard = @import("../ui/keyboard.zig");
+const field = @import("../ui/field.zig");
+const goto = @import("../ui/goto.zig");
+const search = @import("../model/search.zig");
 
 pub const download_poll_us = 5 * 1000 * 1000;
 
 pub const download_watch_us = 3 * 60 * 1000 * 1000;
 
-pub fn loggedHit(x: i32, y: i32, index: usize, count: usize) library.Hit {
-    const h = library.hit(x, y, index, count);
+pub fn loggedHit(x: i32, y: i32, index: usize, count: usize, searching: bool) library.Hit {
+    const h = library.hit(x, y, index, count, searching);
     std.debug.print("library tap {d},{d}: {s}\n", .{ x, y, @tagName(h) });
     return h;
 }
@@ -177,6 +181,51 @@ pub fn logPage(lib: *const Library, index: usize, count: usize) void {
     }
 }
 
+/// The books to show: the filter's, without the hero, or while searching every match,
+/// the hero too.
+fn choose(lib: *Library, filter: catalog.Filter, hero: ?usize, query: []const u8) usize {
+    return catalog.select(lib.entries, filter, if (query.len > 0) null else hero, query, lib.visible);
+}
+
+/// Typing a search over the library. True to search for what's typed (nothing
+/// clears the search), false when a tap outside the keyboard and field cancels.
+fn typeSearch(a: *app.App, background: []const u8, q: *search.Query) bool {
+    const kept = q.*;
+    // Space and Search sit where a resting thumb is otherwise ignored
+    a.input.grips = false;
+    defer a.input.grips = true;
+    while (true) {
+        @memcpy(a.overlay, background);
+        const page = a.page(a.overlay);
+        field.render(a.ui, page, q.slice(), "Search titles and authors", true, "") catch {};
+        keyboard.render(a.ui, page) catch {};
+        @memcpy(a.screen.pixels, a.overlay);
+        a.showBand(goto.top, a.screen.height - goto.top) catch {};
+        const action = a.input.next();
+        switch (action) {
+            .tap => |t| {
+                if (field.inField(t.y)) continue;
+                const k = keyboard.hit(t.x, t.y) orelse {
+                    q.* = kept;
+                    return false;
+                };
+                switch (k) {
+                    .char => |c| q.push(c),
+                    .space => q.push(' '),
+                    .backspace => q.pop(),
+                    .enter => return true,
+                }
+            },
+            .lock, .power, .computer, .stop => {
+                a.input.stashed = action;
+                q.* = kept;
+                return false;
+            },
+            else => {},
+        }
+    }
+}
+
 pub fn runLibrary(a: *app.App) !void {
     var lib = try loadLibrary(a);
     defer lib.deinit();
@@ -186,6 +235,7 @@ pub fn runLibrary(a: *app.App) !void {
     if (lipc.inScreenSaver() == true) a.input.stashed = .lock;
     var filter: catalog.Filter = .all;
     var order: catalog.Order = .recent;
+    var query = search.Query{};
     var message: []const u8 = "";
     var index: usize = 0;
     const buf = a.slots[0].buf;
@@ -199,12 +249,12 @@ pub fn runLibrary(a: *app.App) !void {
         const alloc = lib.arena.allocator();
         catalog.sort(lib.entries, order);
         var hero = catalog.pickHero(lib.entries);
-        var count = catalog.select(lib.entries, filter, hero, lib.visible);
+        var count = choose(&lib, filter, hero, query.words());
         index = @min(index, library.pageCount(count) - 1);
         a.quick = lipc.read(a.quick);
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
-        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, message, &a.quick);
+        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick);
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         logPage(&lib, index, count);
@@ -215,22 +265,35 @@ pub fn runLibrary(a: *app.App) !void {
             var acting: ?*catalog.Entry = null;
             var notice: []const u8 = "";
             switch (a.input.next()) {
-                .tap => |t| switch (loggedHit(t.x, t.y, index, count)) {
+                .tap => |t| switch (loggedHit(t.x, t.y, index, count, query.words().len > 0)) {
                     .none => continue,
+                    .search => {
+                        if (!typeSearch(a, buf, &query)) {
+                            try a.present(buf, .gc16, .partial);
+                            continue;
+                        }
+                        count = choose(&lib, filter, hero, query.words());
+                        index = 0;
+                    },
+                    .clear_search => {
+                        query = .{};
+                        count = choose(&lib, filter, hero, "");
+                        index = 0;
+                    },
                     .menu => {
                         if (try panel.libraryMenu(a, buf)) return;
                         continue;
                     },
                     .tab => |f| {
                         filter = f;
-                        count = catalog.select(lib.entries, filter, hero, lib.visible);
+                        count = choose(&lib, filter, hero, query.words());
                         index = 0;
                     },
                     .sort => {
                         order = order.next();
                         catalog.sort(lib.entries, order);
                         hero = catalog.pickHero(lib.entries);
-                        count = catalog.select(lib.entries, filter, hero, lib.visible);
+                        count = choose(&lib, filter, hero, query.words());
                         index = 0;
                     },
                     .next => {
@@ -312,7 +375,7 @@ pub fn runLibrary(a: *app.App) !void {
                 }
                 continue;
             }
-            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, notice, &a.quick);
+            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick);
             try a.present(buf, .gc16, .partial);
             logPage(&lib, index, count);
         }
