@@ -23,9 +23,11 @@ pub fn clipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f3
 }
 
 /// A white box with a thin black outline.
+/// An outlined box with rounded corners, the shape every button and bubble shares.
 pub fn box(page: Page, x: u32, y: u32, w: u32, h: u32) void {
-    page.fillRect(x, y, w, h, style.black);
-    page.fillRect(x + style.border, y + style.border, w - 2 * style.border, h - 2 * style.border, style.white);
+    const corner: f32 = @floatFromInt(@min(24, h / 2));
+    page.roundRect(x, y, w, h, corner, style.black);
+    page.roundRect(x + style.border, y + style.border, w - 2 * style.border, h - 2 * style.border, corner - style.border, style.white);
 }
 
 pub const Align = enum { left, center };

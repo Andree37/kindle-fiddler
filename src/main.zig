@@ -5,7 +5,7 @@
 //! Tapping the top of a page opens the toolbar. Dragging down from the top opens
 //! the quick panel, in a book or in the library.
 //! The power button locks, showing the current book's cover. Waking returns to the
-//! same place. All Settings leaves for the stock UI.
+//! same place. The panel's Kindle button and Wi-Fi settings hand over to the stock UI.
 const std = @import("std");
 const memory = @import("base/memory.zig");
 const c_memory = @import("gfx/c_memory.zig");
@@ -38,7 +38,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var screen = try hwtcon.Screen.open();
     var fallback_body = try Font.init(alloc, regular, 46, 1.35);
     var note_font = try Font.init(alloc, regular, 36, 1.3);
-    var footer = try Font.init(alloc, regular, 28, 1.2);
+    var footer = try Font.init(alloc, ui_regular, 28, 1.2); // Under the page: interface text
+    var reference = try Font.init(alloc, regular, 28, 1.2); // Note marks in the text: the book's own face
     var title = try Font.init(alloc, ui_bold, 34, 1.2);
     var small = try Font.init(alloc, ui_regular, 34, 1.2);
     var caption = try Font.init(alloc, ui_regular, 26, 1.2);
@@ -88,7 +89,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .speed = app.loadSpeed(speed_path),
         .utc_offset = clock.utcOffset(),
         .settings = app.loadSettings(settings_path),
-        .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &footer },
+        .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &reference },
     };
     shared.applySettings() catch {
         shared.settings = .{};

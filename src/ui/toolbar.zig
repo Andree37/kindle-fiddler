@@ -89,7 +89,7 @@ pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: 
 
     const clock = quick.clockText();
     const time = clock[0 .. std.mem.indexOfScalar(u8, clock, ' ') orelse clock.len];
-    try fonts.caption.draw(page, margin, 54, time);
+    try draw.centered(fonts.caption, page, w / 2, 54, time); // Centred, as on the page and in the library
     try icons.statusCluster(page, fonts.caption, w - margin, 45, 54, quick, false);
 
     icons.back(page, margin + 18, 118);
@@ -100,7 +100,6 @@ pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: 
     icons.search(page, tools[3].x, 118);
     icons.dots(page, tools[4].x, 118);
 
-    page.fillRect(0, tool_row + 12, page.width, 1, 0xb0);
     try draw.clipped(fonts.caption, page, margin, tool_row + 54, title, w - 2 * margin);
     page.tint(margin, tool_row + 20, page.width - 2 * margin, 46, 0x50);
     page.fillRect(0, top_height - 4, page.width, 4, 0x00);
