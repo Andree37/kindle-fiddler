@@ -102,6 +102,43 @@ pub const Book = struct {
     missing_refs: u32,
 };
 
+/// Some books style every paragraph bold, so the reader's Bold switch could never
+/// make them regular. When most text paragraphs are bold, bold is that book's normal
+/// weight: show it regular. Bold words inside paragraphs stay bold.
+pub fn plainBody(paragraphs: []Paragraph) void {
+    var text: usize = 0;
+    var bold: usize = 0;
+    for (paragraphs) |p| {
+        if (p.image != null) continue;
+        text += 1;
+        if (p.look.bold) bold += 1;
+    }
+    if (bold * 2 <= text) return;
+    for (paragraphs) |*p| p.look.bold = false;
+}
+
+test "a book that is bold throughout reads as regular" {
+    var ps = [_]Paragraph{
+        .{ .text = "a", .style = 0, .look = .{ .bold = true } },
+        .{ .text = "b", .style = 0, .look = .{ .bold = true } },
+        .{ .text = "c", .style = 0 },
+    };
+    plainBody(&ps);
+    for (ps) |p| try std.testing.expect(!p.look.bold);
+}
+
+test "a few bold headings stay bold" {
+    const runs = [_]Run{.{ .start = 0, .end = 1, .bold = true, .italic = false }};
+    var ps = [_]Paragraph{
+        .{ .text = "Chapter", .style = 0, .look = .{ .bold = true } },
+        .{ .text = "b", .style = 0, .runs = &runs },
+        .{ .text = "c", .style = 0 },
+    };
+    plainBody(&ps);
+    try std.testing.expect(ps[0].look.bold);
+    try std.testing.expect(ps[1].runs[0].bold);
+}
+
 test "offsets count characters, not bytes" {
     try std.testing.expectEqual(@as(usize, 3), byteOffset("\u{e1}bc", 2));
     try std.testing.expectEqual(@as(usize, 4), byteOffset("\u{e1}bc", 99));

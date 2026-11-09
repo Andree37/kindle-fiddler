@@ -67,6 +67,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const data = try file.map(entry.path);
     defer file.unmap(data);
     const book = if (entry.isEpub()) try epub.parse(alloc, data) else try kfx.parse(alloc, data);
+    book_model.plainBody(book.paragraphs);
     const t1 = nowUs();
 
     var path_buf: [320]u8 = undefined;
