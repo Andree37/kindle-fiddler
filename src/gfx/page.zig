@@ -84,6 +84,47 @@ pub const Page = struct {
         }
     }
 
+    /// How much of the pixel at (`px`, `py`) a rectangle with rounded corners covers.
+    fn roundCoverage(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radius: f32) f32 {
+        const dx = @max(@abs(px - (x + w / 2)) - (w / 2 - radius), 0);
+        const dy = @max(@abs(py - (y + h / 2)) - (h / 2 - radius), 0);
+        if (dx == 0 and dy == 0) return 1;
+        return std.math.clamp(radius + 0.5 - @sqrt(dx * dx + dy * dy), 0, 1);
+    }
+
+    /// Fills a rectangle with rounded corners, in any gray, with smooth edges.
+    pub fn roundRect(p: Page, x: u32, y: u32, w: u32, h: u32, radius: f32, value: u8) void {
+        const v: f32 = @floatFromInt(value);
+        var row = y;
+        while (row < @min(y + h, p.height)) : (row += 1) {
+            var col = x;
+            while (col < @min(x + w, p.width)) : (col += 1) {
+                const c = roundCoverage(@as(f32, @floatFromInt(col)) + 0.5, @as(f32, @floatFromInt(row)) + 0.5, @floatFromInt(x), @floatFromInt(y), @floatFromInt(w), @floatFromInt(h), radius);
+                if (c <= 0) continue;
+                const at = row * p.stride + col;
+                const old: f32 = @floatFromInt(p.buf[at]);
+                p.buf[at] = @intFromFloat(@round(old + (v - old) * c));
+            }
+        }
+    }
+
+    /// Rounds off the corners of whatever is drawn in a rectangle, blending them into
+    /// `outside`. For shapes drawn square first, like a key inverted to white on black.
+    pub fn roundCorners(p: Page, x: u32, y: u32, w: u32, h: u32, radius: f32, outside: u8) void {
+        const v: f32 = @floatFromInt(outside);
+        var row = y;
+        while (row < @min(y + h, p.height)) : (row += 1) {
+            var col = x;
+            while (col < @min(x + w, p.width)) : (col += 1) {
+                const c = roundCoverage(@as(f32, @floatFromInt(col)) + 0.5, @as(f32, @floatFromInt(row)) + 0.5, @floatFromInt(x), @floatFromInt(y), @floatFromInt(w), @floatFromInt(h), radius);
+                if (c >= 1) continue;
+                const at = row * p.stride + col;
+                const old: f32 = @floatFromInt(p.buf[at]);
+                p.buf[at] = @intFromFloat(@round(v + (old - v) * c));
+            }
+        }
+    }
+
     /// Smooth line with round ends.
     pub fn stroke(p: Page, x0: f32, y0: f32, x1: f32, y1: f32, width: f32) void {
         const r = width / 2;
@@ -206,6 +247,18 @@ pub const Page = struct {
         }
     }
 };
+
+test "rounded rectangles fill square in the middle and leave the corners" {
+    var buf: [20 * 20]u8 = @splat(0xff);
+    const p = Page{ .buf = &buf, .width = 20, .height = 20, .stride = 20 };
+    p.roundRect(0, 0, 20, 20, 6, 0x00);
+    try std.testing.expectEqual(@as(u8, 0x00), buf[10 * 20 + 10]);
+    try std.testing.expectEqual(@as(u8, 0x00), buf[0 * 20 + 10]); // Straight edge
+    try std.testing.expectEqual(@as(u8, 0xff), buf[0]); // Corner stays out
+    p.roundCorners(0, 0, 20, 20, 6, 0x80);
+    try std.testing.expectEqual(@as(u8, 0x80), buf[0]);
+    try std.testing.expectEqual(@as(u8, 0x00), buf[10 * 20 + 10]);
+}
 
 test "pills fill their middle and blend their edge" {
     var buf: [20 * 10]u8 = @splat(0xff);

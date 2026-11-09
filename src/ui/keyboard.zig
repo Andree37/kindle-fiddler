@@ -45,29 +45,63 @@ pub fn hit(x: i32, y: i32) ?Key {
     return null;
 }
 
-fn key(fonts: Fonts, page: Page, x: i32, y: u32, w: u32, label: []const u8) !void {
-    draw.box(page, @intCast(x), y, w, key_height);
-    try draw.centered(fonts.small, page, @floatFromInt(x + @as(i32, @intCast(w / 2))), @intCast(y + 72), label);
+// The keys sit on a light gray tray, white with rounded corners and a soft shadow
+const tray = 0xe2;
+const shadow = 0xa8;
+const special = 0xc4; // Delete and space: a step darker than letters
+const corner = 14;
+// Drawn a little inside their tap area, so neighbours have a clear gap
+const inset = 3;
+
+fn keyFace(page: Page, x: i32, y: u32, w: u32, face: u8) void {
+    const left: u32 = @intCast(x + inset);
+    const width = w - 2 * inset;
+    const height = key_height - 2 * inset;
+    page.roundRect(left, y + inset + 3, width, height, corner, shadow);
+    page.roundRect(left, y + inset, width, height, corner, face);
+}
+
+fn key(fonts: Fonts, page: Page, x: i32, y: u32, w: u32, label: []const u8, face: u8) !void {
+    keyFace(page, x, y, w, face);
+    try draw.centered(fonts.small, page, @floatFromInt(x + @as(i32, @intCast(w / 2))), @intCast(y + 68), label);
+}
+
+/// Backspace: a tag pointing left with a cross in it.
+fn backspaceIcon(page: Page, cx: f32, cy: f32) void {
+    const l = cx - 30;
+    const r = cx + 26;
+    page.stroke(l, cy, l + 16, cy - 18, 3);
+    page.stroke(l, cy, l + 16, cy + 18, 3);
+    page.stroke(l + 16, cy - 18, r, cy - 18, 3);
+    page.stroke(l + 16, cy + 18, r, cy + 18, 3);
+    page.stroke(r, cy - 18, r, cy + 18, 3);
+    page.stroke(cx - 4, cy - 8, cx + 12, cy + 8, 3);
+    page.stroke(cx - 4, cy + 8, cx + 12, cy - 8, 3);
 }
 
 pub fn render(fonts: Fonts, page: Page) !void {
-    page.fillRect(0, top - 16, page.width, page.height - (top - 16), style.white);
-    page.fillRect(0, top - 16, page.width, 1, style.rule);
+    page.fillRect(0, top - 16, page.width, page.height - (top - 16), tray);
     for (rows, 0..) |r, row| {
         const y: u32 = top + @as(u32, @intCast(row)) * row_step;
         for (r, 0..) |c, col| {
             const x = rowLeft(row) + @as(i32, @intCast(col)) * (key_width + gap);
-            try key(fonts, page, x, y, key_width, &.{c});
+            try key(fonts, page, x, y, key_width, &.{c}, style.white);
         }
     }
     const last: u32 = top + 3 * row_step;
-    try key(fonts, page, backspace_x, last, 180, "Delete");
+    keyFace(page, backspace_x, last, 180, special);
+    backspaceIcon(page, backspace_x + 90, @floatFromInt(last + key_height / 2));
     const bottom: u32 = top + 4 * row_step;
-    try key(fonts, page, space_left, bottom, space_width, "space");
-    // The main key: drawn like the others, then inverted to white on black.
-    page.fillRect(enter_left, bottom, enter_width, key_height, style.white);
-    try draw.centered(fonts.title, page, @floatFromInt(enter_left + enter_width / 2), @intCast(bottom + 72), "Search");
-    page.invert(enter_left, bottom, enter_width, key_height);
+    try key(fonts, page, space_left, bottom, space_width, "space", style.white);
+    // The main key: white on black. Drawn square, inverted, then its corners rounded.
+    const left = enter_left + inset;
+    const width = enter_width - 2 * inset;
+    const height = key_height - 2 * inset;
+    page.roundRect(left, bottom + inset + 3, width, height, corner, shadow);
+    page.fillRect(left, bottom + inset, width, height, style.white);
+    try draw.centered(fonts.title, page, @floatFromInt(enter_left + enter_width / 2), @intCast(bottom + 70), "Search");
+    page.invert(left, bottom + inset, width, height);
+    page.roundCorners(left, bottom + inset, width, height, corner, tray);
 }
 
 test "keys map to letters, and the special keys answer" {
