@@ -42,12 +42,12 @@ pub fn dragScrub(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, 
             if (next == f.target.*) return null;
             f.target.* = next;
             try toolbar.drawScrub(f.a.ui, f.a.page(f.a.screen.pixels), next, f.pages, true);
-            return try f.a.screen.updateRegion(0, toolbar.scrub_top, f.a.screen.width, f.band, .a2, .partial);
+            return try f.a.screen.updateRegion(0, toolbar.scrub_top, f.a.screen.width, f.band, app.drag_waveform, .partial);
         }
     };
     var target = toolbar.pageAt(first_x, s.pages.len);
     try toolbar.drawScrub(a.ui, a.page(a.screen.pixels), target, s.pages.len, true);
-    const first = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, .a2, .partial);
+    const first = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, app.drag_waveform, .partial);
     try app.followDrag(a, first, Follow{ .a = a, .pages = s.pages.len, .band = band, .target = &target });
     s.setPage(target);
     try drawToolbar(a, s, title, sheet, true);
@@ -68,7 +68,7 @@ pub fn dragSetting(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, titl
     const started = rowSetting(a, row).*;
     a.input.beginDrag();
     try aa.drawRow(a.ui, a.page(a.screen.pixels), row, value, true);
-    const first = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, .a2, .partial);
+    const first = try a.screen.updateRegion(0, row.top, a.screen.width, aa.row_height, app.drag_waveform, .partial);
     const Follow = struct {
         a: *app.App,
         row: aa.Row,
@@ -78,7 +78,7 @@ pub fn dragSetting(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, titl
             if (next == f.value.*) return null;
             f.value.* = next;
             try aa.drawRow(f.a.ui, f.a.page(f.a.screen.pixels), f.row, next, true);
-            return try f.a.screen.updateRegion(0, f.row.top, f.a.screen.width, aa.row_height, .a2, .partial);
+            return try f.a.screen.updateRegion(0, f.row.top, f.a.screen.width, aa.row_height, app.drag_waveform, .partial);
         }
     };
     try app.followDrag(a, first, Follow{ .a = a, .row = row, .value = &value });

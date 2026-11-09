@@ -57,8 +57,7 @@ pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
             const span = menu.knobSpan(f.knob.*, knob);
             f.knob.* = knob;
             f.path.* = .{ @min(f.path[0], knob), @max(f.path[1], knob) };
-            // DU rather than A2: barely slower, and it doesn't leave the old knob and level behind
-            const marker = try f.a.screen.updateRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, .du, .partial);
+            const marker = try f.a.screen.updateRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, app.drag_waveform, .partial);
             if (level != rowValue(f.a, f.row)) setRowValue(f.a, f.row, level);
             return marker;
         }
@@ -68,10 +67,11 @@ pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
     const follow = Follow{ .a = a, .row = row, .knob = &knob, .path = &path };
     const first = try follow.moved(first_x, 0);
     try app.followDrag(a, first, follow);
-    // One quick flash over the stretch the knob crossed wipes any ghost it left there
+    // Every pixel the knob crossed goes through one more pass, without a flash, so
+    // nothing it left behind stays
     try menu.drawSlider(a.ui, a.page(a.screen.pixels), row, rowValue(a, row), false);
     const crossed = menu.knobSpan(path[0], path[1]);
-    try a.screen.waitComplete(try a.screen.updateRegion(crossed.left, menu.bandTop(row), crossed.width, menu.band_height, .gc16, .full));
+    try app.cleanRect(a, crossed.left, menu.bandTop(row), crossed.width, menu.band_height);
 }
 
 /// Runs a panel control. False means the tap wasn't on one. Each control redraws only

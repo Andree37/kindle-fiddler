@@ -27,6 +27,10 @@ const unixTime = os.unixTime;
 
 pub const page_waveform: hwtcon.Waveform = .reagl;
 
+/// Frames that follow a finger. DU is a little slower than A2 but doesn't leave a
+/// ghost of where things were.
+pub const drag_waveform: hwtcon.Waveform = .du;
+
 pub const clock_top = 16;
 
 pub const clock_height = 56;
@@ -234,9 +238,14 @@ pub fn showNotice(a: *App, message: []const u8) !void {
     os.sleepMs(notice_ms);
 }
 
-/// Clears everything the fast waveform left behind in a band.
+/// Clears everything a drag left behind in a band, without a flash: every pixel goes
+/// through one more pass, not just the ones that changed.
 pub fn cleanBand(a: *App, top: u32, height: u32) !void {
-    try a.screen.waitComplete(try a.screen.updateRegion(0, top, a.screen.width, height, .gc16, .full));
+    try cleanRect(a, 0, top, a.screen.width, height);
+}
+
+pub fn cleanRect(a: *App, left: u32, top: u32, width: u32, height: u32) !void {
+    try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, .reagl, .full));
 }
 
 /// Follows the dragged finger until it lifts. `follow.moved(x, y)` redraws for a

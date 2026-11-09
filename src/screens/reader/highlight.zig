@@ -115,7 +115,7 @@ fn paintSelection(a: *app.App, list: []const book_model.Word, first: usize, last
     const stride = a.screen.stride;
     @memcpy(a.screen.pixels[top * stride .. bottom * stride], a.lock_cover[top * stride .. bottom * stride]);
     selection.draw(a.page(a.screen.pixels), chosen);
-    _ = try a.screen.updateRegion(0, top, a.screen.width, bottom - top, .a2, .partial);
+    _ = try a.screen.updateRegion(0, top, a.screen.width, bottom - top, app.drag_waveform, .partial);
     return now;
 }
 
