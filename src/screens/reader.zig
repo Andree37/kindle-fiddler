@@ -15,6 +15,7 @@ const selection = @import("../ui/selection.zig");
 const state = @import("../linux/state.zig");
 const annotation_db = @import("../kindle/annotation_db.zig");
 const lipc = @import("../kindle/lipc.zig");
+const hyphen = @import("../layout/hyphen.zig");
 const toolbar = @import("../ui/toolbar.zig");
 const touch_zones = @import("../kindle/touch.zig");
 const input_mod = @import("../kindle/input.zig");
@@ -68,6 +69,9 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     defer file.unmap(data);
     const book = if (entry.isEpub()) try epub.parse(alloc, data) else try kfx.parse(alloc, data);
     book_model.plainBody(book.paragraphs);
+    const lang = hyphen.detect(book.paragraphs);
+    a.layout.hyphenator = a.hyphenatorFor(lang);
+    std.debug.print("language {s}\n", .{if (lang) |l| @tagName(l) else "unknown"});
     const t1 = nowUs();
 
     var path_buf: [320]u8 = undefined;

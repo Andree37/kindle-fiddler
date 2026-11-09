@@ -19,6 +19,10 @@ const code_fingerprint: u64 = blk: {
     var h = std.hash.Wyhash.init(0);
     for (.{
         @embedFile("../../layout/text.zig"),
+        @embedFile("../../layout/hyphen.zig"),
+        @embedFile("../../layout/hyphen/hyph-en-us.pat.txt"),
+        @embedFile("../../layout/hyphen/hyph-en-us.hyp.txt"),
+        @embedFile("../../layout/hyphen/hyph-pt.pat.txt"),
         @embedFile("../../gfx/font.zig"),
         @embedFile("../../kindle/kfx.zig"),
         @embedFile("../../kindle/ion.zig"),

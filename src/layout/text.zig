@@ -4,6 +4,7 @@ const Font = @import("../gfx/font.zig").Font;
 const Page = @import("../gfx/page.zig").Page;
 const book_model = @import("../model/book.zig");
 const Paragraph = @import("../model/book.zig").Paragraph;
+const hyphen = @import("hyphen.zig");
 
 /// Where a note reference landed on a page.
 pub const Hit = struct { x: i32, y: i32, w: i32, h: i32, target: u32 };
@@ -83,6 +84,7 @@ pub const Layout = struct {
     reference: ?*Font = null, // Smaller font for note references
     marks: []const book_model.Mark = &.{},
     justify: bool = true,
+    hyphenator: ?*const hyphen.Hyphenator = null, // The book's language, when known
 };
 
 const max_words = 96;
@@ -185,6 +187,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             var used: f32 = 0;
             var j = i;
             var line_ends_para = false;
+            var hyphen_end = false; // The last word is the first part of a broken word
             const avail = line_width - indent;
 
             while (n < max_words) {
@@ -204,7 +207,29 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                     break;
                 }
                 const gap: f32 = if (n == 0) 0 else space;
-                if (n > 0 and used + gap + w > avail) break;
+                if (n > 0 and used + gap + w > avail) {
+                    // Rather than leave a hole, take as much of the word as fits.
+                    const room = avail - used - gap;
+                    if (plain and room > space) {
+                        var found: [24]hyphen.Break = undefined;
+                        const breaks = hyphen.breaks(l.hyphenator, word, &found);
+                        var k = breaks.len;
+                        while (k > 0) {
+                            k -= 1;
+                            const b = breaks[k];
+                            const head_w = try wf.measure(word[0..b.at]) + if (b.hyphen) try wf.measure("-") else 0;
+                            if (head_w > room) continue;
+                            words[n] = word[0..b.at];
+                            widths[n] = head_w;
+                            fonts[n] = wf;
+                            n += 1;
+                            j += b.at;
+                            hyphen_end = b.hyphen;
+                            break;
+                        }
+                    }
+                    break;
+                }
                 words[n] = word;
                 widths[n] = w;
                 fonts[n] = wf;
@@ -238,7 +263,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 .right => @max(avail - line_used, 0),
                 else => 0,
             };
-            for (words[0..n], widths[0..n], fonts[0..n]) |word, w, wf| {
+            for (words[0..n], widths[0..n], fonts[0..n], 0..) |word, w, wf, word_index| {
                 var shrink: f32 = 0; // A small mark takes less room than was measured
                 if (maybe_page) |p| {
                     const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
@@ -278,6 +303,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                     } else {
                         try wf.draw(p, x, y, word);
                     }
+                    if (hyphen_end and word_index + 1 == n) try wf.draw(p, x + try wf.measure(word), y, "-");
                 }
                 x += w + gap - shrink;
             }

@@ -21,6 +21,7 @@ const clock = @import("linux/clock.zig");
 const jpegxr = @import("kindle/jpegxr.zig");
 const quick_model = @import("model/quick.zig");
 const text = @import("layout/text.zig");
+const hyphen = @import("layout/hyphen.zig");
 const os = @import("linux/os.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
@@ -69,6 +70,19 @@ pub const App = struct {
     utc_offset: i64,
     clock_minute: u64 = 0,
     layout: text.Layout,
+    // Made the first time a book in that language opens, then kept
+    hyphenators: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?hyphen.Hyphenator = @splat(null),
+
+    /// Hyphenation for a book's language, or null to break only at spaces and dashes.
+    pub fn hyphenatorFor(a: *App, lang: ?hyphen.Lang) ?*const hyphen.Hyphenator {
+        const l = lang orelse return null;
+        const slot = &a.hyphenators[@intFromEnum(l)];
+        if (slot.* == null) slot.* = hyphen.Hyphenator.init(a.alloc, l) catch |err| {
+            std.debug.print("hyphenation not loaded: {s}\n", .{@errorName(err)});
+            return null;
+        };
+        return &slot.*.?;
+    }
 
     /// Fonts are kept per size, so stepping through sizes doesn't reload them.
     pub fn applySettings(a: *App) !void {
