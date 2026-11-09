@@ -269,7 +269,7 @@ pub fn runLibrary(a: *app.App) !void {
         a.quick = lipc.read(a.quick);
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
-        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick);
+        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, os.unixTime());
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         logPage(&lib, index, count);
@@ -402,7 +402,7 @@ pub fn runLibrary(a: *app.App) !void {
                 }
                 continue;
             }
-            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick);
+            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick, os.unixTime());
             try a.present(buf, .gc16, .partial);
             logPage(&lib, index, count);
         }

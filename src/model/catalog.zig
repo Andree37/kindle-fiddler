@@ -48,6 +48,30 @@ pub const Entry = struct {
 
 pub const Filter = enum { all, unread, read };
 
+/// How long ago `then` was, in the words people use: "today", "3 days ago". Both are
+/// Unix seconds; a `then` in the future counts as today.
+pub fn ago(buf: []u8, then: u64, now: u64) []const u8 {
+    const days = (now -| then) / 86400;
+    if (days == 0) return "today";
+    if (days == 1) return "yesterday";
+    if (days < 14) return std.fmt.bufPrint(buf, "{d} days ago", .{days}) catch "";
+    if (days < 60) return std.fmt.bufPrint(buf, "{d} weeks ago", .{days / 7}) catch "";
+    if (days < 730) return std.fmt.bufPrint(buf, "{d} months ago", .{days / 30}) catch "";
+    return std.fmt.bufPrint(buf, "{d} years ago", .{days / 365}) catch "";
+}
+
+test "time since reads like speech" {
+    var buf: [24]u8 = undefined;
+    const now: u64 = 1_800_000_000;
+    try std.testing.expectEqualStrings("today", ago(&buf, now - 3600, now));
+    try std.testing.expectEqualStrings("today", ago(&buf, now + 50, now));
+    try std.testing.expectEqualStrings("yesterday", ago(&buf, now - 86400 - 10, now));
+    try std.testing.expectEqualStrings("5 days ago", ago(&buf, now - 5 * 86400, now));
+    try std.testing.expectEqualStrings("3 weeks ago", ago(&buf, now - 21 * 86400, now));
+    try std.testing.expectEqualStrings("4 months ago", ago(&buf, now - 125 * 86400, now));
+    try std.testing.expectEqualStrings("2 years ago", ago(&buf, now - 800 * 86400, now));
+}
+
 const finished_percent = 99;
 
 const untouched_percent = 1; // Stock gives new books 1% without them being opened

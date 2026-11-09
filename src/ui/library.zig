@@ -10,6 +10,7 @@ const icons = @import("icons.zig");
 const quick_model = @import("../model/quick.zig");
 const text = @import("../layout/text.zig");
 const catalog = @import("../model/catalog.zig");
+const stats = @import("../model/stats.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const margin = style.margin;
@@ -224,7 +225,7 @@ fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Ent
     }
 }
 
-fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry) !void {
+fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, now: u64) !void {
     if (!e.hero_tried) {
         e.hero_tried = true;
         if (e.thumbnail.len > 0) e.hero = cover.load(alloc, e.thumbnail, cover.hero_width, cover.hero_height);
@@ -246,6 +247,20 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
     const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
     try draw.clipped(fonts.small, page, left, author_y, e.author, avail);
     page.tint(left_px, @intCast(author_y - 30), @intFromFloat(avail), 44, 0x50);
+    // Under the author: when it was last read, and for how long here, so the card says
+    // more than the cover does
+    const line_y = author_y + 56;
+    if (e.last > 0 and line_y < hero_top + cover.hero_height - 40 - 22) { // Clear of the bar
+        var when_buf: [24]u8 = undefined;
+        var time_buf: [32]u8 = undefined;
+        var line_buf: [96]u8 = undefined;
+        const when = catalog.ago(&when_buf, e.last, now);
+        const line = if (e.seconds_read >= 60)
+            std.fmt.bufPrint(&line_buf, "Last read {s}  \u{b7}  read for {s}", .{ when, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch ""
+        else
+            std.fmt.bufPrint(&line_buf, "Last read {s}", .{when}) catch "";
+        try draw.clipped(fonts.caption, page, left, line_y, line, avail);
+    }
 
     const bar_y = hero_top + cover.hero_height - 40;
     progressBar(page, left_px, bar_y, @intFromFloat(avail), e.percent, 12);
@@ -335,7 +350,7 @@ fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
     try footer.render(fonts, page, index, pages);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, query: []const u8, message: []const u8, quick: *const quick_model.Quick) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, query: []const u8, message: []const u8, quick: *const quick_model.Quick, now: u64) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 
@@ -343,7 +358,7 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []cat
     if (with_hero) {
         if (query.len > 0) {
             try drawSearchHeader(fonts, page, query, visible.len);
-        } else if (hero) |h| try drawHero(alloc, fonts, page, &entries[h]);
+        } else if (hero) |h| try drawHero(alloc, fonts, page, &entries[h], now);
     }
     try drawTabs(fonts, page, tabsTop(with_hero), filter, order, query.len > 0);
 
