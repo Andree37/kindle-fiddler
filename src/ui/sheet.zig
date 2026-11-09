@@ -19,9 +19,9 @@ pub fn rows(list: []const Option, out: []card.Row) []card.Row {
 /// The line under the title: the author and time read, or what removal means.
 pub fn subtitle(buf: []u8, e: *const catalog.Entry, confirming: bool) []const u8 {
     if (confirming) return "It stays in your Amazon library.";
-    if (e.seconds_read < 60) return e.author;
     var time_buf: [32]u8 = undefined;
-    return std.fmt.bufPrint(buf, "{s}  \u{b7}  read for {s}", .{ e.author, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch e.author;
+    const time = stats.readingTime(&time_buf, e.seconds_read) orelse return e.author;
+    return std.fmt.bufPrint(buf, "{s}  \u{b7}  read here for {s}", .{ e.author, time }) catch e.author;
 }
 
 pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Option {

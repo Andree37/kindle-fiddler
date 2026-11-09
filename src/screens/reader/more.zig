@@ -70,7 +70,7 @@ fn details(a: *app.App, s: *sess.Session, entry: *const catalog.Entry, backgroun
     const highlights = countIds(s);
     const rows = [_]card.Row{
         .{ .quiet = true, .label = std.fmt.bufPrint(&progress_buf, "Page {d} of {d}, {d}%", .{ s.current + 1, s.pages.len, percent }) catch "" },
-        .{ .quiet = true, .label = if (s.secondsRead() >= 60) std.fmt.bufPrint(&read_buf, "Read for {s}", .{stats.formatMinutes(&t1, s.secondsRead() / 60)}) catch "" else "Not read here yet" },
+        .{ .quiet = true, .label = if (stats.readingTime(&t1, s.secondsRead())) |time| std.fmt.bufPrint(&read_buf, "Read here for {s}", .{time}) catch "" else "Not read here yet" },
         .{ .quiet = true, .label = if (s.timeLeft(s.current).book) |m| std.fmt.bufPrint(&left_buf, "{s} left in the book", .{stats.formatMinutes(&t2, m)}) catch "" else "Learning your reading speed" },
         .{ .quiet = true, .label = std.fmt.bufPrint(&counts_buf, "{d} chapters, {d} highlights, {d} bookmarks", .{ s.chapters.len, highlights, s.bookmarks.items.len }) catch "" },
     };

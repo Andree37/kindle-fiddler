@@ -30,6 +30,12 @@ pub const Entry = struct {
         return e.finished or e.percent >= finished_percent;
     }
 
+    /// Opened for reading at some point, here or in the stock reader: past the 1% stock
+    /// gives a new book, or read in noface. Only then is its last-opened date a reading.
+    pub fn wasOpened(e: Entry) bool {
+        return e.seconds_read > 0 or e.percent > untouched_percent;
+    }
+
     /// Started but not finished, which is what the hero leads with.
     pub fn inProgress(e: Entry) bool {
         return !e.isRead() and e.percent > untouched_percent;
@@ -48,29 +54,6 @@ pub const Entry = struct {
 
 pub const Filter = enum { all, unread, read };
 
-/// How long ago `then` was, in the words people use: "today", "3 days ago". Both are
-/// Unix seconds; a `then` in the future counts as today.
-pub fn ago(buf: []u8, then: u64, now: u64) []const u8 {
-    const days = (now -| then) / 86400;
-    if (days == 0) return "today";
-    if (days == 1) return "yesterday";
-    if (days < 14) return std.fmt.bufPrint(buf, "{d} days ago", .{days}) catch "";
-    if (days < 60) return std.fmt.bufPrint(buf, "{d} weeks ago", .{days / 7}) catch "";
-    if (days < 730) return std.fmt.bufPrint(buf, "{d} months ago", .{days / 30}) catch "";
-    return std.fmt.bufPrint(buf, "{d} years ago", .{days / 365}) catch "";
-}
-
-test "time since reads like speech" {
-    var buf: [24]u8 = undefined;
-    const now: u64 = 1_800_000_000;
-    try std.testing.expectEqualStrings("today", ago(&buf, now - 3600, now));
-    try std.testing.expectEqualStrings("today", ago(&buf, now + 50, now));
-    try std.testing.expectEqualStrings("yesterday", ago(&buf, now - 86400 - 10, now));
-    try std.testing.expectEqualStrings("5 days ago", ago(&buf, now - 5 * 86400, now));
-    try std.testing.expectEqualStrings("3 weeks ago", ago(&buf, now - 21 * 86400, now));
-    try std.testing.expectEqualStrings("4 months ago", ago(&buf, now - 125 * 86400, now));
-    try std.testing.expectEqualStrings("2 years ago", ago(&buf, now - 800 * 86400, now));
-}
 
 const finished_percent = 99;
 
@@ -264,6 +247,13 @@ test "cloud books sort after local ones" {
     try std.testing.expectEqualStrings("Zed", rows[0].title);
     sort(&rows, .title);
     try std.testing.expectEqualStrings("Zed", rows[0].title);
+}
+
+test "a book counts as opened once read past stock's 1% or read in noface" {
+    const fresh = Entry{ .path = "/a", .title = "New", .author = "", .percent = 1, .last = 9 };
+    try std.testing.expect(!fresh.wasOpened());
+    try std.testing.expect((Entry{ .path = "/b", .title = "B", .author = "", .percent = 1, .last = 9, .seconds_read = 30 }).wasOpened());
+    try std.testing.expect((Entry{ .path = "/c", .title = "C", .author = "", .percent = 5, .last = 9 }).wasOpened());
 }
 
 test "a new book at one percent is not in progress" {

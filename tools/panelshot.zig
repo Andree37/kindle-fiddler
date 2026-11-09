@@ -86,7 +86,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const lead = catalog.pickHero(entries);
         const count = catalog.select(entries, filter, lead, "", visible);
         const index: usize = if (argv.len > 2) try std.fmt.parseInt(usize, std.mem.sliceTo(argv[2], 0), 10) else 0;
-        try library.render(alloc, fonts, page, entries, lead, visible[0..count], index, filter, .recent, "", "", &quick, 1_800_000_000);
+        try library.render(alloc, fonts, page, entries, lead, visible[0..count], index, filter, .recent, "", "", &quick, .{ .unix = core.os.unixTime(), .utc_offset = core.clock.utcOffset() });
         writeImage(buf, w, h);
         return;
     }
@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const lead = catalog.pickHero(entries);
         const visible = try alloc.alloc(usize, entries.len);
         const count = catalog.select(entries, .all, lead, "", visible);
-        try library.render(alloc, fonts, page, entries, lead, visible[0..count], 0, .all, .recent, "", "", &quick, 1_800_000_000);
+        try library.render(alloc, fonts, page, entries, lead, visible[0..count], 0, .all, .recent, "", "", &quick, .{ .unix = core.os.unixTime(), .utc_offset = core.clock.utcOffset() });
         var list: [3]sheet.Option = undefined;
         const confirming = argv.len > 2;
         const opts = sheet.options(&entries[visible[0]], confirming, &list);

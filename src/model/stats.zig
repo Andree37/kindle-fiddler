@@ -103,6 +103,81 @@ pub fn formatMinutes(buf: []u8, minutes: u64) []const u8 {
     return std.fmt.bufPrint(buf, "{d} h {d} min", .{ h, m }) catch "";
 }
 
+/// How long a book has been read, for a line about it: "3 h 12 min", or null under a
+/// minute, when there's nothing worth saying. Callers add their own words around it.
+pub fn readingTime(buf: []u8, seconds: u64) ?[]const u8 {
+    if (seconds < 60) return null;
+    return formatMinutes(buf, seconds / 60);
+}
+
+/// Timestamps before this (2001) can't be a real reading: a clock reset to 1970, or
+/// a placeholder like 1.
+const earliest_plausible = 1_000_000_000;
+
+const Unit = struct { days: i64, name: []const u8, most: i64 };
+// Largest first. A unit is used from two of it up, so no "1 weeks"; months stop at
+// 23 so they never read as "24 months" before turning into "2 years".
+const units = [_]Unit{
+    .{ .days = 365, .name = "years", .most = std.math.maxInt(i64) },
+    .{ .days = 30, .name = "months", .most = 23 },
+    .{ .days = 7, .name = "weeks", .most = std.math.maxInt(i64) },
+    .{ .days = 1, .name = "days", .most = std.math.maxInt(i64) },
+};
+
+/// When `then` was, in words: "today", "yesterday", "3 days ago". Days are calendar
+/// days in local time (`utc_offset` seconds east of UTC), so last night is
+/// "yesterday" by morning. Null for a time that can't be right: before 2001, or more
+/// than a day ahead of `now`, as after the clock is set back.
+pub fn ago(buf: []u8, then: u64, now: u64, utc_offset: i64) ?[]const u8 {
+    if (then < earliest_plausible or then > now + 86400) return null;
+    const day_then = @divFloor(@as(i64, @intCast(then)) + utc_offset, 86400);
+    const day_now = @divFloor(@as(i64, @intCast(now)) + utc_offset, 86400);
+    const days = @max(day_now - day_then, 0);
+    if (days == 0) return "today";
+    if (days == 1) return "yesterday";
+    for (units) |u| {
+        if (days >= 2 * u.days) return std.fmt.bufPrint(buf, "{d} {s} ago", .{ @min(@divFloor(days, u.days), u.most), u.name }) catch null;
+    }
+    unreachable; // days >= 2 always meets the last unit
+}
+
+test "time since counts calendar days in local time" {
+    var buf: [24]u8 = undefined;
+    const midnight: u64 = 1_800_000_000 - (1_800_000_000 % 86400); // A UTC midnight
+    // Read at 23:30, looked at 07:00 next day: yesterday, though under 24 hours
+    try std.testing.expectEqualStrings("yesterday", ago(&buf, midnight - 1800, midnight + 7 * 3600, 0).?);
+    try std.testing.expectEqualStrings("today", ago(&buf, midnight + 3600, midnight + 20 * 3600, 0).?);
+    // An hour east of UTC moves midnight: 23:30 UTC is already the next day there
+    try std.testing.expectEqualStrings("today", ago(&buf, midnight - 1800, midnight + 7 * 3600, 3600).?);
+    try std.testing.expectEqualStrings("today", ago(&buf, midnight + 50, midnight, 0).?); // Slight skew
+}
+
+test "time since steps through units at their edges" {
+    var buf: [24]u8 = undefined;
+    const now: u64 = 1_800_000_000 - (1_800_000_000 % 86400) + 43200; // Midday
+    const day: u64 = 86400;
+    const cases = [_]struct { days: u64, want: []const u8 }{
+        .{ .days = 1, .want = "yesterday" },     .{ .days = 2, .want = "2 days ago" },
+        .{ .days = 13, .want = "13 days ago" },  .{ .days = 14, .want = "2 weeks ago" },
+        .{ .days = 59, .want = "8 weeks ago" },  .{ .days = 60, .want = "2 months ago" },
+        .{ .days = 700, .want = "23 months ago" }, .{ .days = 729, .want = "23 months ago" },
+        .{ .days = 730, .want = "2 years ago" },
+    };
+    for (cases) |c| try std.testing.expectEqualStrings(c.want, ago(&buf, now - c.days * day, now, 0).?);
+}
+
+test "impossible times say nothing" {
+    var buf: [24]u8 = undefined;
+    try std.testing.expect(ago(&buf, 1, 1_800_000_000, 0) == null);
+    try std.testing.expect(ago(&buf, 1_800_000_000 + 3 * 86400, 1_800_000_000, 0) == null);
+}
+
+test "reading time is only worth saying past a minute" {
+    var buf: [24]u8 = undefined;
+    try std.testing.expect(readingTime(&buf, 59) == null);
+    try std.testing.expectEqualStrings("3 h 12 min", readingTime(&buf, 3 * 3600 + 12 * 60).?);
+}
+
 const format_tag = "speed";
 
 /// The saved speed. It sits on the USB drive, so anything that couldn't come from

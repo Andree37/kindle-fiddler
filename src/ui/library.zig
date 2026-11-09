@@ -49,6 +49,9 @@ const icon_inset = 46; // From a button's rounded end to its icon's centre
 const footer = draw.bottom_pager;
 const sort_left = 860;
 
+/// The moment a frame is drawn for, read once so every part of it agrees.
+pub const Moment = struct { unix: u64, utc_offset: i64 };
+
 pub const Hit = union(enum) { none, hero, hero_dots, book: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
 
 // The round search button, a clear gap right of the filter button
@@ -225,7 +228,7 @@ fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Ent
     }
 }
 
-fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, now: u64) !void {
+fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, now: Moment) !void {
     if (!e.hero_tried) {
         e.hero_tried = true;
         if (e.thumbnail.len > 0) e.hero = cover.load(alloc, e.thumbnail, cover.hero_width, cover.hero_height);
@@ -247,22 +250,25 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
     const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
     try draw.clipped(fonts.small, page, left, author_y, e.author, avail);
     page.tint(left_px, @intCast(author_y - 30), @intFromFloat(avail), 44, 0x50);
-    // Under the author: when it was last read, and for how long here, so the card says
-    // more than the cover does
-    const line_y = author_y + 56;
-    if (e.last > 0 and line_y < hero_top + cover.hero_height - 40 - 22) { // Clear of the bar
+    const bar_y = hero_top + cover.hero_height - 40;
+    // Under the author (or the title, when there's no author): when it was last read,
+    // and how long in noface, so the card says more than the cover does. Only for a
+    // book really opened, as stock also dates downloads, and only clear of the bar.
+    const line_y = if (e.author.len > 0) author_y + 56 else author_y;
+    if (e.wasOpened() and line_y < bar_y - 22) {
         var when_buf: [24]u8 = undefined;
         var time_buf: [32]u8 = undefined;
         var line_buf: [96]u8 = undefined;
-        const when = catalog.ago(&when_buf, e.last, now);
-        const line = if (e.seconds_read >= 60)
-            std.fmt.bufPrint(&line_buf, "Last read {s}  \u{b7}  read for {s}", .{ when, stats.formatMinutes(&time_buf, e.seconds_read / 60) }) catch ""
-        else
-            std.fmt.bufPrint(&line_buf, "Last read {s}", .{when}) catch "";
-        try draw.clipped(fonts.caption, page, left, line_y, line, avail);
+        if (stats.ago(&when_buf, e.last, now.unix, now.utc_offset)) |when| {
+            const line = if (stats.readingTime(&time_buf, e.seconds_read)) |time|
+                std.fmt.bufPrint(&line_buf, "Last read {s}  \u{b7}  read here for {s}", .{ when, time }) catch ""
+            else
+                std.fmt.bufPrint(&line_buf, "Last read {s}", .{when}) catch "";
+            try draw.clipped(fonts.caption, page, left, line_y, line, avail);
+            page.tint(left_px, @intCast(line_y - 26), @intFromFloat(avail), 34, 0x50); // Gray, like the author
+        }
     }
 
-    const bar_y = hero_top + cover.hero_height - 40;
     progressBar(page, left_px, bar_y, @intFromFloat(avail), e.percent, 12);
     var label: [24]u8 = undefined;
     const pct = std.fmt.bufPrint(&label, "{d}% read", .{e.percent}) catch "";
@@ -355,7 +361,7 @@ fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
     try footer.render(fonts, page, index, pages);
 }
 
-pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, query: []const u8, message: []const u8, quick: *const quick_model.Quick, now: u64) !void {
+pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []catalog.Entry, hero: ?usize, visible: []const usize, index: usize, filter: catalog.Filter, order: catalog.Order, query: []const u8, message: []const u8, quick: *const quick_model.Quick, now: Moment) !void {
     @memset(page.buf, 0xff);
     try drawStatus(fonts, page, quick);
 

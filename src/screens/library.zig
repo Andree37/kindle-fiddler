@@ -235,6 +235,10 @@ fn typeSearch(a: *app.App, lib: *const Library, q: *search.Query) SearchEnd {
     }
 }
 
+fn moment(a: *const app.App) library.Moment {
+    return .{ .unix = os.unixTime(), .utc_offset = a.utc_offset };
+}
+
 pub fn runLibrary(a: *app.App) !void {
     var lib = try loadLibrary(a);
     defer lib.deinit();
@@ -269,7 +273,7 @@ pub fn runLibrary(a: *app.App) !void {
         a.quick = lipc.read(a.quick);
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
-        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, os.unixTime());
+        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try a.present(buf, .gc16, .full);
         logPage(&lib, index, count);
@@ -369,7 +373,8 @@ pub fn runLibrary(a: *app.App) !void {
                 .drag, .drag_end, .unlock => continue,
                 .lock => {
                     try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null);
-                    continue;
+                    // Redrawn on waking, where only what changed (the clock, "Last read")
+                    // repaints: these may be days old. No continue: on to the redraw below.
                 },
                 .pull => {
                     if (try panel.libraryMenu(a, buf)) return;
@@ -402,7 +407,7 @@ pub fn runLibrary(a: *app.App) !void {
                 }
                 continue;
             }
-            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick, os.unixTime());
+            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick, moment(a));
             try a.present(buf, .gc16, .partial);
             logPage(&lib, index, count);
         }
