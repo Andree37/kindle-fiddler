@@ -232,6 +232,18 @@ pub fn cloud(page: Page, cx: f32, cy: f32) void {
     page.fillRect(@intCast(x - 11), @intCast(y + 3), 22, 9, 0xff);
 }
 
+/// Highlight: a marker pen at a slant over the gray stroke it leaves.
+pub fn highlighter(page: Page, cx: f32, cy: f32) void {
+    page.pill(cx - 16, cx + 16, cy + 16, 6, 0xb0); // The stroke
+    // The pen: a slanted body with a chisel tip touching the stroke
+    const body = [_][2]f32{
+        .{ cx - 8, cy + 6 }, .{ cx + 10, cy - 14 }, .{ cx + 18, cy - 7 }, .{ cx, cy + 13 },
+    };
+    page.fillPoly(&body);
+    const tip = [_][2]f32{ .{ cx - 8, cy + 6 }, .{ cx, cy + 13 }, .{ cx - 11, cy + 14 } };
+    page.fillPoly(&tip);
+}
+
 /// Filter: a funnel.
 pub fn funnel(page: Page, cx: f32, cy: f32) void {
     const pts = [_][2]f32{

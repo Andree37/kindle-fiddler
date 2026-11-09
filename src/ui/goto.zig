@@ -69,7 +69,7 @@ fn drawMark(page: Page, mark: Mark, x: f32, y: u32) void {
     switch (mark) {
         .none => {},
         .bookmark => icons.bookmarkFilled(page, x + 17, cy),
-        .highlight => page.fillRect(@intFromFloat(x), y + 30, 34, 40, 0xc8),
+        .highlight => icons.highlighter(page, x + 17, cy),
     }
 }
 
