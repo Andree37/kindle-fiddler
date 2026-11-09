@@ -33,61 +33,73 @@ pub fn setRowValue(a: *app.App, row: menu.Row, level: u32) void {
     }
 }
 
-/// Follows a finger along a panel slider until it lifts.
-pub fn dragRow(a: *app.App, background: []const u8, row: menu.Row) !void {
+/// Shows a slider row at rest. One non-flashing pass that also clears what the fast
+/// waveform left behind while dragging.
+fn showRow(a: *app.App, row: menu.Row, level: u32) !void {
+    try menu.drawSlider(a.ui, a.page(a.screen.pixels), row, level, false);
+    try a.screen.waitComplete(try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .reagl, .full));
+}
+
+/// Follows a finger along a panel slider from where it landed until it lifts.
+/// The knob slides under the finger; the light changes a step at a time, after each
+/// frame is on its way, so the lipc call never holds the knob back.
+pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
     a.input.beginDrag();
     const Follow = struct {
         a: *app.App,
         row: menu.Row,
+        knob: *u32,
         pub fn moved(f: @This(), x: i32, _: i32) !?u32 {
+            const knob = menu.knobUnder(x);
+            if (knob == f.knob.*) return null;
             const level = menu.levelAt(f.row, x);
-            if (level == rowValue(f.a, f.row)) return null;
-            setRowValue(f.a, f.row, level);
-            try menu.drawSlider(f.a.ui, f.a.page(f.a.screen.pixels), f.row, level, true);
-            return try f.a.screen.updateRegion(0, menu.bandTop(f.row), f.a.screen.width, menu.band_height, .a2, .partial);
+            try menu.drawSliderAt(f.a.ui, f.a.page(f.a.screen.pixels), f.row, level, knob, true);
+            const span = menu.knobSpan(f.knob.*, knob);
+            f.knob.* = knob;
+            const marker = try f.a.screen.updateRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, .a2, .partial);
+            if (level != rowValue(f.a, f.row)) setRowValue(f.a, f.row, level);
+            return marker;
         }
     };
-    try app.followDrag(a, null, Follow{ .a = a, .row = row });
-    try drawMenu(a, background);
-    try app.cleanBand(a, menu.bandTop(row), menu.band_height);
+    var knob = menu.knobAt(row, rowValue(a, row));
+    const follow = Follow{ .a = a, .row = row, .knob = &knob };
+    const first = try follow.moved(first_x, 0);
+    try app.followDrag(a, first, follow);
+    try showRow(a, row, rowValue(a, row));
 }
 
-/// Runs a panel control. False means the tap wasn't on one.
+/// Runs a panel control. False means the tap wasn't on one. Each control redraws only
+/// its own part of the panel, before telling the Kindle, so the tap answers at once.
 pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i32) !bool {
-    if (!applyQuick(a, choice, x)) return false;
     switch (choice) {
-        .slider => try dragRow(a, background, menu.brightness_row),
-        .warmth => try dragRow(a, background, menu.warmth_row),
-        else => try drawMenu(a, background),
-    }
-    return true;
-}
-
-/// Applies a light, warmth, airplane or Bluetooth change. False means the tap wasn't one of those.
-pub fn applyQuick(a: *app.App, change: menu.Hit, x: i32) bool {
-    switch (change) {
-        .dimmer, .brighter => {
-            a.quick.brightness = quick_model.stepBrightness(a.quick.brightness, change == .brighter);
-            lipc.setBrightness(a.quick.brightness);
+        .slider => try dragRow(a, menu.brightness_row, x),
+        .warmth => try dragRow(a, menu.warmth_row, x),
+        .dimmer, .brighter, .cooler, .warmer => {
+            const row = if (choice == .dimmer or choice == .brighter) menu.brightness_row else menu.warmth_row;
+            const level = quick_model.stepBrightness(rowValue(a, row), choice == .brighter or choice == .warmer);
+            try showRow(a, row, level);
+            setRowValue(a, row, level);
         },
-        .slider => setRowValue(a, menu.brightness_row, menu.levelAt(menu.brightness_row, x)),
-        .cooler, .warmer => setRowValue(a, menu.warmth_row, quick_model.stepBrightness(a.quick.warmth, change == .warmer)),
-        .warmth => setRowValue(a, menu.warmth_row, menu.levelAt(menu.warmth_row, x)),
-        .sync => {
-            a.quick.syncing = true;
-            lipc.syncNow();
+        .airplane, .bluetooth, .sync => {
+            switch (choice) {
+                .airplane => a.quick.airplane = !a.quick.airplane,
+                .bluetooth => a.quick.bluetooth = !a.quick.bluetooth,
+                else => a.quick.syncing = true,
+            }
+            const box = menu.shortcutBox(choice).?;
+            try menu.drawShortcut(a.ui, a.page(a.screen.pixels), choice, &a.quick);
+            const marker = try a.screen.updateRegion(box.left, box.top, box.width, box.height, app.page_waveform, .partial);
+            switch (choice) {
+                .airplane => lipc.setAirplane(a.quick.airplane),
+                .bluetooth => lipc.setBluetooth(a.quick.bluetooth),
+                else => lipc.syncNow(),
+            }
+            try a.screen.waitComplete(marker);
         },
         .schedule => {
             a.quick.schedule = !a.quick.schedule;
+            try drawMenu(a, background);
             lipc.setSchedule(a.quick.schedule);
-        },
-        .airplane => {
-            a.quick.airplane = !a.quick.airplane;
-            lipc.setAirplane(a.quick.airplane);
-        },
-        .bluetooth => {
-            a.quick.bluetooth = !a.quick.bluetooth;
-            lipc.setBluetooth(a.quick.bluetooth);
         },
         else => return false,
     }

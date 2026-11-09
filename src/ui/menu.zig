@@ -70,12 +70,35 @@ pub fn bandTop(row: Row) u32 {
 
 pub const band_height = band_above + band_below;
 
-/// One slider row, redrawn alone while dragging. `mono` is pure black and white
-/// for the fast waveform, which breaks up gray.
+/// One slider row at rest, with the knob on its step.
 pub fn drawSlider(fonts: Fonts, page: Page, row: Row, value: u32, mono: bool) !void {
+    try drawSliderAt(fonts, page, row, value, slider.knobAt(rowSlider(row), value, row.max), mono);
+}
+
+/// Where the knob sits for `value`.
+pub fn knobAt(row: Row, value: u32) u32 {
+    return slider.knobAt(rowSlider(row), value, row.max);
+}
+
+/// Knob position under a finger at `x`, kept on the bar. While dragging, the knob
+/// follows the finger rather than jumping from step to step.
+pub fn knobUnder(x: i32) u32 {
+    return @intCast(std.math.clamp(x, slider_left, slider_right));
+}
+
+/// The columns a slider frame changes when its knob moves from `from` to `to`:
+/// the knob, its level above it, and the bar between them.
+pub fn knobSpan(from: u32, to: u32) struct { left: u32, width: u32 } {
+    const reach = 60; // Half the widest level text, and more than the knob
+    const left = @min(from, to) -| reach;
+    return .{ .left = left, .width = @max(from, to) + reach - left };
+}
+
+/// One slider row with the knob at `knob`. `mono` is pure black and white for the
+/// fast waveform used while dragging, which breaks up gray.
+pub fn drawSliderAt(fonts: Fonts, page: Page, row: Row, value: u32, knob: u32, mono: bool) !void {
     page.fillRect(0, bandTop(row), page.width, band_height, 0xff);
     const bar = rowSlider(row);
-    const knob = slider.knobAt(bar, value, row.max);
     var level: [8]u8 = undefined;
     try draw.centered(fonts.small, page, @floatFromInt(@as(i32, @intCast(knob))), @intCast(row.y - 40), std.fmt.bufPrint(&level, "{d}", .{value}) catch "");
     const y: f32 = @floatFromInt(row.y);
@@ -84,6 +107,28 @@ pub fn drawSlider(fonts: Fonts, page: Page, row: Row, value: u32, mono: bool) !v
     page.stroke(1180, y - 20, 1180, y + 20, 4);
     slider.draw(page, bar, knob);
     if (mono) page.threshold(bandTop(row), band_height);
+}
+
+/// Where a toggle and its label sit, to redraw it alone.
+pub const Box = struct { left: u32, top: u32, width: u32, height: u32 };
+
+pub fn shortcutBox(choice: Hit) ?Box {
+    for (shortcuts) |s| {
+        if (s.hit != choice) continue;
+        return .{ .left = @intCast(s.x - 130), .top = @intCast(s.y - icon_radius - 8), .width = 260, .height = icon_radius + 8 + 130 };
+    }
+    return null;
+}
+
+/// Redraws one toggle and its label, after a tap changed it.
+pub fn drawShortcut(fonts: Fonts, page: Page, choice: Hit, quick: *const quick_model.Quick) !void {
+    const box = shortcutBox(choice) orelse return;
+    page.fillRect(box.left, box.top, box.width, box.height, 0xff);
+    for (shortcuts) |s| {
+        if (s.hit != choice) continue;
+        drawIcon(page, s, quick);
+        try draw.centered(fonts.small, page, @floatFromInt(s.x), s.y + 92, label(s, quick));
+    }
 }
 
 fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
@@ -164,6 +209,27 @@ test "panel maps taps like the stock layout" {
     try std.testing.expectEqual(Hit.schedule, hit(1000, 775));
     try std.testing.expectEqual(Hit.close, hit(636, 930));
     try std.testing.expectEqual(Hit.close, hit(600, 1100));
+}
+
+test "knob follows the finger but stays on the bar" {
+    try std.testing.expectEqual(@as(u32, 160), knobUnder(20));
+    try std.testing.expectEqual(@as(u32, 500), knobUnder(500));
+    try std.testing.expectEqual(@as(u32, 1110), knobUnder(1250));
+}
+
+test "a knob move redraws only around old and new knob" {
+    const span = knobSpan(700, 400);
+    try std.testing.expectEqual(@as(u32, 340), span.left);
+    try std.testing.expectEqual(@as(u32, 420), span.width);
+    try std.testing.expectEqual(@as(u32, 0), knobSpan(20, 30).left);
+}
+
+test "toggle boxes stay apart and on screen" {
+    const a = shortcutBox(.airplane).?;
+    const b = shortcutBox(.bluetooth).?;
+    try std.testing.expect(a.left + a.width <= shortcutBox(.settings).?.left);
+    try std.testing.expect(b.left + b.width <= 1272);
+    try std.testing.expect(shortcutBox(.close) == null);
 }
 
 test "sliders map position to level" {
