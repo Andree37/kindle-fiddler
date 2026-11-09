@@ -131,10 +131,7 @@ pub fn drawShortcut(fonts: Fonts, page: Page, choice: Hit, quick: *const quick_m
     }
 }
 
-fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
-    const x: f32 = @floatFromInt(s.x);
-    const y: f32 = @floatFromInt(s.y);
-    icons.ring(page, x, y, icon_radius);
+fn drawGlyph(page: Page, s: Shortcut, quick: *const quick_model.Quick, x: f32, y: f32) void {
     switch (s.icon) {
         .airplane => icons.airplane(page, x, y),
         .wifi => icons.wifi(page, x, y - 4, 0.8, if (quick.wifi_on) quick.wifi_bars else 0),
@@ -142,7 +139,32 @@ fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
         .sync => icons.sync(page, x, y),
         .kindle => icons.smile(page, x, y),
     }
-    if (isOn(s, quick)) page.invertDisc(s.x, s.y, icon_radius - 1);
+}
+
+const tile = 2 * icon_radius + 8;
+
+/// Off: a ring with the icon in black. On: a smooth black disc with the icon in white.
+fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
+    const x: f32 = @floatFromInt(s.x);
+    const y: f32 = @floatFromInt(s.y);
+    if (!isOn(s, quick)) {
+        icons.ring(page, x, y, icon_radius);
+        drawGlyph(page, s, quick, x, y);
+        return;
+    }
+    page.pill(x, x, y, icon_radius + 1.5, 0x00);
+    // The icon drawn black on a white tile of its own, then laid on the disc in white
+    var buf: [tile * tile]u8 = @splat(0xff);
+    const t = Page{ .buf = &buf, .width = tile, .height = tile, .stride = tile };
+    drawGlyph(t, s, quick, tile / 2, tile / 2);
+    const left: u32 = @intCast(s.x - tile / 2);
+    const top: u32 = @intCast(s.y - tile / 2);
+    for (0..tile) |row| {
+        for (0..tile) |col| {
+            const at = (top + row) * page.stride + left + col;
+            page.buf[at] = @max(page.buf[at], 0xff - buf[row * tile + col]);
+        }
+    }
 }
 
 /// Toggles fill when on, like the stock panel.
