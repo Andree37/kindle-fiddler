@@ -238,14 +238,14 @@ pub fn showNotice(a: *App, message: []const u8) !void {
     os.sleepMs(notice_ms);
 }
 
-/// Clears everything a drag left behind in a band, without a flash: every pixel goes
-/// through one more pass, not just the ones that changed.
+/// Settles a band after a drag: its smooth edges come back, without a flash. Full mode
+/// would drive every pixel, but on this panel full mode always flashes.
 pub fn cleanBand(a: *App, top: u32, height: u32) !void {
     try cleanRect(a, 0, top, a.screen.width, height);
 }
 
 pub fn cleanRect(a: *App, left: u32, top: u32, width: u32, height: u32) !void {
-    try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, .reagl, .full));
+    try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, .reagl, .partial));
 }
 
 /// Follows the dragged finger until it lifts. `follow.moved(x, y)` redraws for a

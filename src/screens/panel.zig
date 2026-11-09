@@ -67,8 +67,7 @@ pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
     const follow = Follow{ .a = a, .row = row, .knob = &knob, .path = &path };
     const first = try follow.moved(first_x, 0);
     try app.followDrag(a, first, follow);
-    // Every pixel the knob crossed goes through one more pass, without a flash, so
-    // nothing it left behind stays
+    // Settles the stretch the knob crossed back to smooth edges
     try menu.drawSlider(a.ui, a.page(a.screen.pixels), row, rowValue(a, row), false);
     const crossed = menu.knobSpan(path[0], path[1]);
     try app.cleanRect(a, crossed.left, menu.bandTop(row), crossed.width, menu.band_height);
