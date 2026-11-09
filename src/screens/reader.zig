@@ -25,6 +25,7 @@ const goto = @import("reader/goto.zig");
 const local_notes = @import("reader/local_notes.zig");
 const more = @import("reader/more.zig");
 const page_store = @import("reader/page_store.zig");
+const paginate = @import("reader/paginate.zig");
 const search = @import("reader/search.zig");
 const bookmark = @import("reader/bookmark.zig");
 const bookmarks = @import("../model/bookmarks.zig");
@@ -73,8 +74,8 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     var pages_buf: [320]u8 = undefined;
     const pages_path = try alloc.dupeSentinel(u8, try page_store.pathFor(&pages_buf, state_path), 0);
     const pages_key = page_store.key(a, data.len);
-    const stored_pages = page_store.load(alloc, pages_path, pages_key);
-    const pages = stored_pages orelse try sess.paginate(a, alloc, book.paragraphs);
+    const stored_pages = page_store.load(alloc, pages_path, pages_key, book.paragraphs.len);
+    const pages = stored_pages orelse try paginate.book(a, alloc, book.paragraphs);
     if (pages.len == 0) return error.EmptyBook;
     if (stored_pages == null) page_store.save(alloc, pages_path, pages_key, pages);
     std.debug.print("open {s}: {d} pages, parsed in {d} ms, {s} in {d} ms\n", .{

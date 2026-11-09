@@ -1,77 +1,90 @@
 //! Reading statistics: how fast this reader reads, and so how long is left.
-//! Modelled on the Kindle's own reading timer: one words-per-minute sample per page
-//! read forward, kept as a running mean and spread, with improbable pages left out.
+//! Like the Kindle's own reading timer, speed is words per minute learned from page
+//! turns, and pages that don't look like reading are left out. Unlike it, speed is
+//! total words over total time (an average of per-page speeds reads fast whenever page
+//! times vary), and older pages fade, so a slower or harder book is followed.
 const std = @import("std");
 
 pub const max_page_seconds = 300; // Longer than this, the reader stepped away: not reading
+const min_page_seconds = 3; // Quicker than this is flicking past
+const min_wpm = 40; // Same bounds as the Kindle's
+const max_wpm = 900;
+const min_page_words = 20; // Fewer words (a title page) says little about speed
+const learn_pages = 5; // Before estimates are shown: this many pages...
+const learn_seconds = 120; // ...and this much reading
+const fade = 0.98; // Weight left on older pages after each new one: about 35 pages to halve
+const fluke_ratio = 3.0; // A page this many times faster or slower than usual is a fluke...
+const flukes_to_believe = 5; // ...unless it keeps happening: then the reader changed
 
-const min_wpm = 40; // Slower: the reader looked away. Same bounds as the Kindle's.
-const max_wpm = 900; // Faster: flicking past
-const skim_wpm = 500; // Reading and skimming fall either side of this
-const min_page_words = 20; // Fewer words (a title page, a picture) says little about speed
-const pages_to_learn = 5; // Samples before estimates are shown
-const pages_for_outliers = 10; // Samples before a page can be judged improbable
+/// Decayed sums can't grow past this many seconds of reading.
+const max_seconds: f64 = @as(f64, max_page_seconds) / (1 - fade);
 
-/// This reader's speed in words per minute, over every book.
+/// This reader's speed, over every book.
 pub const Speed = struct {
     pages: u32 = 0, // Pages counted
-    mean: f64 = 0, // Words per minute
-    m2: f64 = 0, // Sum of squared differences from the mean (Welford)
+    words: f64 = 0, // Words read, older pages fading
+    seconds: f64 = 0, // Time spent reading them, fading alike
+    flukes_in_row: u8 = 0, // Not saved
+
+    pub fn wpm(s: Speed) f64 {
+        return if (s.seconds > 0) s.words * 60 / s.seconds else 0;
+    }
 
     /// Counts one page read forward, unless it doesn't look like reading.
     pub fn record(s: *Speed, words: u64, us: u64) void {
-        if (words < min_page_words or us == 0) return;
-        const wpm = @as(f64, @floatFromInt(words)) * 60e6 / @as(f64, @floatFromInt(us));
-        if (wpm < min_wpm or wpm > max_wpm) return;
-        if (s.known() and (s.mean <= skim_wpm) != (wpm <= skim_wpm)) return; // Skimming, or a slow patch
-        if (s.pages >= pages_for_outliers and s.improbable(wpm)) return;
-        s.pages += 1;
-        const delta = wpm - s.mean;
-        s.mean += delta / @as(f64, @floatFromInt(s.pages));
-        s.m2 += delta * (wpm - s.mean);
+        const seconds = @as(f64, @floatFromInt(us)) / 1e6;
+        if (words < min_page_words or seconds < min_page_seconds or seconds > max_page_seconds) return;
+        const page_wpm = @as(f64, @floatFromInt(words)) * 60 / seconds;
+        if (page_wpm < min_wpm or page_wpm > max_wpm) return;
+        if (s.known()) {
+            const ratio = page_wpm / s.wpm();
+            if (ratio > fluke_ratio or ratio < 1.0 / fluke_ratio) {
+                s.flukes_in_row += 1;
+                if (s.flukes_in_row < flukes_to_believe) return;
+            }
+        }
+        s.flukes_in_row = 0;
+        s.words = s.words * fade + @as(f64, @floatFromInt(words));
+        s.seconds = s.seconds * fade + seconds;
+        s.pages +|= 1;
     }
 
-    /// Enough pages to give honest estimates.
+    /// Enough reading to give honest estimates.
     pub fn known(s: Speed) bool {
-        return s.pages >= pages_to_learn and s.mean > 0;
-    }
-
-    fn spread(s: Speed) f64 {
-        if (s.pages < 2) return 0;
-        return @sqrt(s.m2 / @as(f64, @floatFromInt(s.pages - 1)));
-    }
-
-    /// Chauvenet's criterion, as the Kindle uses: a page so far from the usual speed
-    /// that fewer than half a page in all of them would be expected to read like it.
-    fn improbable(s: Speed, wpm: f64) bool {
-        const sd = s.spread();
-        if (sd == 0) return false;
-        const z = @abs(wpm - s.mean) / sd;
-        return erfc(z / std.math.sqrt2) * @as(f64, @floatFromInt(s.pages)) < 0.5;
+        return s.pages >= learn_pages and s.seconds >= learn_seconds;
     }
 
     /// Minutes to read `words` more, rounded up. Null while still learning.
     pub fn minutesFor(s: Speed, words: u64) ?u64 {
         if (!s.known()) return null;
-        return @intFromFloat(@ceil(@as(f64, @floatFromInt(words)) / s.mean));
+        // Less a hair, so 1000 words at 250 a minute is 4 minutes, not 5 by rounding error.
+        const minutes = @ceil(@as(f64, @floatFromInt(words)) / s.wpm() - 1e-9);
+        return @intFromFloat(@min(minutes, 1e9));
     }
 };
 
-/// Complementary error function, Abramowitz and Stegun 7.1.26 (error below 1.5e-7).
-fn erfc(x: f64) f64 {
-    const t = 1 / (1 + 0.3275911 * x);
-    const poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
-    return poly * @exp(-x * x);
-}
-
-/// Words in some text: runs of anything but spaces.
+/// Words in some text: runs of anything but spaces, tabs and newlines. Whole books
+/// are counted when opened, so this goes 32 bytes at a time.
 pub fn countWords(text: []const u8) u64 {
+    const lanes = 32;
+    const Bytes = @Vector(lanes, u8);
     var n: u64 = 0;
-    var in_word = false;
-    for (text) |c| {
+    var prev_space = true;
+    var i: usize = 0;
+    while (i + lanes <= text.len) : (i += lanes) {
+        const chunk: Bytes = text[i..][0..lanes].*;
+        const sp: u32 = @as(u32, @bitCast(chunk == @as(Bytes, @splat(' ')))) |
+            @as(u32, @bitCast(chunk == @as(Bytes, @splat('\n')))) |
+            @as(u32, @bitCast(chunk == @as(Bytes, @splat('\t'))));
+        // A word starts on a non-space whose previous byte is a space.
+        const prev: u32 = (sp << 1) | @intFromBool(prev_space);
+        n += @popCount(~sp & prev);
+        prev_space = sp >> (lanes - 1) == 1;
+    }
+    for (text[i..]) |c| {
         const space = c == ' ' or c == '\n' or c == '\t';
-        if (!space and !in_word) n += 1;
-        in_word = !space;
+        if (!space and prev_space) n += 1;
+        prev_space = space;
     }
     return n;
 }
@@ -90,33 +103,40 @@ pub fn formatMinutes(buf: []u8, minutes: u64) []const u8 {
     return std.fmt.bufPrint(buf, "{d} h {d} min", .{ h, m }) catch "";
 }
 
-const format_tag = "wpm";
+const format_tag = "speed";
 
+/// The saved speed. It sits on the USB drive, so anything that couldn't come from
+/// record() means start over; it must never stop the reader.
 pub fn parse(content: []const u8) Speed {
     var it = std.mem.tokenizeAny(u8, content, " \n");
-    // Older files counted bytes and seconds; that speed starts over.
-    if (!std.mem.eql(u8, it.next() orelse return .{}, format_tag)) return .{};
+    if (!std.mem.eql(u8, it.next() orelse return .{}, format_tag)) return .{}; // Older files start over
     const pages = std.fmt.parseInt(u32, it.next() orelse return .{}, 10) catch return .{};
-    const mean = std.fmt.parseFloat(f64, it.next() orelse return .{}) catch return .{};
-    const m2 = std.fmt.parseFloat(f64, it.next() orelse return .{}) catch return .{};
-    if (!(mean >= 0 and mean <= max_wpm and m2 >= 0)) return .{};
-    return .{ .pages = pages, .mean = mean, .m2 = m2 };
+    const words = std.fmt.parseFloat(f64, it.next() orelse return .{}) catch return .{};
+    const seconds = std.fmt.parseFloat(f64, it.next() orelse return .{}) catch return .{};
+    if (!(seconds >= 0 and seconds <= max_seconds + 1 and words >= 0)) return .{}; // Also false for NaN
+    if (seconds > 0) {
+        const w = words * 60 / seconds;
+        if (!(w >= min_wpm * 0.99 and w <= max_wpm * 1.01)) return .{};
+    } else if (words != 0) return .{};
+    return .{ .pages = pages, .words = words, .seconds = seconds };
 }
 
 pub fn format(buf: []u8, s: Speed) []const u8 {
-    return std.fmt.bufPrint(buf, "{s} {d} {d:.3} {d:.3}\n", .{ format_tag, s.pages, s.mean, s.m2 }) catch "";
+    return std.fmt.bufPrint(buf, "{s} {d} {d:.2} {d:.2}\n", .{ format_tag, s.pages, s.words, s.seconds }) catch "";
 }
 
-fn page(s: *Speed, words: u64, seconds: u64) void {
-    s.record(words, seconds * 1_000_000);
+fn page(s: *Speed, words: u64, seconds: f64) void {
+    s.record(words, @intFromFloat(seconds * 1e6));
 }
 
-test "speed learns from real reading only" {
+fn learned(wpm: u64) Speed {
     var s = Speed{};
-    page(&s, 250, 1); // A flick: 15000 wpm
-    page(&s, 250, 600); // Looked away: 25 wpm
-    page(&s, 5, 10); // A title page
-    try std.testing.expectEqual(@as(u32, 0), s.pages);
+    for (0..10) |_| page(&s, wpm, 60);
+    return s;
+}
+
+test "speed is learned from a few minutes of real reading" {
+    var s = Speed{};
     for (0..4) |_| page(&s, 250, 60);
     try std.testing.expect(!s.known());
     try std.testing.expect(s.minutesFor(1000) == null);
@@ -127,21 +147,89 @@ test "speed learns from real reading only" {
     try std.testing.expectEqual(@as(u64, 5), s.minutesFor(1001).?);
 }
 
-test "skimming and odd pages don't move the speed" {
+test "five quick pages aren't enough to learn from" {
     var s = Speed{};
-    for (0..20) |i| page(&s, 250 + i % 3 * 10, 60); // 250 to 270 wpm
-    const before = s.mean;
-    page(&s, 700, 60); // Skimming
-    page(&s, 250, 30); // 500 wpm: improbable for this reader
-    try std.testing.expectEqual(before, s.mean);
-    page(&s, 265, 60); // Ordinary page still counts
-    try std.testing.expectEqual(@as(u32, 21), s.pages);
+    for (0..5) |_| page(&s, 60, 5); // 720 wpm, 25 s in all
+    try std.testing.expect(!s.known());
+}
+
+test "each filter alone keeps a page out" {
+    const cases = [_]struct { words: u64, seconds: f64 }{
+        .{ .words = 10, .seconds = 2 }, // Too few words (300 wpm otherwise)
+        .{ .words = 30, .seconds = 2.5 }, // Too quick (720 wpm otherwise)
+        .{ .words = 2000, .seconds = 301 }, // Stepped away (399 wpm otherwise)
+        .{ .words = 1000, .seconds = 60 }, // Faster than anyone reads
+        .{ .words = 30, .seconds = 60 }, // Slower than reading
+    };
+    for (cases) |c| {
+        var s = Speed{};
+        page(&s, c.words, c.seconds);
+        try std.testing.expectEqual(@as(u32, 0), s.pages);
+    }
+}
+
+test "a page far from the usual speed is a fluke" {
+    var s = learned(250);
+    const before = s;
+    page(&s, 900, 60); // 3.6 times faster
+    page(&s, 40, 60); // 6 times slower
+    try std.testing.expectEqual(before.words, s.words);
+    page(&s, 600, 60); // 2.4 times: a lighter book, counted
+    try std.testing.expectEqual(before.pages + 1, s.pages);
+}
+
+test "flukes that keep coming mean the reader changed" {
+    var s = learned(250);
+    for (0..flukes_to_believe) |_| page(&s, 800, 60);
+    try std.testing.expect(s.wpm() > 250);
+}
+
+test "a slower book is followed, not ignored" {
+    var s = learned(300);
+    for (0..100) |_| page(&s, 150, 60);
+    try std.testing.expectApproxEqAbs(@as(f64, 150), s.wpm(), 10);
+}
+
+test "uneven pages don't make the estimate short" {
+    var s = Speed{};
+    for (0..20) |i| page(&s, 250, if (i % 2 == 0) 30 else 90);
+    // 250 words a minute over the time actually spent: 240 minutes, give or take the
+    // fading (an average of page speeds would say 180).
+    const minutes = s.minutesFor(60000).?;
+    try std.testing.expect(minutes >= 238 and minutes <= 246);
 }
 
 test "words are runs of non-spaces" {
     try std.testing.expectEqual(@as(u64, 0), countWords("  "));
     try std.testing.expectEqual(@as(u64, 4), countWords("Café — done, really"));
     try std.testing.expectEqual(@as(u64, 2), countWords(" two\nwords "));
+}
+
+test "counting 32 bytes at a time matches counting one by one" {
+    var prng = std.Random.DefaultPrng.init(7);
+    const r = prng.random();
+    var buf: [300]u8 = undefined;
+    for (0..200) |_| {
+        const len = r.uintLessThan(usize, buf.len);
+        for (buf[0..len]) |*c| c.* = switch (r.uintLessThan(u8, 5)) {
+            0 => ' ',
+            1 => '\n',
+            else => 'a' + r.uintLessThan(u8, 3),
+        };
+        var slow: u64 = 0;
+        var prev_space = true;
+        for (buf[0..len]) |c| {
+            const space = c == ' ' or c == '\n' or c == '\t';
+            if (!space and prev_space) slow += 1;
+            prev_space = space;
+        }
+        try std.testing.expectEqual(slow, countWords(buf[0..len]));
+    }
+}
+
+test "time on a page left open isn't counted" {
+    try std.testing.expectEqual(@as(u64, 0), countedSeconds(9999));
+    try std.testing.expectEqual(@as(u64, 40), countedSeconds(40));
 }
 
 test "durations read naturally" {
@@ -153,12 +241,30 @@ test "durations read naturally" {
 }
 
 test "speed survives a save" {
-    var buf: [64]u8 = undefined;
-    var s = Speed{};
-    for (0..6) |i| page(&s, 240 + i, 60);
+    var buf: [80]u8 = undefined;
+    const s = learned(260);
     const back = parse(format(&buf, s));
     try std.testing.expectEqual(s.pages, back.pages);
-    try std.testing.expectApproxEqAbs(s.mean, back.mean, 0.001);
-    try std.testing.expectEqual(Speed{}, parse("garbage"));
-    try std.testing.expectEqual(Speed{}, parse("13203 57\n")); // The old byte-based file
+    try std.testing.expectApproxEqAbs(s.words, back.words, 0.01);
+    try std.testing.expectApproxEqAbs(s.seconds, back.seconds, 0.01);
+}
+
+test "a damaged speed file starts over instead of stopping the reader" {
+    const bad = [_][]const u8{
+        "garbage",
+        "13203 57\n", // The first, byte-based file
+        "wpm 5 250 0\n", // The short-lived per-page average
+        "speed 5 1e-300 0\n",
+        "speed 5 100 1e-300\n", // Absurdly fast
+        "speed 7 1e50 1e50\n",
+        "speed 5 nan 600\n",
+        "speed 5 10 600\n", // 1 wpm
+        "speed 4294967296 2500 600\n",
+    };
+    for (bad) |content| try std.testing.expectEqual(Speed{}, parse(content));
+    // The largest real file still fits the save buffer.
+    var buf: [80]u8 = undefined;
+    const most = Speed{ .pages = std.math.maxInt(u32), .words = max_seconds * max_wpm / 60, .seconds = max_seconds };
+    try std.testing.expect(format(&buf, most).len > 0);
+    try std.testing.expectEqual(most.pages, parse(format(&buf, most)).pages);
 }

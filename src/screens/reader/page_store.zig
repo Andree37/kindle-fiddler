@@ -25,8 +25,10 @@ const code_fingerprint: u64 = blk: {
         @embedFile("../../model/book.zig"),
         @embedFile("../../model/notes.zig"),
         @embedFile("../../model/settings.zig"),
+        @embedFile("../../epub/epub.zig"),
+        @embedFile("../../epub/xml.zig"),
         @embedFile("../../app.zig"),
-        @embedFile("session.zig"),
+        @embedFile("paginate.zig"),
     }) |source| h.update(source);
     break :blk h.final();
 };
@@ -53,10 +55,10 @@ pub fn pathFor(buf: []u8, state_path: []const u8) ![:0]u8 {
 const header_len = magic.len + 8 + 4;
 
 /// The saved breaks, or null when there are none for this key.
-pub fn load(alloc: std.mem.Allocator, path: [*:0]const u8, want: u64) ?[]const book_model.Pos {
+pub fn load(alloc: std.mem.Allocator, path: [*:0]const u8, want: u64, paragraphs: usize) ?[]const book_model.Pos {
     const data = file.map(path) catch return null;
     defer file.unmap(data);
-    return decode(alloc, data, want);
+    return decode(alloc, data, want, paragraphs);
 }
 
 pub fn save(alloc: std.mem.Allocator, path: [*:0]const u8, k: u64, pages: []const book_model.Pos) void {
@@ -78,8 +80,9 @@ pub fn encode(alloc: std.mem.Allocator, k: u64, pages: []const book_model.Pos) !
     return out;
 }
 
-/// Reads saved breaks. The file comes from disk, so anything off means "not saved".
-pub fn decode(alloc: std.mem.Allocator, data: []const u8, want: u64) ?[]const book_model.Pos {
+/// Reads saved breaks. The file comes from disk, so anything off means "not saved",
+/// including a break past the book's last paragraph.
+pub fn decode(alloc: std.mem.Allocator, data: []const u8, want: u64, paragraphs: usize) ?[]const book_model.Pos {
     if (data.len < header_len or !std.mem.eql(u8, data[0..magic.len], magic)) return null;
     if (std.mem.readInt(u64, data[4..12], .little) != want) return null;
     const count = std.mem.readInt(u32, data[12..16], .little);
@@ -88,6 +91,10 @@ pub fn decode(alloc: std.mem.Allocator, data: []const u8, want: u64) ?[]const bo
     for (pages, 0..) |*p, i| {
         const at = header_len + i * 8;
         p.* = .{ .para = std.mem.readInt(u32, data[at..][0..4], .little), .byte = std.mem.readInt(u32, data[at + 4 ..][0..4], .little) };
+        if (p.para >= paragraphs) {
+            alloc.free(pages);
+            return null;
+        }
         // Breaks only move forward; anything else is a damaged file.
         if (i > 0) {
             const prev = pages[i - 1];
@@ -105,11 +112,12 @@ test "saved breaks come back only for the same key" {
     const pages = [_]book_model.Pos{ .{}, .{ .para = 3, .byte = 40 }, .{ .para = 9, .byte = 0 } };
     const bytes = try encode(alloc, 42, &pages);
     defer alloc.free(bytes);
-    const back = decode(alloc, bytes, 42).?;
+    const back = decode(alloc, bytes, 42, 10).?;
     defer alloc.free(back);
     try std.testing.expectEqualSlices(book_model.Pos, &pages, back);
-    try std.testing.expect(decode(alloc, bytes, 43) == null);
-    try std.testing.expect(decode(alloc, bytes[0 .. bytes.len - 1], 42) == null);
+    try std.testing.expect(decode(alloc, bytes, 43, 10) == null);
+    try std.testing.expect(decode(alloc, bytes, 42, 9) == null); // The book has fewer paragraphs now
+    try std.testing.expect(decode(alloc, bytes[0 .. bytes.len - 1], 42, 10) == null);
 }
 
 test "damaged files read as not saved" {
@@ -117,8 +125,8 @@ test "damaged files read as not saved" {
     const backwards = [_]book_model.Pos{ .{ .para = 5 }, .{ .para = 2 } };
     const bytes = try encode(alloc, 7, &backwards);
     defer alloc.free(bytes);
-    try std.testing.expect(decode(alloc, bytes, 7) == null);
-    try std.testing.expect(decode(alloc, "NFPGjunk", 7) == null);
+    try std.testing.expect(decode(alloc, bytes, 7, 10) == null);
+    try std.testing.expect(decode(alloc, "NFPGjunk", 7, 10) == null);
 }
 
 test "pages files sit beside state files" {

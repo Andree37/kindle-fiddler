@@ -1,6 +1,7 @@
 //! An open book: its pages, where the reader is, and its highlights.
 const std = @import("std");
 const page_store = @import("page_store.zig");
+const paginate = @import("paginate.zig");
 const check = @import("../../base/check.zig");
 const Page = @import("../../gfx/page.zig").Page;
 const book_model = @import("../../model/book.zig");
@@ -59,7 +60,8 @@ pub const Session = struct {
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const book_model.Chapter = &.{},
     words_before: []const u64 = &.{}, // Words before each paragraph, for time left
-    shown_us: u64 = 0, // When the reader started on this page; 0 while not reading
+    shown_us: u64 = 0, // When the clock last started on this page; 0 while paused
+    page_us: u64 = 0, // Time on the current page before that
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
 
     /// Words from the start of the book to a position.
@@ -91,13 +93,24 @@ pub const Session = struct {
         };
     }
 
-    /// Counts the time on the page being left. Reading one page forward also teaches
-    /// the reading speed.
-    fn leavePage(s: *Session, to: usize) void {
+    /// Adds the time since the clock last started to the current page's reading time.
+    fn tick(s: *Session) void {
         if (s.shown_us == 0) return;
-        const us = nowUs() -| s.shown_us;
+        const now = nowUs();
+        s.page_us += now -| s.shown_us;
+        s.shown_us = now;
+    }
+
+    /// The page being left: its time goes to the book, and a page read forward teaches
+    /// the reading speed. Time on it adds up across footnotes, menus and sleep, so a
+    /// page read in two sittings counts as one page read in the time of both.
+    fn leavePage(s: *Session, to: usize) void {
+        s.tick();
+        const us = s.page_us;
+        s.page_us = 0;
         s.seconds_read += stats.countedSeconds(us / 1_000_000);
-        if (to != s.current + 1) return;
+        if (to != s.current + 1 or us == 0) return;
+        if (s.pageHasPicture(s.current)) return; // Time on a picture isn't reading speed
         const speed = &s.app.speed;
         const was_known = speed.known();
         speed.record(s.wordsOnPage(s.current), us);
@@ -105,9 +118,24 @@ pub const Session = struct {
         if (!was_known and speed.known()) s.app.forgetPages();
     }
 
+    fn pageHasPicture(s: *const Session, index: usize) bool {
+        const first = s.pages[index].para;
+        const last = if (s.pageEnd(index)) |e| e.para else s.paragraphs.len - 1;
+        for (s.paragraphs[first .. @min(last, s.paragraphs.len - 1) + 1]) |p| {
+            if (p.image != null) return true;
+        }
+        return false;
+    }
+
+    /// Reading time so far, with the page in front of the reader.
+    pub fn secondsRead(s: *Session) u64 {
+        s.tick();
+        return s.seconds_read + stats.countedSeconds(s.page_us / 1_000_000);
+    }
+
     /// Stops the reading clock while something covers the page, or the Kindle sleeps.
     pub fn pauseClock(s: *Session) void {
-        s.leavePage(s.current);
+        s.tick();
         s.shown_us = 0;
     }
 
@@ -213,30 +241,16 @@ pub const Session = struct {
 };
 
 pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) void {
-    s.pauseClock(); // Counts the page being read; the reader's loop starts it again
+    s.pauseClock(); // The reader's loop starts it again
+    const seconds = s.secondsRead();
     const pos = s.pages[s.current];
     const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();
-    state.save(path, .{ .para = book_model.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = s.seconds_read });
+    state.save(path, .{ .para = book_model.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = seconds });
     app.saveSpeed(s.app);
     entry.percent = percent;
     entry.last = now;
-    entry.seconds_read = s.seconds_read;
-}
-
-/// Lays out the whole book so going backwards is exact.
-pub fn paginate(a: *app.App, alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph) ![]const book_model.Pos {
-    const geometry = a.page(&.{});
-    var pages: std.ArrayList(book_model.Pos) = .empty;
-    var pos = book_model.Pos{};
-    while (pos.para < paragraphs.len) {
-        try pages.append(alloc, pos);
-        const next = try text.layoutPage(a.body, null, geometry, paragraphs, pos, a.layout, null);
-        // A page that fits nothing would repeat forever; layout always places something.
-        check.thatf(next.para > pos.para or (next.para == pos.para and next.byte > pos.byte), "page at {d}:{d} moves forward", .{ pos.para, pos.byte });
-        pos = next;
-    }
-    return pages.items;
+    entry.seconds_read = seconds;
 }
 
 pub fn pageContaining(pages: []const book_model.Pos, para: usize, byte: usize) usize {
@@ -258,8 +272,8 @@ pub fn relayout(a: *app.App, alloc: std.mem.Allocator, s: *Session) !void {
     a.forgetPages();
     const t0 = nowUs();
     const pages_key = page_store.key(a, s.book_bytes);
-    const stored = page_store.load(alloc, s.pages_path, pages_key);
-    s.pages = stored orelse try paginate(a, alloc, s.paragraphs);
+    const stored = page_store.load(alloc, s.pages_path, pages_key, s.paragraphs.len);
+    s.pages = stored orelse try paginate.book(a, alloc, s.paragraphs);
     if (stored == null) page_store.save(alloc, s.pages_path, pages_key, s.pages);
     std.debug.print("relayout {s} in {d} ms\n", .{ if (stored != null) "from saved pages" else "laid out", (nowUs() - t0) / 1000 });
     s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
