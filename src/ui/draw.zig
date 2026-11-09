@@ -45,6 +45,7 @@ pub fn choice(fonts: Fonts, page: Page, x: f32, align_to: Align, y: i32, label: 
 pub const Pager = struct {
     top: u32,
     bottom: u32,
+    reach: u32 = 0, // Taps count down to here, when that's past `bottom`
 
     const button = 200;
     const prev_left = 340;
@@ -53,7 +54,7 @@ pub const Pager = struct {
     pub const Hit = enum { prev, next };
 
     pub fn hit(p: Pager, x: i32, y: i32) ?Hit {
-        if (y < p.top or y >= p.bottom) return null;
+        if (y < p.top or y >= @max(p.bottom, p.reach)) return null;
         if (x >= prev_left and x < prev_left + button) return .prev;
         if (x >= next_left and x < next_left + button) return .next;
         return null;
@@ -76,6 +77,15 @@ pub const Pager = struct {
         if (index + 1 >= pages) page.tint(next_left, p.top, button, p.bottom - p.top, 0xc8);
     }
 };
+
+/// Where every list's pager sits: near the bottom, taking taps right to the edge,
+/// so a thumb reaching low still turns the page.
+pub const bottom_pager = Pager{ .top = 1530, .bottom = 1650, .reach = style.screen_height };
+
+test "the shared pager takes taps to the bottom edge" {
+    try std.testing.expectEqual(Pager.Hit.next, bottom_pager.hit(800, 1690).?);
+    try std.testing.expect(bottom_pager.hit(800, 1500) == null);
+}
 
 test "pager arrows sit either side of the count" {
     const p = Pager{ .top = 100, .bottom = 200 };

@@ -17,7 +17,11 @@ pub const rows = 11;
 const indent = 48; // Per level of nesting
 const mark_width = 56; // Room for a bookmark or highlight sign before the text
 const page_label_width = 140;
-const pager = draw.Pager{ .top = list_top + rows * row_height + 20, .bottom = list_top + rows * row_height + 140 };
+const pager = draw.bottom_pager;
+
+comptime {
+    if (list_top + rows * row_height > pager.top) @compileError("the list runs into the pager");
+}
 
 pub const Tab = enum { contents, notes };
 

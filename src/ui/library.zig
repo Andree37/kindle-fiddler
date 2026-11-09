@@ -45,7 +45,7 @@ const button_top = 0;
 const button_height = tabs_height;
 const icon_inset = 46; // From a button's rounded end to its icon's centre
 
-const footer = draw.Pager{ .top = 1530, .bottom = 1650 }; // Near the bottom edge, clear of the grid
+const footer = draw.bottom_pager;
 const sort_left = 860;
 
 pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
