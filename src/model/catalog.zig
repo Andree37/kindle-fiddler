@@ -127,7 +127,8 @@ pub fn pickHero(entries: []const Entry) ?usize {
 }
 
 /// Fills `out` with indexes of matching entries, leaving out the hero, and returns how
-/// many. A non-empty `query` keeps only books whose title or author has it in.
+/// many, stopping when `out` is full. A non-empty `query` keeps only books whose title
+/// or author has it in.
 pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, query: []const u8, out: []usize) usize {
     var n: usize = 0;
     for (entries, 0..) |e, i| {
@@ -139,6 +140,7 @@ pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, query: []con
             .unread => !e.isRead(),
         };
         if (matches) {
+            if (n == out.len) break;
             out[n] = i;
             n += 1;
         }
@@ -217,6 +219,8 @@ test "search keeps books whose title or author match" {
     try std.testing.expectEqual(@as(usize, 1), out[0]);
     try std.testing.expectEqual(@as(usize, 1), select(&rows, .read, null, "weir", &out));
     try std.testing.expectEqual(@as(usize, 0), select(&rows, .all, null, "tolkien", &out));
+    var one: [1]usize = undefined;
+    try std.testing.expectEqual(@as(usize, 1), select(&rows, .all, null, "weir", &one));
 }
 
 test "with nothing in progress the hero is the latest opened" {

@@ -19,8 +19,7 @@ const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const reader = @import("reader.zig");
 const keyboard = @import("../ui/keyboard.zig");
-const field = @import("../ui/field.zig");
-const goto = @import("../ui/goto.zig");
+const search_sheet = @import("../ui/search_sheet.zig");
 const search = @import("../model/search.zig");
 
 pub const download_poll_us = 5 * 1000 * 1000;
@@ -187,36 +186,49 @@ fn choose(lib: *Library, filter: catalog.Filter, hero: ?usize, query: []const u8
     return catalog.select(lib.entries, filter, if (query.len > 0) null else hero, query, lib.visible);
 }
 
-/// Typing a search over the library. True to search for what's typed (nothing
-/// clears the search), false when a tap outside the keyboard and field cancels.
-fn typeSearch(a: *app.App, background: []const u8, q: *search.Query) bool {
+const SearchEnd = union(enum) { cancel, search, open: usize };
+
+/// The search sheet, with books matching what's typed listed as it changes. Ends by
+/// cancelling (what was searched before stays), searching for what's typed (nothing
+/// clears the search), or opening a book from the list, by its entry index.
+fn typeSearch(a: *app.App, lib: *const Library, q: *search.Query) SearchEnd {
     const kept = q.*;
+    var matches: [search_sheet.max_rows + 1]usize = undefined;
+    var first = true;
     while (true) {
-        @memcpy(a.overlay, background);
-        const page = a.page(a.overlay);
-        field.render(a.ui, page, q.slice(), "Search titles and authors", true, "") catch {};
-        keyboard.render(a.ui, page) catch {};
-        @memcpy(a.screen.pixels, a.overlay);
-        a.showBand(goto.top, a.screen.height - goto.top) catch {};
+        const found = catalog.select(lib.entries, .all, null, q.words(), &matches);
+        const shown = matches[0..@min(found, search_sheet.max_rows)];
+        const page = a.page(a.screen.pixels);
+        search_sheet.render(a.ui, page, q.words(), lib.entries, if (q.words().len > 0) shown else &.{}, found > search_sheet.max_rows) catch {};
+        // The keyboard never changes, so after the first frame only the top part does
+        const bottom: u32 = if (first) a.screen.height else keyboard.top;
+        a.showBand(search_sheet.top, bottom - search_sheet.top) catch {};
+        first = false;
         const action = a.input.next();
         switch (action) {
             .tap => |t| {
-                if (field.inField(t.y)) continue;
-                const k = keyboard.hit(t.x, t.y) orelse {
-                    q.* = kept;
-                    return false;
-                };
-                switch (k) {
+                if (keyboard.hit(t.x, t.y)) |k| switch (k) {
                     .char => |c| q.push(c),
                     .space => q.push(' '),
                     .backspace => q.pop(),
-                    .enter => return true,
+                    .enter => return .search,
+                } else switch (search_sheet.hit(t.x, t.y, if (q.words().len > 0) shown.len else 0)) {
+                    .cancel => {
+                        q.* = kept;
+                        return .cancel;
+                    },
+                    .row => |i| {
+                        const entry = shown[i];
+                        if (lib.entries[entry].isLocal()) return .{ .open = entry };
+                        return .search;
+                    },
+                    .field, .none => {},
                 }
             },
             .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
                 q.* = kept;
-                return false;
+                return .cancel;
             },
             else => {},
         }
@@ -268,13 +280,21 @@ pub fn runLibrary(a: *app.App) !void {
             switch (a.input.next()) {
                 .tap => |t| switch (loggedHit(t.x, t.y, index, count, query.words().len > 0)) {
                     .none => continue,
-                    .search => {
-                        if (!typeSearch(a, buf, &query)) {
+                    .search => switch (typeSearch(a, &lib, &query)) {
+                        .cancel => {
                             try a.present(buf, .gc16, .partial);
                             continue;
-                        }
-                        count = choose(&lib, filter, hero, query.words());
-                        index = 0;
+                        },
+                        .search => {
+                            count = choose(&lib, filter, hero, query.words());
+                            index = 0;
+                        },
+                        .open => |e| {
+                            query = .{};
+                            count = choose(&lib, filter, hero, "");
+                            index = 0;
+                            opening = &lib.entries[e];
+                        },
                     },
                     .clear_search => {
                         query = .{};
