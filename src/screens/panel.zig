@@ -33,11 +33,10 @@ pub fn setRowValue(a: *app.App, row: menu.Row, level: u32) void {
     }
 }
 
-/// Shows a slider row at rest. One non-flashing pass that also clears what the fast
-/// waveform left behind while dragging.
+/// Shows a slider row at rest after a step, without a flash.
 fn showRow(a: *app.App, row: menu.Row, level: u32) !void {
     try menu.drawSlider(a.ui, a.page(a.screen.pixels), row, level, false);
-    try a.screen.waitComplete(try a.screen.updateRegion(0, menu.bandTop(row), a.screen.width, menu.band_height, .reagl, .full));
+    try a.showBand(menu.bandTop(row), menu.band_height);
 }
 
 /// Follows a finger along a panel slider from where it landed until it lifts.
@@ -49,6 +48,7 @@ pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
         a: *app.App,
         row: menu.Row,
         knob: *u32,
+        path: *[2]u32, // Leftmost and rightmost knob positions shown
         pub fn moved(f: @This(), x: i32, _: i32) !?u32 {
             const knob = menu.knobUnder(x);
             if (knob == f.knob.*) return null;
@@ -56,16 +56,22 @@ pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
             try menu.drawSliderAt(f.a.ui, f.a.page(f.a.screen.pixels), f.row, level, knob, true);
             const span = menu.knobSpan(f.knob.*, knob);
             f.knob.* = knob;
-            const marker = try f.a.screen.updateRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, .a2, .partial);
+            f.path.* = .{ @min(f.path[0], knob), @max(f.path[1], knob) };
+            // DU rather than A2: barely slower, and it doesn't leave the old knob and level behind
+            const marker = try f.a.screen.updateRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, .du, .partial);
             if (level != rowValue(f.a, f.row)) setRowValue(f.a, f.row, level);
             return marker;
         }
     };
     var knob = menu.knobAt(row, rowValue(a, row));
-    const follow = Follow{ .a = a, .row = row, .knob = &knob };
+    var path = [2]u32{ knob, knob };
+    const follow = Follow{ .a = a, .row = row, .knob = &knob, .path = &path };
     const first = try follow.moved(first_x, 0);
     try app.followDrag(a, first, follow);
-    try showRow(a, row, rowValue(a, row));
+    // One quick flash over the stretch the knob crossed wipes any ghost it left there
+    try menu.drawSlider(a.ui, a.page(a.screen.pixels), row, rowValue(a, row), false);
+    const crossed = menu.knobSpan(path[0], path[1]);
+    try a.screen.waitComplete(try a.screen.updateRegion(crossed.left, menu.bandTop(row), crossed.width, menu.band_height, .gc16, .full));
 }
 
 /// Runs a panel control. False means the tap wasn't on one. Each control redraws only
