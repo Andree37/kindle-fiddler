@@ -60,6 +60,30 @@ pub const Page = struct {
         p.buf[at] = @min(p.buf[at], value);
     }
 
+    /// Fills a rounded bar from `x0` to `x1` at height `cy`, `radius` tall each side,
+    /// in any gray, with smooth edges. With `x0 == x1` it is a smooth disc.
+    pub fn pill(p: Page, x0: f32, x1: f32, cy: f32, radius: f32, value: u8) void {
+        const top: i32 = @intFromFloat(@floor(cy - radius - 1));
+        const bottom: i32 = @intFromFloat(@ceil(cy + radius + 1));
+        const left: i32 = @intFromFloat(@floor(x0 - radius - 1));
+        const right: i32 = @intFromFloat(@ceil(x1 + radius + 1));
+        var y = @max(top, 0);
+        while (y <= bottom and y < p.height) : (y += 1) {
+            var x = @max(left, 0);
+            while (x <= right and x < p.width) : (x += 1) {
+                const px = @as(f32, @floatFromInt(x)) + 0.5;
+                const py = @as(f32, @floatFromInt(y)) + 0.5;
+                const ex = px - std.math.clamp(px, x0, x1);
+                const ey = py - cy;
+                const coverage = std.math.clamp(radius + 0.5 - @sqrt(ex * ex + ey * ey), 0, 1);
+                if (coverage <= 0) continue;
+                const at = @as(usize, @intCast(y)) * p.stride + @as(usize, @intCast(x));
+                const old: f32 = @floatFromInt(p.buf[at]);
+                p.buf[at] = @intFromFloat(@round(old + (@as(f32, @floatFromInt(value)) - old) * coverage));
+            }
+        }
+    }
+
     /// Smooth line with round ends.
     pub fn stroke(p: Page, x0: f32, y0: f32, x1: f32, y1: f32, width: f32) void {
         const r = width / 2;
@@ -182,6 +206,17 @@ pub const Page = struct {
         }
     }
 };
+
+test "pills fill their middle and blend their edge" {
+    var buf: [20 * 10]u8 = @splat(0xff);
+    const p = Page{ .buf = &buf, .width = 20, .height = 10, .stride = 20 };
+    p.pill(5, 14, 5, 4, 0x00);
+    try std.testing.expectEqual(@as(u8, 0x00), buf[5 * 20 + 10]); // Middle
+    try std.testing.expectEqual(@as(u8, 0xff), buf[0 * 20 + 0]); // Outside
+    const edge = buf[5 * 20 + 1]; // Half covered at the rounded end
+    try std.testing.expect(edge > 0x00 and edge < 0xff);
+    p.pill(-50, 50, -50, 2, 0x00); // Off the page: nothing happens
+}
 
 test "fills clip to the page, even when they start off it" {
     var buf: [16]u8 = @splat(0xff);

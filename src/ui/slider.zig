@@ -1,5 +1,4 @@
-//! The one slider used everywhere. Pure black and white with pixel-aligned edges,
-//! so it looks the same at rest and under the fast waveform used while dragging.
+//! The one slider used everywhere.
 const std = @import("std");
 const Page = @import("../gfx/page.zig").Page;
 
@@ -34,18 +33,20 @@ pub fn drawTicks(page: Page, s: Slider, max: u32) void {
     }
 }
 
+/// A rounded bar, filled up to the knob, with a ring for a knob. Smooth edges at rest;
+/// the drag frames threshold them back to black and white.
 pub fn draw(page: Page, s: Slider, knob: u32) void {
-    const width = s.right - s.left;
-    const top = s.y - half_height;
-    const height = 2 * half_height;
-    page.fillRect(s.left, top, width, height, 0x00);
-    page.fillRect(s.left + outline, top + outline, width - 2 * outline, height - 2 * outline, 0xff);
-    if (knob > s.left) page.fillRect(s.left, top, knob - s.left, height, 0x00);
-    const x: i32 = @intCast(knob);
-    const y: i32 = @intCast(s.y);
-    page.disc(x, y, knob_outer + 3, 0, 0xff); // A clear gap around the knob
-    page.disc(x, y, knob_outer, 0, 0x00);
-    page.disc(x, y, knob_inner, 0, 0xff);
+    const left: f32 = @floatFromInt(s.left);
+    const right: f32 = @floatFromInt(s.right);
+    const y: f32 = @floatFromInt(s.y);
+    const x: f32 = @floatFromInt(knob);
+    const r: f32 = half_height;
+    page.pill(left, right, y, r, 0x00);
+    page.pill(left, right, y, r - outline, 0xff);
+    if (knob > s.left) page.pill(left, x, y, r, 0x00);
+    page.pill(x, x, y, knob_outer + 3, 0xff); // A clear gap around the knob
+    page.pill(x, x, y, knob_outer, 0x00);
+    page.pill(x, x, y, knob_inner, 0xff);
 }
 
 test "value and knob agree" {

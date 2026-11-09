@@ -117,15 +117,21 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
 
 fn drawToggle(fonts: Fonts, page: Page, y: u32, label: []const u8, on: bool) !void {
     try fonts.small.draw(page, margin, @intCast(y + 50), label);
-    const w: u32 = 100;
-    const h: u32 = 48;
-    const x: u32 = page.width - margin - w;
-    const box = y + 14;
-    if (on) page.fillRect(x, box, w, h, style.black) else draw.box(page, x, box, w, h);
-    const knob_x: i32 = @intCast(if (on) x + w - h / 2 else x + h / 2);
-    const knob_y: i32 = @intCast(box + h / 2);
-    page.disc(knob_x, knob_y, 18, 0, 0xff);
-    if (!on) page.disc(knob_x, knob_y, 15, 12, 0x00);
+    // A rounded switch: filled with a white knob on the right when on, outlined with a
+    // black knob on the left when off
+    const w: f32 = 104;
+    const r: f32 = 26;
+    const right: f32 = @floatFromInt(page.width - margin);
+    const ends = [2]f32{ right - w + r, right - r };
+    const cy: f32 = @floatFromInt(y + 38);
+    page.fillRect(@intFromFloat(ends[0] - r - 2), y + 10, @intFromFloat(w + 4), 56, 0xff);
+    page.pill(ends[0], ends[1], cy, r, 0x00);
+    if (on) {
+        page.pill(ends[1], ends[1], cy, r - 6, 0xff);
+    } else {
+        page.pill(ends[0], ends[1], cy, r - 3, 0xff);
+        page.pill(ends[0], ends[0], cy, r - 9, 0x00);
+    }
 }
 
 /// One slider row, redrawn alone while dragging.
