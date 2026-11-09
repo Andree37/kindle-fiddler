@@ -259,6 +259,8 @@ pub fn runLibrary(a: *app.App) !void {
         // a resting thumb. Nothing else is down there, so the library takes every touch.
         // Set each time round, as reading a book turns it back on.
         a.input.grips = false;
+        // Taps act on lift, so pressing and holding a book can bring up its actions
+        a.input.deferred = true;
         const alloc = lib.arena.allocator();
         catalog.sort(lib.entries, order);
         var hero = catalog.pickHero(lib.entries);
@@ -331,7 +333,6 @@ pub fn runLibrary(a: *app.App) !void {
                         opening = &lib.entries[h];
                     },
                     .hero_dots => acting = &lib.entries[hero orelse continue],
-                    .dots => |i| acting = &lib.entries[lib.visible[i]],
                     .book => |i| {
                         const entry = &lib.entries[lib.visible[i]];
                         if (entry.isLocal()) {
@@ -360,7 +361,12 @@ pub fn runLibrary(a: *app.App) !void {
                     watch_until = 0;
                     break :browse;
                 },
-                .hold, .drag, .drag_end, .unlock => continue,
+                .hold => |h| switch (loggedHit(h.x, h.y, index, count, query.words().len > 0)) {
+                    .book => |i| acting = &lib.entries[lib.visible[i]],
+                    .hero, .hero_dots => acting = &lib.entries[hero orelse continue],
+                    else => continue,
+                },
+                .drag, .drag_end, .unlock => continue,
                 .lock => {
                     try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null);
                     continue;

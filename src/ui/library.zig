@@ -48,7 +48,7 @@ const icon_inset = 46; // From a button's rounded end to its icon's centre
 const footer = draw.bottom_pager;
 const sort_left = 860;
 
-pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
+pub const Hit = union(enum) { none, hero, hero_dots, book: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
 
 // The round search button, a clear gap right of the filter button
 const search_cx = 564 + 36 + button_height / 2;
@@ -115,9 +115,7 @@ pub fn hit(x: i32, y: i32, page: usize, books: usize, searching: bool) Hit {
     if (column >= columns or row >= gridSize(hero) / columns) return .none;
     const index = firstBook(page) + row * columns + column;
     if (index >= books) return .none;
-    const inside_x = @mod(x - margin, cell_step);
-    const inside_y = @mod(y - top, row_height);
-    if (inside_y >= cover.height and inside_x >= cover.width - 90) return .{ .dots = index };
+    // A book's actions come from pressing and holding it, so the whole cell is the book
     return .{ .book = index };
 }
 
@@ -260,10 +258,7 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
 fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, x: u32, y: u32) !void {
     try drawCover(alloc, fonts, page, e, x, y);
     const bar_y = y + cover.height + 8;
-    const dots_x: f32 = @floatFromInt(x + cover.width - 8);
-    const dots_y: f32 = @floatFromInt(bar_y + 26);
-    icons.dots(page, dots_x, dots_y);
-    const title_width: f32 = cover.width - 34;
+    const title_width: f32 = cover.width;
     if (!e.isLocal()) {
         page.tint(x, y, cover.width, cover.height, 0xa0);
         icons.cloud(page, @floatFromInt(x + cover.width - 38), @floatFromInt(y + cover.height - 38));
@@ -409,8 +404,8 @@ test "search button sits beside the filter, and the search takes the hero's plac
     try std.testing.expectEqual(Hit.hero, hit(300, 300, 0, 79, false));
 }
 
-test "three dots sit beside the title" {
-    try std.testing.expectEqual(Hit{ .dots = 0 }, hit(300, 975, 0, 79, false));
+test "a book's title is part of the book, and the hero keeps its dots" {
+    try std.testing.expectEqual(Hit{ .book = 0 }, hit(300, 975, 0, 79, false));
     try std.testing.expectEqual(Hit{ .book = 0 }, hit(120, 975, 0, 79, false));
     try std.testing.expectEqual(Hit.hero_dots, hit(1180, 130, 0, 79, false));
 }
