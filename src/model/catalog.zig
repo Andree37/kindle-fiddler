@@ -54,12 +54,14 @@ const untouched_percent = 1; // Stock gives new books 1% without them being open
 pub const Order = enum {
     recent,
     title,
+    author,
     added,
 
     pub fn label(o: Order) []const u8 {
         return switch (o) {
             .recent => "Recent",
             .title => "A to Z",
+            .author => "Author",
             .added => "Newest",
         };
     }
@@ -67,7 +69,8 @@ pub const Order = enum {
     pub fn next(o: Order) Order {
         return switch (o) {
             .recent => .title,
-            .title => .added,
+            .title => .author,
+            .author => .added,
             .added => .recent,
         };
     }
@@ -80,7 +83,27 @@ fn before(order: Order, a: Entry, b: Entry) bool {
         .recent => a.last > b.last,
         .added => a.added > b.added,
         .title => std.ascii.lessThanIgnoreCase(a.title, b.title),
+        .author => byAuthor(a, b),
     };
+}
+
+/// The name an author sorts under: the part before the comma in "Adams, Douglas",
+/// else the last word of "Andy Weir".
+pub fn surname(author: []const u8) []const u8 {
+    const name = std.mem.trim(u8, author, " ");
+    if (std.mem.indexOfScalar(u8, name, ',')) |comma| return std.mem.trim(u8, name[0..comma], " ");
+    const space = std.mem.lastIndexOfScalar(u8, name, ' ') orelse return name;
+    return name[space + 1 ..];
+}
+
+/// By surname, then the rest of the name, then title. Books with no author go last.
+fn byAuthor(a: Entry, b: Entry) bool {
+    const sa = surname(a.author);
+    const sb = surname(b.author);
+    if ((sa.len == 0) != (sb.len == 0)) return sb.len == 0;
+    if (!std.ascii.eqlIgnoreCase(sa, sb)) return std.ascii.lessThanIgnoreCase(sa, sb);
+    if (!std.ascii.eqlIgnoreCase(a.author, b.author)) return std.ascii.lessThanIgnoreCase(a.author, b.author);
+    return std.ascii.lessThanIgnoreCase(a.title, b.title);
 }
 
 pub fn sort(entries: []Entry, order: Order) void {
@@ -136,8 +159,30 @@ test "sort orders by title and by date added" {
     try std.testing.expectEqualStrings("cherry", rows[0].title);
 }
 
+test "authors sort by surname, whichever way the name is written" {
+    try std.testing.expectEqualStrings("Adams", surname("Adams, Douglas"));
+    try std.testing.expectEqualStrings("Weir", surname("Andy Weir"));
+    try std.testing.expectEqualStrings("Plato", surname(" Plato "));
+    try std.testing.expectEqualStrings("", surname(""));
+    var rows = [_]Entry{
+        .{ .path = "/a", .title = "Nameless", .author = "", .percent = 0, .last = 1 },
+        .{ .path = "/b", .title = "Project Hail Mary", .author = "Andy Weir", .percent = 0, .last = 1 },
+        .{ .path = "/c", .title = "Skeleton Crew", .author = "King, Stephen", .percent = 0, .last = 1 },
+        .{ .path = "/d", .title = "Artemis", .author = "Andy Weir", .percent = 0, .last = 1 },
+        .{ .path = "/e", .title = "Restaurant", .author = "Adams, Douglas", .percent = 0, .last = 1 },
+    };
+    sort(&rows, .author);
+    try std.testing.expectEqualStrings("Restaurant", rows[0].title);
+    try std.testing.expectEqualStrings("Skeleton Crew", rows[1].title);
+    try std.testing.expectEqualStrings("Artemis", rows[2].title);
+    try std.testing.expectEqualStrings("Project Hail Mary", rows[3].title);
+    try std.testing.expectEqualStrings("Nameless", rows[4].title);
+}
+
 test "sort button cycles" {
     try std.testing.expectEqual(Order.title, Order.recent.next());
+    try std.testing.expectEqual(Order.author, Order.title.next());
+    try std.testing.expectEqual(Order.added, Order.author.next());
     try std.testing.expectEqual(Order.recent, Order.added.next());
 }
 
