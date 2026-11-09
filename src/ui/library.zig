@@ -339,11 +339,16 @@ fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: c
         if (!active) page.tint(left, @intCast(top + 22), @intCast(t.right - t.left - tab_pad - 4), 44, style.faded);
     }
     const right: f32 = @floatFromInt(page.width - margin);
-    const sort_w = try fonts.small.measure(order.label());
-    const button_left = right - 32 - sort_w - 18 - icon_inset - 14;
+    // One width for every order, sized to the longest label, so the button stays put
+    // as it cycles; the label sits centred in the room right of the arrows.
+    var widest: f32 = 0;
+    for (std.enums.values(catalog.Order)) |o| widest = @max(widest, try fonts.small.measure(o.label()));
+    const button_left = right - 32 - widest - 18 - icon_inset - 14;
     buttonOutline(page, button_left, right, top);
     icons.sortArrows(page, button_left + icon_inset, cy);
-    try fonts.small.draw(page, right - 32 - sort_w, y, order.label());
+    const label_left = button_left + icon_inset + 18 + 14;
+    const label_w = try fonts.small.measure(order.label());
+    try fonts.small.draw(page, label_left + (right - 32 - label_left - label_w) / 2, y, order.label());
 }
 
 fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
