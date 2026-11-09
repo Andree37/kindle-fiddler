@@ -43,7 +43,7 @@ const tab_pad = 14; // From a tab's left edge to its label
 const button_top = 10;
 const button_height = 66;
 
-const footer = draw.Pager{ .top = 1450, .bottom = 1570 };
+const footer = draw.Pager{ .top = 1530, .bottom = 1650 }; // Near the bottom edge, clear of the grid
 const sort_left = 860;
 
 pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
@@ -360,7 +360,7 @@ pub fn render(alloc: std.mem.Allocator, fonts: Fonts, page: Page, entries: []cat
     }
     if (visible.len == 0) try fonts.small.draw(page, margin, @intCast(top + 60), if (query.len > 0) "No books match." else "No books here yet.");
     try drawFooter(fonts, page, index, pageCount(visible.len));
-    if (message.len > 0) try fonts.caption.draw(page, margin, 1640, message);
+    if (message.len > 0) try fonts.caption.draw(page, margin, 1500, message); // Between grid and pager
 }
 
 test "the current book stays on page one of every view" {
@@ -381,8 +381,8 @@ test "header and footer controls" {
     try std.testing.expectEqual(Hit{ .tab = .read }, hit(400, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.none, hit(600, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79, false));
-    try std.testing.expectEqual(Hit.prev, hit(400, 1500, 0, 79, false));
-    try std.testing.expectEqual(Hit.next, hit(800, 1500, 0, 79, false));
+    try std.testing.expectEqual(Hit.prev, hit(400, 1600, 0, 79, false));
+    try std.testing.expectEqual(Hit.next, hit(800, 1600, 0, 79, false));
 }
 
 test "tapping past the last book does nothing" {

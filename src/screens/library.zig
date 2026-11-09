@@ -191,9 +191,6 @@ fn choose(lib: *Library, filter: catalog.Filter, hero: ?usize, query: []const u8
 /// clears the search), false when a tap outside the keyboard and field cancels.
 fn typeSearch(a: *app.App, background: []const u8, q: *search.Query) bool {
     const kept = q.*;
-    // Space and Search sit where a resting thumb is otherwise ignored
-    a.input.grips = false;
-    defer a.input.grips = true;
     while (true) {
         @memcpy(a.overlay, background);
         const page = a.page(a.overlay);
@@ -246,6 +243,10 @@ pub fn runLibrary(a: *app.App) !void {
     defer a.input.tick_us = 0;
 
     while (true) {
+        // The pager and the keyboard sit along the bottom edge, where the reader ignores
+        // a resting thumb. Nothing else is down there, so the library takes every touch.
+        // Set each time round, as reading a book turns it back on.
+        a.input.grips = false;
         const alloc = lib.arena.allocator();
         catalog.sort(lib.entries, order);
         var hero = catalog.pickHero(lib.entries);
