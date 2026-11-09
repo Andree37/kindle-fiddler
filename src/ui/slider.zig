@@ -24,12 +24,15 @@ pub fn valueAt(s: Slider, x: i32, max: u32) u32 {
     return (at * max + @as(u32, @intCast(span)) / 2) / @as(u32, @intCast(span));
 }
 
-/// Marks each step, for sliders with only a few positions.
-pub fn drawTicks(page: Page, s: Slider, max: u32) void {
-    var i: u32 = 0;
-    while (i <= max) : (i += 1) {
+/// Marks each step with a dot inside the bar, for sliders with only a few positions:
+/// white on the filled part, before `knob`, and black after it. Call after `draw`.
+pub fn drawTicks(page: Page, s: Slider, max: u32, knob: u32) void {
+    const y: f32 = @floatFromInt(s.y);
+    var i: u32 = 1;
+    while (i < max) : (i += 1) {
         const x = knobAt(s, i, max);
-        page.fillRect(x - 1, s.y + half_height + 8, 3, 10, 0x00);
+        if (@abs(@as(i32, @intCast(x)) - @as(i32, @intCast(knob))) < knob_outer + 6) continue; // Under the knob
+        page.pill(@floatFromInt(x), @floatFromInt(x), y, 3, if (x < knob) 0xff else 0x00);
     }
 }
 

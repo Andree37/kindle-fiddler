@@ -7,6 +7,7 @@ const draw = @import("draw.zig");
 const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
 const slider = @import("slider.zig");
+const icons = @import("icons.zig");
 const text = @import("../layout/text.zig");
 
 const top = 228; // Under the toolbar
@@ -77,6 +78,12 @@ fn within(y: i32, from: i32, size: i32) bool {
     return y >= from and y < from + size;
 }
 
+/// A switch row's taps: its 76 px drawn height grown to a fingertip (100 px), half
+/// above and half below.
+fn onToggle(y: i32, toggle_top: i32) bool {
+    return within(y, toggle_top - 12, toggle_height + 24);
+}
+
 pub fn hit(tab: Tab, x: i32, y: i32) Hit {
     if (y < top + tabs_height) {
         const cell: i32 = screen_width / tab_labels.len;
@@ -92,24 +99,25 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
             }
         },
         .font => {
-            if (within(y, family_top, 2 * family_height)) {
-                const row: usize = @intCast(@divTrunc(y - family_top, family_height));
+            // The first row reaches up to the tabs, so both rows take a full fingertip
+            if (within(y, family_top - 12, 2 * family_height + 12)) {
+                const row: usize = @intCast(@divTrunc(@max(y - family_top, 0), family_height));
                 const col: usize = if (x < screen_width / 2) 0 else 1;
                 return .{ .family = row * 2 + col };
             }
-            if (within(y, bold_top, toggle_height)) return .bold;
+            if (onToggle(y, bold_top)) return .bold;
             if (within(y, size_row.top, row_height)) return .text_size;
         },
         .layout => {
             if (within(y, spacing_row.top, row_height)) return .spacing;
             if (within(y, margin_row.top, row_height)) return .margins;
-            if (within(y, align_top, toggle_height)) return .alignment;
+            if (onToggle(y, align_top)) return .alignment;
         },
         .more => {
-            if (within(y, clock_top, toggle_height)) return .clock;
-            if (within(y, refresh_top, toggle_height)) return .refresh;
-            if (within(y, time_left_top, toggle_height)) return .time_left;
-            if (within(y, autostart_top, toggle_height)) return .autostart;
+            if (onToggle(y, clock_top)) return .clock;
+            if (onToggle(y, refresh_top)) return .refresh;
+            if (onToggle(y, time_left_top)) return .time_left;
+            if (onToggle(y, autostart_top)) return .autostart;
         },
     }
     return .none;
@@ -134,14 +142,29 @@ fn drawToggle(fonts: Fonts, page: Page, y: u32, label: []const u8, on: bool) !vo
     }
 }
 
+const margin_names = [_][]const u8{ "Narrow", "Medium", "Wide", "Widest" };
+
+/// What a slider is set to, in words or numbers a reader knows.
+pub fn valueLabel(buf: []u8, r: Row, value: usize) []const u8 {
+    return switch (r.hit) {
+        .spacing => std.fmt.bufPrint(buf, "{d:.2}", .{settings_model.spacings[value]}) catch "",
+        .margins => margin_names[@min(value, margin_names.len - 1)],
+        else => std.fmt.bufPrint(buf, "{d} of {d}", .{ value + 1, r.steps }) catch "",
+    };
+}
+
 /// One slider row, redrawn alone while dragging.
 pub fn drawRow(fonts: Fonts, page: Page, r: Row, value: usize, mono: bool) !void {
     page.fillRect(0, r.top, page.width, row_height, 0xff);
     try fonts.small.draw(page, margin, @intCast(r.top + 48), r.label);
+    var buf: [24]u8 = undefined;
+    const shown = valueLabel(&buf, r, value);
+    try fonts.small.draw(page, @as(f32, @floatFromInt(page.width - margin)) - try fonts.small.measure(shown), @intCast(r.top + 48), shown);
     const bar = rowSlider(r);
     const max: u32 = @intCast(r.steps - 1);
-    slider.drawTicks(page, bar, max);
-    slider.draw(page, bar, slider.knobAt(bar, @intCast(value), max));
+    const knob = slider.knobAt(bar, @intCast(value), max);
+    slider.draw(page, bar, knob);
+    slider.drawTicks(page, bar, max, knob);
     if (mono) page.threshold(r.top, row_height);
 }
 
@@ -157,12 +180,17 @@ fn drawTabs(fonts: Fonts, page: Page, tab: Tab) !void {
 }
 
 fn drawThemes(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
+    var any = false;
     for (themes, 0..) |t, i| {
         const left: u32 = margin + @as(u32, @intCast(i)) * (theme_width + theme_gap);
         const active = chosen.size == t.size and chosen.spacing == t.spacing and chosen.margin == t.margin;
+        any = any or active;
+        // Rounded tiles; the one in use has a thick edge and a tick in its corner
         const edge: u32 = if (active) 6 else 2;
-        page.fillRect(left, theme_top, theme_width, theme_height, 0x00);
-        page.fillRect(left + edge, theme_top + edge, theme_width - 2 * edge, theme_height - 2 * edge, 0xff);
+        const corner = 24;
+        page.roundRect(left, theme_top, theme_width, theme_height, corner, 0x00);
+        page.roundRect(left + edge, theme_top + edge, theme_width - 2 * edge, theme_height - 2 * edge, corner - @as(f32, @floatFromInt(edge)), 0xff);
+        if (active) icons.check(page, @floatFromInt(left + theme_width - 38), theme_top + 38);
         // Text lines drawn to scale, so the choice shows rather than tells.
         const gap: u32 = 16 + @as(u32, @intCast(t.spacing)) * 8;
         const inset: u32 = 28 + @as(u32, @intCast(t.margin)) * 16;
@@ -172,6 +200,11 @@ fn drawThemes(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
             page.fillRect(left + inset, y, theme_width - 2 * inset, thick, 0x60);
         }
         try draw.centered(fonts.small, page, @floatFromInt(left + theme_width / 2), theme_top + 264, t.label);
+    }
+    // Sizes changed by hand match none of them; say so, so no tile seems forgotten
+    if (!any) {
+        try fonts.caption.draw(page, margin, theme_top + theme_height + 52, "Using your own settings. Pick a theme to switch to it.");
+        page.tint(margin, theme_top + theme_height + 22, page.width - 2 * margin, 40, style.faded);
     }
 }
 
@@ -231,6 +264,20 @@ test "the sheet stays inside itself" {
     try std.testing.expect(size_row.top + row_height <= height);
     try std.testing.expect(align_top + toggle_height <= height);
     try std.testing.expect(theme_top + theme_height <= height);
+}
+
+test "switches and fonts take a fingertip of height" {
+    try std.testing.expectEqual(Hit.bold, hit(.font, 600, bold_top - 10));
+    try std.testing.expectEqual(Hit.bold, hit(.font, 600, bold_top + toggle_height + 10));
+    try std.testing.expectEqual(Hit.clock, hit(.more, 600, clock_top - 10));
+    try std.testing.expectEqual(Hit{ .family = 0 }, hit(.font, 200, family_top - 10));
+}
+
+test "sliders say what they're set to" {
+    var buf: [24]u8 = undefined;
+    try std.testing.expectEqualStrings("1.35", valueLabel(&buf, spacing_row, 1));
+    try std.testing.expectEqualStrings("Narrow", valueLabel(&buf, margin_row, 0));
+    try std.testing.expectEqualStrings("3 of 6", valueLabel(&buf, size_row, 2));
 }
 
 test "controls of other tabs don't answer" {
