@@ -31,26 +31,28 @@ const hero_rows = 2;
 const plain_rows = 3;
 
 const Tab = struct { filter: catalog.Filter, label: []const u8, left: i32, right: i32 };
-// Inside one rounded button that starts with a funnel; `left` and `right` bound the taps.
+// Inside one rounded button that starts with a funnel; `left` and `right` bound the taps,
+// each at least a fingertip (about 100 px) wide.
 const tabs = [_]Tab{
-    .{ .filter = .all, .label = "All", .left = 128, .right = 214 },
-    .{ .filter = .unread, .label = "Unread", .left = 214, .right = 370 },
-    .{ .filter = .read, .label = "Read", .left = 370, .right = 490 },
+    .{ .filter = .all, .label = "All", .left = 156, .right = 260 },
+    .{ .filter = .unread, .label = "Unread", .left = 260, .right = 432 },
+    .{ .filter = .read, .label = "Read", .left = 432, .right = 564 },
 };
-const tab_pad = 14; // From a tab's left edge to its label
+const tab_pad = 16; // From a tab's left edge to its label
 
-// Filter and sort buttons: rounded outlines across the middle of the tabs row
-const button_top = 10;
-const button_height = 66;
+// Filter, search and sort buttons fill the tabs row: a fingertip tall
+const button_top = 0;
+const button_height = tabs_height;
+const icon_inset = 46; // From a button's rounded end to its icon's centre
 
 const footer = draw.Pager{ .top = 1530, .bottom = 1650 }; // Near the bottom edge, clear of the grid
 const sort_left = 860;
 
 pub const Hit = union(enum) { none, hero, hero_dots, book: usize, dots: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
 
-// The round search button, just right of the filter button
-const search_cx = 552;
-const search_reach = 44; // Taps this far either side of its centre
+// The round search button, a clear gap right of the filter button
+const search_cx = 564 + 36 + button_height / 2;
+const search_reach = 56; // Taps this far either side of its centre: a fingertip and more
 
 fn gridSize(hero: bool) usize {
     return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
@@ -310,28 +312,28 @@ fn drawSearchHeader(fonts: Fonts, page: Page, query: []const u8, found: usize) !
 }
 
 fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: catalog.Order, searching: bool) !void {
-    const y = top + 55;
+    const y = top + 54;
     const cy: f32 = @floatFromInt(top + button_top + button_height / 2);
     const r: f32 = button_height / 2;
     page.pill(search_cx, search_cx, cy, r, 0x00);
     page.pill(search_cx, search_cx, cy, r - 2, 0xff);
-    icons.search(page, search_cx, cy);
+    icons.searchScaled(page, search_cx, cy, 0.8);
     // Filled while a search is showing, like a toggle that's on
     if (searching) page.invertDisc(search_cx, @intFromFloat(cy), @intFromFloat(r - 2));
     buttonOutline(page, margin, @floatFromInt(tabs[tabs.len - 1].right), top);
-    icons.funnel(page, margin + 34, cy);
+    icons.funnel(page, margin + icon_inset, cy);
     for (tabs) |t| {
         const left: u32 = @intCast(t.left + tab_pad);
         const active = t.filter == filter;
-        try draw.choice(fonts, page, @floatFromInt(left), .left, y, t.label, active, @intCast(top + 63));
+        try draw.choice(fonts, page, @floatFromInt(left), .left, y, t.label, active, @intCast(top + 62));
         if (!active) page.tint(left, @intCast(top + 22), @intCast(t.right - t.left - tab_pad - 4), 44, style.faded);
     }
     const right: f32 = @floatFromInt(page.width - margin);
     const sort_w = try fonts.small.measure(order.label());
-    const button_left = right - 28 - sort_w - 14 - 30 - 22;
+    const button_left = right - 32 - sort_w - 18 - icon_inset - 14;
     buttonOutline(page, button_left, right, top);
-    icons.sortArrows(page, button_left + 22 + 15, cy);
-    try fonts.small.draw(page, right - 28 - sort_w, y, order.label());
+    icons.sortArrows(page, button_left + icon_inset, cy);
+    try fonts.small.draw(page, right - 32 - sort_w, y, order.label());
 }
 
 fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
@@ -377,9 +379,10 @@ test "later pages are four by three" {
 
 test "header and footer controls" {
     try std.testing.expectEqual(Hit.menu, hit(100, 50, 0, 79, false));
-    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(250, 560, 0, 79, false));
-    try std.testing.expectEqual(Hit{ .tab = .read }, hit(400, 560, 0, 79, false));
-    try std.testing.expectEqual(Hit.none, hit(600, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .tab = .all }, hit(200, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .tab = .unread }, hit(340, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit{ .tab = .read }, hit(500, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.none, hit(800, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.prev, hit(400, 1600, 0, 79, false));
     try std.testing.expectEqual(Hit.next, hit(800, 1600, 0, 79, false));
@@ -397,9 +400,11 @@ test "page count follows the layout" {
 }
 
 test "search button sits beside the filter, and the search takes the hero's place" {
-    try std.testing.expectEqual(Hit.search, hit(552, 560, 0, 79, false));
-    try std.testing.expectEqual(Hit{ .tab = .read }, hit(480, 560, 0, 79, false));
-    try std.testing.expectEqual(Hit.search, hit(552, 140, 1, 79, false));
+    try std.testing.expectEqual(Hit.search, hit(search_cx, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.none, hit(570, 560, 0, 79, false)); // The gap between them
+    try std.testing.expectEqual(Hit.search, hit(search_cx, 140, 1, 79, false));
+    for (tabs) |t| try std.testing.expect(t.right - t.left >= 100);
+    try std.testing.expect(2 * search_reach >= 100);
     try std.testing.expectEqual(Hit.clear_search, hit(300, 300, 0, 79, true));
     try std.testing.expectEqual(Hit.hero, hit(300, 300, 0, 79, false));
 }

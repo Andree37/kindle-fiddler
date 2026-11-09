@@ -176,8 +176,13 @@ pub fn bookmark(page: Page, cx: f32, cy: f32) void {
 }
 
 pub fn search(page: Page, cx: f32, cy: f32) void {
-    page.arc(cx - 5, cy - 5, 17, 0, 2 * pi, 4);
-    page.stroke(cx + 8, cy + 8, cx + 23, cy + 23, 5);
+    searchScaled(page, cx, cy, 1);
+}
+
+/// The magnifier at another size, centred on (`cx`, `cy`).
+pub fn searchScaled(page: Page, cx: f32, cy: f32, scale: f32) void {
+    page.arc(cx - 5 * scale, cy - 5 * scale, 17 * scale, 0, 2 * pi, 4);
+    page.stroke(cx + 8 * scale, cy + 8 * scale, cx + 23 * scale, cy + 23 * scale, 5);
 }
 
 pub fn dots(page: Page, cx: f32, cy: f32) void {
