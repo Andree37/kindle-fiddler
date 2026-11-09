@@ -227,6 +227,27 @@ pub fn cloud(page: Page, cx: f32, cy: f32) void {
     page.fillRect(@intCast(x - 11), @intCast(y + 3), 22, 9, 0xff);
 }
 
+/// Filter: a funnel.
+pub fn funnel(page: Page, cx: f32, cy: f32) void {
+    const pts = [_][2]f32{
+        .{ cx - 15, cy - 12 }, .{ cx + 15, cy - 12 }, .{ cx + 4, cy + 1 },
+        .{ cx + 4, cy + 13 },  .{ cx - 4, cy + 9 },   .{ cx - 4, cy + 1 },
+    };
+    page.fillPoly(&pts);
+}
+
+/// Sort: an arrow up beside an arrow down.
+pub fn sortArrows(page: Page, cx: f32, cy: f32) void {
+    const l = cx - 7;
+    const r = cx + 7;
+    page.stroke(l, cy + 13, l, cy - 12, 3);
+    page.stroke(l, cy - 13, l - 6, cy - 6, 3);
+    page.stroke(l, cy - 13, l + 6, cy - 6, 3);
+    page.stroke(r, cy - 13, r, cy + 12, 3);
+    page.stroke(r, cy + 13, r - 6, cy + 6, 3);
+    page.stroke(r, cy + 13, r + 6, cy + 6, 3);
+}
+
 pub fn check(page: Page, cx: f32, cy: f32) void {
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 25, 0, 0xff);
     page.disc(@intFromFloat(cx), @intFromFloat(cy), 22, 0, 0x00);

@@ -31,11 +31,17 @@ const hero_rows = 2;
 const plain_rows = 3;
 
 const Tab = struct { filter: catalog.Filter, label: []const u8, left: i32, right: i32 };
+// Inside one rounded button that starts with a funnel; `left` and `right` bound the taps.
 const tabs = [_]Tab{
-    .{ .filter = .all, .label = "All", .left = 72, .right = 170 },
-    .{ .filter = .unread, .label = "Unread", .left = 170, .right = 352 },
-    .{ .filter = .read, .label = "Read", .left = 352, .right = 500 },
+    .{ .filter = .all, .label = "All", .left = 128, .right = 214 },
+    .{ .filter = .unread, .label = "Unread", .left = 214, .right = 370 },
+    .{ .filter = .read, .label = "Read", .left = 370, .right = 490 },
 };
+const tab_pad = 14; // From a tab's left edge to its label
+
+// Filter and sort buttons: rounded outlines across the middle of the tabs row
+const button_top = 10;
+const button_height = 66;
 
 const footer = draw.Pager{ .top = 1450, .bottom = 1570 };
 const sort_left = 860;
@@ -150,9 +156,38 @@ fn drawWrapped(font: *Font, page: Page, x: f32, y: i32, step: i32, s: []const u8
     return line;
 }
 
-fn progressBar(page: Page, x: u32, y: u32, w: u32, percent: u32) void {
-    page.fillRect(x, y + 2, w, 2, 0xc0);
-    page.fillRect(x, y, w * @min(percent, 100) / 100, 6, 0x00);
+/// A thin gray track with a thick rounded black fill. Any progress at all shows as
+/// at least a dot.
+fn progressBar(page: Page, x: u32, y: u32, w: u32, percent: u32, thick: f32) void {
+    const left: f32 = @floatFromInt(x);
+    const cy: f32 = @floatFromInt(y);
+    const r = thick / 2;
+    page.pill(left + r, left + @as(f32, @floatFromInt(w)) - r, cy, r / 2, 0xb8);
+    if (percent == 0) return;
+    const filled = @as(f32, @floatFromInt(w)) * @as(f32, @floatFromInt(@min(percent, 100))) / 100;
+    page.pill(left + r, left + @max(filled - r, r), cy, r, 0x00);
+}
+
+/// "32%" in a small white pill over a cover's bottom left corner.
+fn percentBadge(font: *Font, page: Page, x: u32, y: u32, percent: u32) !void {
+    var label: [8]u8 = undefined;
+    const s = std.fmt.bufPrint(&label, "{d}%", .{@min(percent, 100)}) catch return;
+    const r: f32 = 19;
+    const left: f32 = @floatFromInt(x + 12);
+    const cy: f32 = @as(f32, @floatFromInt(y)) - 12 - r;
+    const w = try font.measure(s) + 26;
+    const ends = [2]f32{ left + r, left + @max(w - r, r) };
+    page.pill(ends[0], ends[1], cy, r, 0x00);
+    page.pill(ends[0], ends[1], cy, r - 2, 0xff);
+    try font.draw(page, left + 13, @intFromFloat(cy + 9), s);
+}
+
+/// A rounded outline around a control, so it reads as something to press.
+fn buttonOutline(page: Page, left: f32, right: f32, top: i32) void {
+    const r: f32 = button_height / 2;
+    const cy: f32 = @floatFromInt(top + button_top + button_height / 2);
+    page.pill(left + r, right - r, cy, r, 0x00);
+    page.pill(left + r, right - r, cy, r - 2, 0xff);
 }
 
 /// A book with no thumbnail still gets a real cover: its title set in type.
@@ -206,7 +241,7 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
     page.tint(left_px, @intCast(author_y - 30), @intFromFloat(avail), 44, 0x50);
 
     const bar_y = hero_top + cover.hero_height - 40;
-    progressBar(page, left_px, bar_y, @intFromFloat(avail), e.percent);
+    progressBar(page, left_px, bar_y, @intFromFloat(avail), e.percent, 12);
     var label: [24]u8 = undefined;
     const pct = std.fmt.bufPrint(&label, "{d}% read", .{e.percent}) catch "";
     try fonts.caption.draw(page, left, bar_y + 42, pct);
@@ -227,7 +262,10 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
         _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, label, title_width, 1);
         return;
     }
-    if (e.inProgress()) progressBar(page, x, bar_y, cover.width, e.percent);
+    if (e.inProgress()) {
+        progressBar(page, x, bar_y + 2, cover.width, e.percent, 10);
+        try percentBadge(fonts.caption, page, x, y + cover.height, e.percent);
+    }
     if (e.isRead()) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
     _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
 }
@@ -245,17 +283,22 @@ fn drawStatus(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
 }
 
 fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: catalog.Order) !void {
-    const y = top + 54;
+    const y = top + 55;
+    const cy: f32 = @floatFromInt(top + button_top + button_height / 2);
+    buttonOutline(page, margin, @floatFromInt(tabs[tabs.len - 1].right), top);
+    icons.funnel(page, margin + 34, cy);
     for (tabs) |t| {
-        const left: u32 = @intCast(t.left);
+        const left: u32 = @intCast(t.left + tab_pad);
         const active = t.filter == filter;
-        try draw.choice(fonts, page, @floatFromInt(left), .left, y, t.label, active, @intCast(top + tabs_height - 8));
-        if (!active) page.tint(left, @intCast(top + 16), @intCast(t.right - t.left - 4), 50, style.faded);
+        try draw.choice(fonts, page, @floatFromInt(left), .left, y, t.label, active, @intCast(top + 63));
+        if (!active) page.tint(left, @intCast(top + 22), @intCast(t.right - t.left - tab_pad - 4), 44, style.faded);
     }
     const right: f32 = @floatFromInt(page.width - margin);
     const sort_w = try fonts.small.measure(order.label());
-    try fonts.small.draw(page, right - sort_w, y, order.label());
-    page.fillRect(margin, @intCast(top + tabs_height - 4), page.width - 2 * margin, 1, style.rule);
+    const button_left = right - 28 - sort_w - 14 - 30 - 22;
+    buttonOutline(page, button_left, right, top);
+    icons.sortArrows(page, button_left + 22 + 15, cy);
+    try fonts.small.draw(page, right - 28 - sort_w, y, order.label());
 }
 
 fn drawFooter(fonts: Fonts, page: Page, index: usize, pages: usize) !void {
