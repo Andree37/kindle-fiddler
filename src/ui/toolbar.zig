@@ -16,7 +16,7 @@ pub const bottom_top = 1410;
 pub const scrub_top = 1500;
 const screen_height = style.screen_height;
 const margin = style.margin;
-const status_row = 66;
+pub const status_row = 66; // The clock and battery strip at the very top
 const tool_row = 156;
 const scrub = slider.Slider{ .left = 110, .right = 1162, .y = 1610 };
 

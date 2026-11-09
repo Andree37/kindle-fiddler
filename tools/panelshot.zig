@@ -166,7 +166,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (std.mem.eql(u8, mode, "search")) {
         @memset(buf, 0xe8);
         try toolbar.render(fonts, page, "A sample book title", 36, 280, &quick, null, .{}, false);
-        try core.field.render(fonts, page, "lighthouse", "Search this book", true, "");
+        try core.search_sheet.renderBar(fonts, page, core.toolbar.status_row, "lighthouse", "Search this book", .search);
         try core.keyboard.render(fonts, page);
         writeImage(buf, w, h);
         return;

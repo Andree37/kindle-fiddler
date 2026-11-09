@@ -1,6 +1,7 @@
-//! Searching the library: a search bar along the top, the books that match listed
-//! under it as you type, and the keyboard below. Every tap target is at least a
-//! fingertip (about 100 px) tall.
+//! Typing to find something: a rounded search bar along the top with Cancel beside it,
+//! what matches under it, and the keyboard below. The library lists matching books as
+//! you type; book search and Go to page use the same bar. Every tap target is at least
+//! a fingertip (about 100 px) tall.
 const std = @import("std");
 const Page = @import("../gfx/page.zig").Page;
 const draw = @import("draw.zig");
@@ -19,6 +20,8 @@ const cancel_width = 170; // Room for "Cancel" and a fingertip either side of it
 const field_right = style.screen_width - style.margin - cancel_width;
 
 const rows_top = bar_top + bar_height + 24;
+/// Where what's under the bar starts: a note line, then a list.
+pub const content_top = rows_top;
 const row_height = 112;
 const rows_bottom = keyboard.top - 16;
 
@@ -27,10 +30,14 @@ pub const max_rows = (rows_bottom - rows_top) / row_height;
 
 pub const Hit = union(enum) { none, cancel, field, row: usize };
 
+/// The bar's own taps, or null below it.
+pub fn barHit(x: i32, y: i32) ?Hit {
+    if (y < top or y >= bar_top + bar_height + 12) return null;
+    return if (x >= field_right) .cancel else .field;
+}
+
 pub fn hit(x: i32, y: i32, rows: usize) Hit {
-    if (y >= bar_top - 16 and y < bar_top + bar_height + 12) {
-        return if (x >= field_right) .cancel else .field;
-    }
+    if (barHit(x, y)) |h| return h;
     if (y >= rows_top and y < rows_bottom) {
         const row: usize = @intCast(@divTrunc(y - rows_top, row_height));
         if (row < rows) return .{ .row = row };
@@ -38,19 +45,25 @@ pub fn hit(x: i32, y: i32, rows: usize) Hit {
     return .none;
 }
 
-fn drawBar(fonts: Fonts, page: Page, query: []const u8) !void {
+pub const Icon = enum { search, none };
+
+/// Clears from `from` (the bottom of the status strip above) down to `content_top`
+/// and draws the bar: a magnifier when searching, what's typed (or the
+/// `placeholder`), a cursor, and Cancel.
+pub fn renderBar(fonts: Fonts, page: Page, from: u32, query: []const u8, placeholder: []const u8, icon: Icon) !void {
+    page.fillRect(0, from, page.width, content_top - from, style.white);
     const r: f32 = bar_height / 2;
     const cy: f32 = bar_top + r;
     const left: f32 = style.margin;
     const right: f32 = field_right - 8;
     page.pill(left + r, right - r, cy, r, 0x00);
     page.pill(left + r, right - r, cy, r - 2, 0xff);
-    icons.searchScaled(page, left + 52, cy, 0.8);
-    const text_x = left + 96;
+    if (icon == .search) icons.searchScaled(page, left + 52, cy, 0.8);
+    const text_x = left + @as(f32, if (icon == .search) 96 else 44);
     const baseline: i32 = @intFromFloat(cy + 12);
     const avail = right - r / 2 - text_x;
     if (query.len == 0) {
-        try fonts.small.draw(page, text_x, baseline, "Title or author");
+        try fonts.small.draw(page, text_x, baseline, placeholder);
         page.tint(@intFromFloat(text_x), bar_top + 20, @intFromFloat(avail), bar_height - 40, 0x90);
     } else {
         try draw.clipped(fonts.small, page, text_x, baseline, query, avail);
@@ -75,7 +88,7 @@ fn drawRow(fonts: Fonts, page: Page, y: u32, e: *const catalog.Entry) !void {
 /// at most `max_rows` of them; `more` says whether others matched too.
 pub fn render(fonts: Fonts, page: Page, query: []const u8, entries: []const catalog.Entry, matches: []const usize, more: bool) !void {
     page.fillRect(0, top, page.width, page.height - top, style.white);
-    try drawBar(fonts, page, query);
+    try renderBar(fonts, page, top, query, "Title or author", .search);
     if (query.len == 0) {
         try fonts.small.draw(page, style.margin, rows_top + 56, "Find a book by its title or its author.");
         page.tint(style.margin, rows_top + 20, page.width - 2 * style.margin, 50, 0x60);

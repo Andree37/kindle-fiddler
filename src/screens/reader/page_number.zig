@@ -1,8 +1,9 @@
 //! Go to page: type a page number, jump there. Returns the page index, if any.
 const std = @import("std");
-const goto = @import("../../ui/goto.zig");
 const keyboard = @import("../../ui/keyboard.zig");
-const field = @import("../../ui/field.zig");
+const search_sheet = @import("../../ui/search_sheet.zig");
+const style = @import("../../ui/style.zig");
+const toolbar = @import("../../ui/toolbar.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
 
@@ -18,22 +19,25 @@ pub fn run(a: *app.App, s: *sess.Session) !?usize {
     var placeholder_buf: [48]u8 = undefined;
     const placeholder = std.fmt.bufPrint(&placeholder_buf, "Page, from 1 to {d}", .{s.pages.len}) catch "Page";
     var note: []const u8 = "";
-    var whole = true; // Draw the keyboard and what's under the field the first time
-    const background = try s.ensure(s.current, s.current);
+    var whole = true; // Draw the keyboard the first time
     while (true) {
-        @memcpy(a.overlay, a.screen.pixels);
-        if (whole) @memcpy(a.overlay[goto.top * a.screen.stride ..], background[goto.top * a.screen.stride ..]);
-        const page = a.page(a.overlay);
-        try field.render(a.ui, page, digits[0..len], placeholder, true, note);
+        const page = a.page(a.screen.pixels);
+        try search_sheet.renderBar(a.ui, page, toolbar.status_row, digits[0..len], placeholder, .none);
+        page.fillRect(0, search_sheet.content_top, page.width, keyboard.top - search_sheet.content_top, 0xff);
+        if (note.len > 0) try a.ui.small.draw(page, style.margin, search_sheet.content_top + 56, note);
         if (whole) try keyboard.render(a.ui, page);
-        @memcpy(a.screen.pixels, a.overlay);
-        try a.showBand(goto.top, a.screen.height - goto.top);
+        const bottom: u32 = if (whole) a.screen.height else keyboard.top;
+        try a.showBand(toolbar.status_row, bottom - toolbar.status_row);
         whole = false;
 
         const action = a.input.next();
         switch (action) {
             .tap => |t| {
-                if (t.y < goto.top) return null;
+                if (search_sheet.barHit(t.x, t.y)) |h| {
+                    if (h == .cancel) return null;
+                    continue;
+                }
+                if (t.y < search_sheet.top) return null;
                 note = "";
                 switch (keyboard.hit(t.x, t.y) orelse continue) {
                     .char => |c| {
@@ -47,7 +51,7 @@ pub fn run(a: *app.App, s: *sess.Session) !?usize {
                     .space => {},
                     .enter => {
                         if (pageIndex(digits[0..len], s.pages.len)) |index| return index;
-                        note = "No such page";
+                        note = "There's no such page in this book.";
                     },
                 }
             },
