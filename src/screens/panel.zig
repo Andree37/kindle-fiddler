@@ -1,4 +1,4 @@
-//! The quick panel: light, warmth, airplane mode and sync, over a book or the library.
+//! The quick panel: light, warmth, airplane mode, Bluetooth and sync, over a book or the library.
 const std = @import("std");
 const library = @import("../ui/library.zig");
 const menu = @import("../ui/menu.zig");
@@ -63,7 +63,7 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
     return true;
 }
 
-/// Applies a light, warmth or airplane change. False means the tap wasn't one of those.
+/// Applies a light, warmth, airplane or Bluetooth change. False means the tap wasn't one of those.
 pub fn applyQuick(a: *app.App, change: menu.Hit, x: i32) bool {
     switch (change) {
         .dimmer, .brighter => {
@@ -84,6 +84,10 @@ pub fn applyQuick(a: *app.App, change: menu.Hit, x: i32) bool {
         .airplane => {
             a.quick.airplane = !a.quick.airplane;
             lipc.setAirplane(a.quick.airplane);
+        },
+        .bluetooth => {
+            a.quick.bluetooth = !a.quick.bluetooth;
+            lipc.setBluetooth(a.quick.bluetooth);
         },
         else => return false,
     }

@@ -19,7 +19,7 @@ pub const warmth_row = Row{ .label = "Warmth", .y = 850, .max = quick_model.max_
 const schedule_top = 754;
 const schedule_bottom = 794;
 
-pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, settings, kindle, sync };
+pub const Hit = enum { none, close, dimmer, brighter, slider, cooler, warmer, warmth, schedule, airplane, bluetooth, settings, kindle, sync };
 
 const Icon = enum { airplane, wifi, bluetooth, sync, kindle };
 const Shortcut = struct { icon: Icon, hit: Hit, x: i32, y: i32 };
@@ -27,7 +27,7 @@ const icon_radius = 52;
 const shortcuts = [_]Shortcut{
     .{ .icon = .airplane, .hit = .airplane, .x = 318, .y = 240 },
     .{ .icon = .wifi, .hit = .settings, .x = 636, .y = 240 }, // Networks live in stock settings
-    .{ .icon = .bluetooth, .hit = .none, .x = 954, .y = 240 }, // Not wired up yet
+    .{ .icon = .bluetooth, .hit = .bluetooth, .x = 954, .y = 240 },
     .{ .icon = .sync, .hit = .sync, .x = 477, .y = 430 },
     .{ .icon = .kindle, .hit = .kindle, .x = 795, .y = 430 }, // Back to the Kindle's own home
 };
@@ -105,6 +105,7 @@ pub fn isOn(s: Shortcut, quick: *const quick_model.Quick) bool {
     return switch (s.icon) {
         .airplane => quick.airplane,
         .wifi => quick.wifi_on,
+        .bluetooth => quick.bluetooth,
         else => false,
     };
 }
@@ -113,7 +114,7 @@ fn label(s: Shortcut, quick: *const quick_model.Quick) []const u8 {
     return switch (s.icon) {
         .airplane => if (quick.airplane) "On" else "Off",
         .wifi => if (quick.wifi_on) "Connected" else "Wi-Fi Off",
-        .bluetooth => "Off",
+        .bluetooth => if (quick.bluetooth) "On" else "Off",
         .sync => if (quick.syncing) "Syncing" else "Sync",
         .kindle => "Kindle",
     };
@@ -150,7 +151,7 @@ pub fn render(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
 test "panel maps taps like the stock layout" {
     try std.testing.expectEqual(Hit.airplane, hit(318, 240));
     try std.testing.expectEqual(Hit.settings, hit(636, 240)); // Wi-Fi
-    try std.testing.expectEqual(Hit.none, hit(954, 240)); // Bluetooth
+    try std.testing.expectEqual(Hit.bluetooth, hit(954, 240));
     try std.testing.expectEqual(Hit.sync, hit(477, 430));
     try std.testing.expectEqual(Hit.kindle, hit(795, 430));
     try std.testing.expectEqual(Hit.none, hit(954, 430));
@@ -179,4 +180,13 @@ test "toggles report their state" {
     try std.testing.expect(!isOn(shortcuts[0], &off));
     try std.testing.expect(isOn(shortcuts[1], &on));
     try std.testing.expect(!isOn(shortcuts[2], &on));
+}
+
+test "bluetooth toggle shows its state" {
+    const on = quick_model.Quick{ .bluetooth = true };
+    const off = quick_model.Quick{};
+    try std.testing.expect(isOn(shortcuts[2], &on));
+    try std.testing.expect(!isOn(shortcuts[2], &off));
+    try std.testing.expectEqualStrings("On", label(shortcuts[2], &on));
+    try std.testing.expectEqualStrings("Off", label(shortcuts[2], &off));
 }

@@ -1,4 +1,4 @@
-//! Amazon's lipc services: light, warmth, wireless, sync, settings and power events.
+//! Amazon's lipc services: light, warmth, wireless, Bluetooth, sync, settings and power events.
 //! Every call goes through the lipc command line tools.
 const std = @import("std");
 const linux = std.os.linux;
@@ -68,6 +68,7 @@ pub fn read(previous: quick_model.Quick) quick_model.Quick {
     if (get("com.lab126.powerd", "currentAmberLevel", deadline)) |v| q.warmth = v;
     if (get("com.lab126.powerd", "amberSchedEnable", deadline)) |v| q.schedule = v == 1;
     if (get("com.lab126.cmd", "wirelessEnable", deadline)) |v| q.airplane = v == 0;
+    if (get(bt_service, "BTstate", deadline)) |v| q.bluetooth = v != 0; // 0 off, 1 on, 2 connected
     if (get("com.lab126.powerd", "battLevel", deadline)) |v| q.battery = v;
     const argv = [_:null]?[*:0]const u8{ "/bin/date", "+%H:%M - %d %b %Y" };
     var clock: [40]u8 = undefined;
@@ -146,6 +147,17 @@ pub fn setSchedule(on: bool) void {
 
 pub fn setAirplane(on: bool) void {
     set("com.lab126.cmd", "wirelessEnable", if (on) 0 else 1);
+}
+
+const bt_service: [*:0]const u8 = "com.lab126.btfd";
+
+/// btfd takes "<on>:<mode>". Mode 2 is the user's own switch, which btfd remembers
+/// across reboots; mode 1 belongs to VoiceView, and other modes are refused.
+pub fn setBluetooth(on: bool) void {
+    const value: [*:0]const u8 = if (on) "1:2" else "0:2";
+    const argv = [_:null]?[*:0]const u8{ lipc_set, "-s", bt_service, "BTenable", value };
+    var buf: [32]u8 = undefined;
+    _ = process.runUntil(&argv, &buf, lipcDeadline());
 }
 
 test "tool output parses" {

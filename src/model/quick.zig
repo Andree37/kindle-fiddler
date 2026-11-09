@@ -1,4 +1,4 @@
-//! What the quick panel and status bar show: light, warmth, wireless, battery, time.
+//! What the quick panel and status bar show: light, warmth, wireless, Bluetooth, battery, time.
 const std = @import("std");
 
 pub const max_brightness = 24;
@@ -12,6 +12,7 @@ pub const Quick = struct {
     warmth: u32 = 0,
     schedule: bool = false,
     airplane: bool = false,
+    bluetooth: bool = false,
     syncing: bool = false,
     battery: u32 = 0,
     wifi_on: bool = false,
