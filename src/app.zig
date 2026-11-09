@@ -208,16 +208,15 @@ pub const App = struct {
     }
 };
 
-/// Shows a card over `background` and waits for a row to be tapped. Null when the
-/// tap lands outside the card, or the Kindle locks or quits (which is passed on to
-/// the caller's loop). What was under the card is put back either way.
+/// Shows a sheet over `background` and waits for a row to be tapped. Null when the
+/// tap lands above the sheet, or the Kindle locks or quits (which is passed on to
+/// the caller's loop). What was under the sheet is put back either way.
 pub fn chooseFromCard(a: *App, background: []const u8, title: []const u8, subtitle: []const u8, rows: []const card.Row) !?usize {
     @memcpy(a.overlay, background);
     try card.render(a.ui, a.page(a.overlay), title, subtitle, rows);
     @memcpy(a.screen.pixels, a.overlay);
-    const top = card.top(rows.len) - 8;
-    const height = card.height(rows.len) + 16;
-    try a.showRect(card.left - 8, top, card.width + 16, height);
+    // The whole screen dims behind the sheet
+    try a.showBand(0, a.screen.height);
     const chosen: ?usize = while (true) {
         const action = a.input.next();
         switch (action) {
@@ -233,7 +232,7 @@ pub fn chooseFromCard(a: *App, background: []const u8, title: []const u8, subtit
         }
     };
     @memcpy(a.screen.pixels, background);
-    try a.showRect(card.left - 8, top, card.width + 16, height);
+    try a.showBand(0, a.screen.height);
     return chosen;
 }
 

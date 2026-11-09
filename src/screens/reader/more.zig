@@ -32,9 +32,10 @@ fn label(o: Option) []const u8 {
 }
 
 pub fn run(a: *app.App, s: *sess.Session, entry: *catalog.Entry) !Result {
-    const list = [_]Option{ .go_to_page, .beginning, .details, .refresh, if (entry.isRead()) .unread else .finished, .cancel };
+    // No Cancel: tapping above the sheet closes it
+    const list = [_]Option{ .go_to_page, .beginning, .details, .refresh, if (entry.isRead()) .unread else .finished };
     var rows: [list.len]card.Row = undefined;
-    for (list, &rows) |o, *r| r.* = .{ .label = label(o), .quiet = o == .cancel };
+    for (list, &rows) |o, *r| r.* = .{ .label = label(o) };
     const background = try s.ensure(s.current, s.current);
     const picked = try app.chooseFromCard(a, background, entry.title, entry.author, &rows) orelse return .stay;
     switch (list[picked]) {
@@ -57,7 +58,7 @@ pub fn run(a: *app.App, s: *sess.Session, entry: *catalog.Entry) !Result {
     }
 }
 
-/// A card of facts about the book. Any tap closes it.
+/// A sheet of facts about the book. Any tap closes it.
 fn details(a: *app.App, s: *sess.Session, entry: *const catalog.Entry, background: []const u8) !void {
     var progress_buf: [64]u8 = undefined;
     var read_buf: [64]u8 = undefined;
@@ -72,7 +73,6 @@ fn details(a: *app.App, s: *sess.Session, entry: *const catalog.Entry, backgroun
         .{ .quiet = true, .label = if (s.secondsRead() >= 60) std.fmt.bufPrint(&read_buf, "Read for {s}", .{stats.formatMinutes(&t1, s.secondsRead() / 60)}) catch "" else "Not read here yet" },
         .{ .quiet = true, .label = if (s.timeLeft(s.current).book) |m| std.fmt.bufPrint(&left_buf, "{s} left in the book", .{stats.formatMinutes(&t2, m)}) catch "" else "Learning your reading speed" },
         .{ .quiet = true, .label = std.fmt.bufPrint(&counts_buf, "{d} chapters, {d} highlights, {d} bookmarks", .{ s.chapters.len, highlights, s.bookmarks.items.len }) catch "" },
-        .{ .label = "Close" },
     };
     _ = try app.chooseFromCard(a, background, entry.title, entry.author, &rows);
 }

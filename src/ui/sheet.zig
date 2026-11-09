@@ -12,7 +12,7 @@ pub const Option = enum { download, remove, mark_read, mark_unread, confirm_remo
 /// What a book offers. `confirming` swaps the list for the removal question.
 /// The card's rows for a list of options.
 pub fn rows(list: []const Option, out: []card.Row) []card.Row {
-    for (list, out[0..list.len]) |o, *r| r.* = .{ .label = label(o), .quiet = o == .cancel };
+    for (list, out[0..list.len]) |o, *r| r.* = .{ .label = label(o), .danger = o == .remove or o == .confirm_remove };
     return out[0..list.len];
 }
 
@@ -46,8 +46,8 @@ pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Opt
         out[n] = if (e.isRead()) .mark_unread else .mark_read;
         n += 1;
     }
-    out[n] = .cancel;
-    return out[0 .. n + 1];
+    // No Cancel: tapping above the sheet closes it. The removal question keeps one.
+    return out[0..n];
 }
 
 pub fn label(o: Option) []const u8 {
@@ -68,13 +68,13 @@ fn entry(a: catalog.Availability, percent: u32) catalog.Entry {
 test "options follow where the book is" {
     var out: [3]Option = undefined;
     const local = entry(.local, 0);
-    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_read, .cancel }, options(&local, false, &out));
+    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_read }, options(&local, false, &out));
     const cloud = entry(.cloud, 0);
-    try std.testing.expectEqualSlices(Option, &.{ .download, .mark_read, .cancel }, options(&cloud, false, &out));
+    try std.testing.expectEqualSlices(Option, &.{ .download, .mark_read }, options(&cloud, false, &out));
     const read = entry(.local, 100);
-    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_unread, .cancel }, options(&read, false, &out));
+    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_unread }, options(&read, false, &out));
     const busy = entry(.downloading, 0);
-    try std.testing.expectEqualSlices(Option, &.{.cancel}, options(&busy, false, &out));
+    try std.testing.expectEqualSlices(Option, &.{}, options(&busy, false, &out));
 }
 
 test "removal asks first" {
