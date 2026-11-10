@@ -119,11 +119,18 @@ fn paintSelection(a: *app.App, list: []const book_model.Word, first: usize, last
     return now;
 }
 
-/// Press and hold: makes a new highlight from what the finger covers.
-pub fn newHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, hold_x: i32, hold_y: i32) !?[]const u8 {
+/// Press and hold: follows the finger from the word held, and says which words it
+/// covered when it lifted. Null when the hold wasn't on a word.
+pub fn selectFromHold(a: *app.App, s: *const sess.Session, hold_x: i32, hold_y: i32) !?struct { fixed: usize, head: usize } {
     const words = pageWords(a, s);
     const fixed = selection.wordAt(words, hold_x, hold_y) orelse return null;
     const head = try dragSelection(a, words, fixed, fixed);
+    return .{ .fixed = fixed, .head = head };
+}
+
+/// Makes a new highlight of the page's words from `fixed` to `head`, either way round.
+pub fn newHighlight(a: *app.App, s: *sess.Session, alloc: std.mem.Allocator, entry: *const catalog.Entry, fixed: usize, head: usize) !?[]const u8 {
+    const words = pageWords(a, s);
     const lo = words[@min(fixed, head)];
     const hi = words[@max(fixed, head)];
     const start = records.pointFor(s, lo.para, lo.start) orelse {

@@ -16,6 +16,7 @@ const state = @import("../linux/state.zig");
 const annotation_db = @import("../kindle/annotation_db.zig");
 const lipc = @import("../kindle/lipc.zig");
 const hyphen = @import("../layout/hyphen.zig");
+const define = @import("reader/define.zig");
 const toolbar = @import("../ui/toolbar.zig");
 const touch_zones = @import("../kindle/touch.zig");
 const input_mod = @import("../kindle/input.zig");
@@ -144,7 +145,16 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                         continue;
                     }
                 }
-                active = try hl.newHighlight(a, &session, alloc, entry, h.x, h.y);
+                const held = try hl.selectFromHold(a, &session, h.x, h.y) orelse continue;
+                // Held without moving: look the word up, and highlight it only if asked
+                if (held.head == held.fixed) {
+                    const word = hl.pageWords(a, &session)[held.fixed];
+                    if (try define.run(a, &session, word, lang) == .close) {
+                        _ = try hl.showPage(a, &session, null); // Takes the underline off
+                        continue;
+                    }
+                }
+                active = try hl.newHighlight(a, &session, alloc, entry, held.fixed, held.head);
                 if (active != null) {
                     view = .highlight;
                     delete_top = try hl.showPage(a, &session, active);

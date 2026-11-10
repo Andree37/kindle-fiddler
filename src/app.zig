@@ -23,6 +23,7 @@ const quick_model = @import("model/quick.zig");
 const text = @import("layout/text.zig");
 const hyphen = @import("layout/hyphen.zig");
 const journal_model = @import("model/journal.zig");
+const dictionary = @import("model/dictionary.zig");
 const os = @import("linux/os.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
@@ -75,6 +76,30 @@ pub const App = struct {
     layout: text.Layout,
     // Made the first time a book in that language opens, then kept
     hyphenators: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?hyphen.Hyphenator = @splat(null),
+    // Mapped the first time a word in that language is looked up, then kept
+    dictionaries: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?dictionary.Dictionary = @splat(null),
+
+    /// The dictionary for a book's language, from dict-en or dict-pt beside the
+    /// settings. Null when the language isn't known or its file isn't there.
+    pub fn dictionaryFor(a: *App, lang: ?hyphen.Lang) ?dictionary.Dictionary {
+        const l = lang orelse return null;
+        const slot = &a.dictionaries[@intFromEnum(l)];
+        if (slot.* == null) {
+            var buf: [320]u8 = undefined;
+            const name = switch (l) {
+                .english => "dict-en",
+                .portuguese => "dict-pt",
+            };
+            const path = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ a.state_dir, name }, 0) catch return null;
+            const data = file.map(path) catch return null;
+            slot.* = dictionary.Dictionary.open(data) orelse {
+                file.unmap(data);
+                std.debug.print("dictionary {s} unreadable\n", .{name});
+                return null;
+            };
+        }
+        return slot.*;
+    }
 
     /// Today, as the journal counts days: the local calendar day.
     pub fn today(a: *const App) i32 {
