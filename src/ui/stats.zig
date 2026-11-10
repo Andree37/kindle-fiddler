@@ -128,13 +128,13 @@ pub fn render(fonts: Fonts, page: Page, s: Summary) !void {
     const year_label = std.fmt.bufPrint(&r1, "Finished in {d}", .{s.year}) catch "";
     const finished = std.fmt.bufPrint(&r2, "{d} book{s}", .{ s.year_finished, if (s.year_finished == 1) "" else "s" }) catch "";
     try row(fonts, page, 0, year_label, finished);
-    try row(fonts, page, 1, "Time read this year", if (s.year_seconds >= 60) stats_model.formatMinutes(&t, s.year_seconds / 60) else "None yet");
+    try row(fonts, page, 1, "Read in noface this year", if (s.year_seconds >= 60) stats_model.formatMinutes(&t, s.year_seconds / 60) else "None yet");
     const speed = if (s.wpm) |w| std.fmt.bufPrint(&r3, "{d} words a minute", .{w}) catch "" else "Still learning";
     try row(fonts, page, 2, "Reading speed", speed);
     const library = std.fmt.bufPrint(&r4, "{d} books, {d} read, {d} going", .{ s.books, s.finished, s.in_progress }) catch "";
     try row(fonts, page, 3, "Library", library);
     page.fillRect(style.margin, rows_top + 4 * row_height, page.width - 2 * style.margin, 1, style.rule);
-    try fonts.caption.draw(page, style.margin, @intCast(rows_top + 4 * row_height + 56), "Counted from when noface started keeping a journal.");
+    try fonts.caption.draw(page, style.margin, @intCast(rows_top + 4 * row_height + 56), "Days and the streak count from when noface started its journal.");
     page.tint(style.margin, rows_top + 4 * row_height + 26, page.width - 2 * style.margin, 40, style.faded);
 }
 

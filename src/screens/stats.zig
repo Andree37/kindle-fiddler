@@ -19,14 +19,22 @@ pub fn summarize(a: *const app.App, entries: []const catalog.Entry) stats_ui.Sum
     const year_start = journal.yearStart(today);
     const year = j.since(year_start, today);
     s.year = @intCast((std.time.epoch.EpochDay{ .day = @intCast(today) }).calculateYearDay().year);
-    s.year_finished = year.finished;
-    s.year_seconds = year.seconds;
     if (a.speed.known()) s.wpm = @intFromFloat(@round(a.speed.wpm()));
+    // The journal starts the day noface started keeping it, so the year also counts
+    // what was known before: books marked read that were last opened this year (the
+    // Kindle's own record), and each book's time read in noface. Whichever is more.
+    var finished_this_year: u32 = 0;
+    var seconds_this_year: u64 = 0;
     for (entries) |e| {
         s.books += 1;
         if (e.isRead()) s.finished += 1;
         if (e.inProgress()) s.in_progress += 1;
+        if (e.last == 0 or journal.dayOf(e.last, a.utc_offset) < year_start) continue;
+        if (e.isRead()) finished_this_year += 1;
+        seconds_this_year += e.seconds_read;
     }
+    s.year_finished = @max(year.finished, finished_this_year);
+    s.year_seconds = @max(year.seconds, seconds_this_year);
     return s;
 }
 
