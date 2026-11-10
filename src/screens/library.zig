@@ -265,6 +265,7 @@ pub fn runLibrary(a: *app.App) !void {
     // show the lock screen now, as if it had just arrived. Otherwise the library
     // would sit under a locked Kindle with touch switched off.
     if (lipc.inScreenSaver() == true) a.input.stashed = .lock;
+    a.quick = lipc.read(a.quick); // Once up front, so the first screen never shows blanks
     var filter: catalog.Filter = .all;
     var order: catalog.Order = .recent;
     var query = search.Query{};
@@ -289,13 +290,20 @@ pub fn runLibrary(a: *app.App) !void {
         var hero = catalog.pickHero(lib.entries);
         var count = choose(&lib, filter, hero, query.words());
         index = @min(index, library.pageCount(count) - 1);
-        a.quick = lipc.read(a.quick);
         a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
         try showPage(a, &lib, buf, .full, index, count);
         logPage(&lib, index, count);
+        // Drawn with the last status at once; read again now, and redrawn (only what
+        // changed, without a flash) if the battery, Wi-Fi or clock moved on
+        const status = lipc.read(a.quick);
+        if (!status.same(&a.quick)) {
+            a.quick = status;
+            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
+            try a.present(buf, .gc16, .partial);
+        }
         message = "";
 
         browse: while (true) {

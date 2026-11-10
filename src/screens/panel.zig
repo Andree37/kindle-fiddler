@@ -6,6 +6,16 @@ const lipc = @import("../kindle/lipc.zig");
 const quick_model = @import("../model/quick.zig");
 const app = @import("../app.zig");
 
+/// Shows the panel at once with the last status read, then reads it again (about a
+/// quarter second of lipc calls) and redraws only if something changed.
+pub fn drawFresh(a: *app.App, background: []const u8) !void {
+    try drawMenu(a, background);
+    const fresh = lipc.read(a.quick);
+    if (fresh.same(&a.quick)) return;
+    a.quick = fresh;
+    try drawMenu(a, background);
+}
+
 /// Draws the quick panel over `background` and shows it.
 pub fn drawMenu(a: *app.App, background: []const u8) !void {
     @memcpy(a.overlay, background);
@@ -113,8 +123,7 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
 
 /// The quick panel over the library. Returns true to quit to the stock UI.
 pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
-    a.quick = lipc.read(a.quick);
-    try drawMenu(a, background);
+    try drawFresh(a, background);
     while (true) {
         switch (a.input.next()) {
             .tap => |t| {

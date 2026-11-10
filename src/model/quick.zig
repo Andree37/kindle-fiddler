@@ -23,7 +23,29 @@ pub const Quick = struct {
     pub fn clockText(q: *const Quick) []const u8 {
         return q.clock[0..q.clock_len];
     }
+
+    /// Whether two readings would draw the same, so a screen drawn from the first
+    /// needs no redraw for the second.
+    pub fn same(a: *const Quick, b: *const Quick) bool {
+        return a.brightness == b.brightness and a.warmth == b.warmth and a.schedule == b.schedule and
+            a.airplane == b.airplane and a.bluetooth == b.bluetooth and a.syncing == b.syncing and
+            a.battery == b.battery and a.wifi_on == b.wifi_on and a.wifi_bars == b.wifi_bars and
+            std.mem.eql(u8, a.clockText(), b.clockText());
+    }
 };
+
+test "readings compare by what they show" {
+    var a = Quick{ .battery = 80 };
+    a.clock_len = 5;
+    @memcpy(a.clock[0..5], "21:15");
+    var b = a;
+    try std.testing.expect(a.same(&b));
+    b.battery = 79;
+    try std.testing.expect(!a.same(&b));
+    b = a;
+    @memcpy(b.clock[0..5], "21:16");
+    try std.testing.expect(!a.same(&b));
+}
 
 /// Steps brightness, stopping at both ends.
 pub fn stepBrightness(level: u32, up: bool) u32 {

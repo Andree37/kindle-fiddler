@@ -309,8 +309,13 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     if (t.y < touch_zones.top_zone) {
                         view = .toolbar;
                         a.input.grips = false;
-                        a.quick = lipc.read(a.quick);
+                        // Drawn with the last status at once, then again if it changed
                         try controls.drawToolbar(a, &session, entry.title, false, false);
+                        const fresh = lipc.read(a.quick);
+                        if (!fresh.same(&a.quick)) {
+                            a.quick = fresh;
+                            try controls.drawToolbar(a, &session, entry.title, false, false);
+                        }
                         continue;
                     }
                     const delta = input_mod.turnDirection(t.x, a.input.width) + a.input.takeTurns();
@@ -328,8 +333,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             .pull => {
                 if (view != .page) continue;
                 view = .panel;
-                a.quick = lipc.read(a.quick);
-                try panel.drawMenu(a, try session.ensure(session.current, session.current));
+                try panel.drawFresh(a, try session.ensure(session.current, session.current));
             },
             .power, .computer, .stop => return .quit,
         }
