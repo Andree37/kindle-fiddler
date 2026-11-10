@@ -15,6 +15,7 @@ const lipc = @import("../kindle/lipc.zig");
 const store = @import("../kindle/store.zig");
 const nowUs = os.nowUs;
 const app = @import("../app.zig");
+const hwtcon = @import("../kindle/hwtcon.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const reader = @import("reader.zig");
@@ -246,6 +247,17 @@ fn moment(a: *const app.App) library.Moment {
     return .{ .unix = os.unixTime(), .utc_offset = a.utc_offset };
 }
 
+/// Shows a library page, and while the screen refreshes, gets the covers of the
+/// pages either side ready, so turning to them is quick.
+fn showPage(a: *app.App, lib: *Library, buf: []const u8, mode: hwtcon.UpdateMode, index: usize, count: usize) !void {
+    @memcpy(a.screen.pixels, buf);
+    const marker = try a.screen.update(.gc16, mode);
+    const alloc = lib.arena.allocator();
+    library.prepareCovers(alloc, lib.entries, lib.visible[0..count], index + 1);
+    if (index > 0) library.prepareCovers(alloc, lib.entries, lib.visible[0..count], index - 1);
+    try a.screen.waitComplete(marker);
+}
+
 pub fn runLibrary(a: *app.App) !void {
     var lib = try loadLibrary(a);
     defer lib.deinit();
@@ -282,7 +294,7 @@ pub fn runLibrary(a: *app.App) !void {
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
-        try a.present(buf, .gc16, .full);
+        try showPage(a, &lib, buf, .full, index, count);
         logPage(&lib, index, count);
         message = "";
 
@@ -430,7 +442,7 @@ pub fn runLibrary(a: *app.App) !void {
                 continue;
             }
             try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick, moment(a));
-            try a.present(buf, .gc16, .partial);
+            try showPage(a, &lib, buf, .partial, index, count);
             logPage(&lib, index, count);
         }
     }

@@ -236,11 +236,23 @@ fn typeCover(fonts: Fonts, page: Page, x: u32, y: u32, w: u32, h: u32, e: *const
     try draw.clipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
 }
 
+/// Decodes and scales a book's cover the first time it's needed, then keeps it.
+fn loadCover(alloc: std.mem.Allocator, e: *catalog.Entry) void {
+    if (e.cover_tried) return;
+    e.cover_tried = true;
+    if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail, cover.width, cover.height);
+}
+
+/// Gets the covers of library page `index` ready, so turning to it doesn't wait on
+/// decoding them (about 10 ms each). For idle moments, like a screen refresh.
+pub fn prepareCovers(alloc: std.mem.Allocator, entries: []catalog.Entry, visible: []const usize, index: usize) void {
+    if (index >= pageCount(visible.len)) return;
+    const range = pageRange(index, visible.len);
+    for (visible[range.first..range.end]) |i| loadCover(alloc, &entries[i]);
+}
+
 fn drawCover(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entry, x: u32, y: u32) !void {
-    if (!e.cover_tried) {
-        e.cover_tried = true;
-        if (e.thumbnail.len > 0) e.cover = cover.load(alloc, e.thumbnail, cover.width, cover.height);
-    }
+    loadCover(alloc, e);
     if (e.cover) |c| {
         page.copyImage(x, y, c, cover.width, cover.height);
     } else {

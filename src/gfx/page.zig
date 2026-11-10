@@ -44,21 +44,46 @@ pub const Page = struct {
         const bottom: i32 = @intFromFloat(@ceil(cy + radius + 1));
         const left: i32 = @intFromFloat(@floor(x0 - radius - 1));
         const right: i32 = @intFromFloat(@ceil(x1 + radius + 1));
-        var y = @max(top, 0);
+        // Pixels whose centres sit between x0 and x1 are the straight part: their
+        // distance from the bar's spine is just how far up or down they are, so they
+        // need no square root, and where they're fully covered a row is one fill.
+        const mid_lo: i32 = @intFromFloat(@ceil(x0 - 0.5));
+        const mid_hi: i32 = @intFromFloat(@floor(x1 - 0.5));
+        const v: f32 = @floatFromInt(value);
+        var y: i32 = @max(top, 0);
         while (y <= bottom and y < p.height) : (y += 1) {
-            var x = @max(left, 0);
+            const ey = @as(f32, @floatFromInt(y)) + 0.5 - cy;
+            if (@abs(ey) >= radius + 0.5) continue;
+            const row = @as(usize, @intCast(y)) * p.stride;
+            const mid_cover = std.math.clamp(radius + 0.5 - @abs(ey), 0, 1);
+            var x: i32 = @max(left, 0);
             while (x <= right and x < p.width) : (x += 1) {
+                if (x >= mid_lo and x <= mid_hi) {
+                    if (mid_cover >= 1) {
+                        const end = @min(mid_hi, @as(i32, @intCast(p.width)) - 1);
+                        @memset(p.buf[row + @as(usize, @intCast(x)) .. row + @as(usize, @intCast(end)) + 1], value);
+                        x = end;
+                        continue;
+                    }
+                    blendAt(p, row + @as(usize, @intCast(x)), v, mid_cover);
+                    continue;
+                }
                 const px = @as(f32, @floatFromInt(x)) + 0.5;
-                const py = @as(f32, @floatFromInt(y)) + 0.5;
                 const ex = px - std.math.clamp(px, x0, x1);
-                const ey = py - cy;
                 const coverage = std.math.clamp(radius + 0.5 - @sqrt(ex * ex + ey * ey), 0, 1);
                 if (coverage <= 0) continue;
-                const at = @as(usize, @intCast(y)) * p.stride + @as(usize, @intCast(x));
-                const old: f32 = @floatFromInt(p.buf[at]);
-                p.buf[at] = @intFromFloat(@round(old + (@as(f32, @floatFromInt(value)) - old) * coverage));
+                blendAt(p, row + @as(usize, @intCast(x)), v, coverage);
             }
         }
+    }
+
+    fn blendAt(p: Page, at: usize, v: f32, coverage: f32) void {
+        if (coverage >= 1) {
+            p.buf[at] = @intFromFloat(v);
+            return;
+        }
+        const old: f32 = @floatFromInt(p.buf[at]);
+        p.buf[at] = @intFromFloat(@round(old + (v - old) * coverage));
     }
 
     /// How much of the pixel at (`px`, `py`) a rectangle with rounded corners covers.
@@ -72,15 +97,29 @@ pub const Page = struct {
     /// Fills a rectangle with rounded corners, in any gray, with smooth edges.
     pub fn roundRect(p: Page, x: u32, y: u32, w: u32, h: u32, radius: f32, value: u8) void {
         const v: f32 = @floatFromInt(value);
+        const fx: f32 = @floatFromInt(x);
+        const fy: f32 = @floatFromInt(y);
+        const fw: f32 = @floatFromInt(w);
+        const fh: f32 = @floatFromInt(h);
+        // Columns whose centres are within the straight top and bottom edges: on a row
+        // inside the straight sides as well, they're fully covered, so one fill.
+        const flat_lo: u32 = @intFromFloat(@max(@ceil(fx + radius - 0.5), 0));
+        const flat_hi: u32 = @intFromFloat(@max(@floor(fx + fw - radius - 0.5), -1));
         var row = y;
         while (row < @min(y + h, p.height)) : (row += 1) {
+            const py = @as(f32, @floatFromInt(row)) + 0.5;
+            const inside_rows = @abs(py - (fy + fh / 2)) <= fh / 2 - radius;
             var col = x;
             while (col < @min(x + w, p.width)) : (col += 1) {
-                const c = roundCoverage(@as(f32, @floatFromInt(col)) + 0.5, @as(f32, @floatFromInt(row)) + 0.5, @floatFromInt(x), @floatFromInt(y), @floatFromInt(w), @floatFromInt(h), radius);
+                if (inside_rows and col >= flat_lo and col <= flat_hi) {
+                    const end = @min(flat_hi, p.width - 1);
+                    @memset(p.buf[row * p.stride + col .. row * p.stride + end + 1], value);
+                    col = end;
+                    continue;
+                }
+                const c = roundCoverage(@as(f32, @floatFromInt(col)) + 0.5, py, fx, fy, fw, fh, radius);
                 if (c <= 0) continue;
-                const at = row * p.stride + col;
-                const old: f32 = @floatFromInt(p.buf[at]);
-                p.buf[at] = @intFromFloat(@round(old + (v - old) * c));
+                p.blendAt(row * p.stride + col, v, c);
             }
         }
     }
@@ -292,6 +331,92 @@ test "dim and tint clip to the page" {
     page.tint(0, 1, 2, std.math.maxInt(u32), 0x50);
     page.dim(0, 0, 10, 10);
     try std.testing.expect(buf[0] != 0x00);
+}
+
+fn pillReference(p: Page, x0: f32, x1: f32, cy: f32, radius: f32, value: u8) void {
+    const top: i32 = @intFromFloat(@floor(cy - radius - 1));
+    const bottom: i32 = @intFromFloat(@ceil(cy + radius + 1));
+    const left: i32 = @intFromFloat(@floor(x0 - radius - 1));
+    const right: i32 = @intFromFloat(@ceil(x1 + radius + 1));
+    var y = @max(top, 0);
+    while (y <= bottom and y < p.height) : (y += 1) {
+        var x = @max(left, 0);
+        while (x <= right and x < p.width) : (x += 1) {
+            const px = @as(f32, @floatFromInt(x)) + 0.5;
+            const py = @as(f32, @floatFromInt(y)) + 0.5;
+            const ex = px - std.math.clamp(px, x0, x1);
+            const ey = py - cy;
+            const coverage = std.math.clamp(radius + 0.5 - @sqrt(ex * ex + ey * ey), 0, 1);
+            if (coverage <= 0) continue;
+            const at = @as(usize, @intCast(y)) * p.stride + @as(usize, @intCast(x));
+            const old: f32 = @floatFromInt(p.buf[at]);
+            p.buf[at] = @intFromFloat(@round(old + (@as(f32, @floatFromInt(value)) - old) * coverage));
+        }
+    }
+}
+
+fn roundRectReference(p: Page, x: u32, y: u32, w: u32, h: u32, radius: f32, value: u8) void {
+    const v: f32 = @floatFromInt(value);
+    var row = y;
+    while (row < @min(y + h, p.height)) : (row += 1) {
+        var col = x;
+        while (col < @min(x + w, p.width)) : (col += 1) {
+            const c = Page.roundCoverage(@as(f32, @floatFromInt(col)) + 0.5, @as(f32, @floatFromInt(row)) + 0.5, @floatFromInt(x), @floatFromInt(y), @floatFromInt(w), @floatFromInt(h), radius);
+            if (c <= 0) continue;
+            const at = row * p.stride + col;
+            const old: f32 = @floatFromInt(p.buf[at]);
+            p.buf[at] = @intFromFloat(@round(old + (v - old) * c));
+        }
+    }
+}
+
+test "the fast rounded rectangle draws exactly what the plain one did" {
+    var prng = std.Random.DefaultPrng.init(11);
+    const rand = prng.random();
+    var a: [64 * 48]u8 = undefined;
+    var b: [64 * 48]u8 = undefined;
+    for (0..400) |_| {
+        for (&a, &b) |*pa, *pb| {
+            const g = rand.int(u8);
+            pa.* = g;
+            pb.* = g;
+        }
+        const pa = Page{ .buf = &a, .width = 60, .height = 48, .stride = 64 };
+        const pb = Page{ .buf = &b, .width = 60, .height = 48, .stride = 64 };
+        const x = rand.uintLessThan(u32, 70);
+        const y = rand.uintLessThan(u32, 56);
+        const w = rand.uintLessThan(u32, 50) + 1;
+        const h = rand.uintLessThan(u32, 40) + 1;
+        const r = rand.float(f32) * @as(f32, @floatFromInt(@min(w, h))) / 2;
+        const value = rand.int(u8);
+        pa.roundRect(x, y, w, h, r, value);
+        roundRectReference(pb, x, y, w, h, r, value);
+        try std.testing.expectEqualSlices(u8, &b, &a);
+    }
+}
+
+test "the fast pill draws exactly what the plain one did" {
+    var prng = std.Random.DefaultPrng.init(7);
+    const rand = prng.random();
+    var a: [64 * 48]u8 = undefined;
+    var b: [64 * 48]u8 = undefined;
+    for (0..400) |_| {
+        for (&a, &b) |*pa, *pb| {
+            const g = rand.int(u8);
+            pa.* = g;
+            pb.* = g;
+        }
+        const pa = Page{ .buf = &a, .width = 60, .height = 48, .stride = 64 };
+        const pb = Page{ .buf = &b, .width = 60, .height = 48, .stride = 64 };
+        const x0 = rand.float(f32) * 80 - 10;
+        const x1 = x0 + rand.float(f32) * 40;
+        const cy = rand.float(f32) * 60 - 6;
+        const r = rand.float(f32) * 20 + 0.5;
+        const value = rand.int(u8);
+        pa.pill(x0, x1, cy, r, value);
+        pillReference(pb, x0, x1, cy, r, value);
+        try std.testing.expectEqualSlices(u8, &b, &a);
+    }
 }
 
 test "pills fill their middle and blend their edge" {
