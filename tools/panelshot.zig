@@ -91,6 +91,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
+    // The library with a search showing: the filled search button and the results
+    // header. `panelshot library-search [query]`, "the" by default.
+    if (std.mem.eql(u8, mode, "library-search")) {
+        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        catalog.sort(entries, .recent);
+        const visible = try alloc.alloc(usize, entries.len);
+        const query = if (argv.len > 2) std.mem.sliceTo(argv[2], 0) else "the";
+        const count = catalog.select(entries, .all, null, query, visible);
+        try library.render(alloc, fonts, page, entries, catalog.pickHero(entries), visible[0..count], 0, .all, .recent, query, "", &quick, .{ .unix = core.os.unixTime(), .utc_offset = core.clock.utcOffset() });
+        writeImage(buf, w, h);
+        return;
+    }
+
     if (std.mem.eql(u8, mode, "notes")) {
         var body = try Font.init(alloc, regular, 46, 1.35);
         var note_font = try Font.init(alloc, regular, 36, 1.3);

@@ -147,18 +147,15 @@ pub fn lines(page: Page, cx: f32, cy: f32) void {
 }
 
 /// The toolbar's bookmark, filled when the page has one.
+/// A filled ribbon with a notch at the bottom, smooth on every edge like the outline.
 pub fn bookmarkFilled(page: Page, cx: f32, cy: f32) void {
-    const left: u32 = @intFromFloat(cx - 17);
-    const top: u32 = @intFromFloat(cy - 24);
-    page.fillRect(left, top, 34, 33, 0x00);
-    // Below that, the notch opens up from the centre, leaving two points.
-    var row: u32 = 0;
-    while (row < 15) : (row += 1) {
-        const gap: u32 = (row + 1) * 17 / 15;
-        const side: u32 = 17 - @min(gap, 17);
-        page.fillRect(left, top + 33 + row, side, 1, 0x00);
-        page.fillRect(left + 34 - side, top + 33 + row, side, 1, 0x00);
-    }
+    const left = cx - 17;
+    const top = cy - 24;
+    const shape = [_][2]f32{
+        .{ left, top },      .{ left + 34, top }, .{ left + 34, top + 48 },
+        .{ cx, top + 33 },   .{ left, top + 48 },
+    };
+    page.fillPoly(&shape);
 }
 
 /// The ribbon in a bookmarked page's top-right corner.
@@ -244,34 +241,38 @@ pub fn highlighter(page: Page, cx: f32, cy: f32) void {
     page.fillPoly(&tip);
 }
 
-/// Lays an icon drawn black on a white `tile` onto `page` in white, centred on
-/// (`cx`, `cy`): the icon of a button that's filled black because it's on. Its smooth
-/// edges stay smooth, which inverting a disc of pixels can't manage.
-pub fn stampWhite(page: Page, tile: Page, cx: i32, cy: i32) void {
-    const left = cx - @as(i32, @intCast(tile.width / 2));
-    const top = cy - @as(i32, @intCast(tile.height / 2));
-    for (0..tile.height) |row| {
-        const y = top + @as(i32, @intCast(row));
-        if (y < 0 or y >= page.height) continue;
-        for (0..tile.width) |col| {
-            const x = left + @as(i32, @intCast(col));
-            if (x < 0 or x >= page.width) continue;
-            const at = @as(usize, @intCast(y)) * page.stride + @as(usize, @intCast(x));
-            page.buf[at] = @max(page.buf[at], 0xff - tile.buf[row * tile.stride + col]);
-        }
-    }
+/// Draws `glyph` in white, centred on (`cx`, `cy`), over a control that's filled
+/// black because it's on. It's drawn black on a white `w` by `h` tile, then stamped
+/// in white, so its smooth edges stay smooth. Flipping pixels in place can't do that
+/// once the flipped area cuts through another shape's soft edge, as a disc's does.
+/// `glyph` has `draw(self, tile: Page, cx: f32, cy: f32) !void`.
+pub fn drawWhite(page: Page, comptime w: u32, comptime h: u32, cx: i32, cy: i32, glyph: anytype) !void {
+    var buf: [w * h]u8 = @splat(0xff);
+    const tile = Page{ .buf = &buf, .width = w, .height = h, .stride = w };
+    try glyph.draw(tile, @as(f32, w) / 2, @as(f32, h) / 2);
+    page.stampWhite(tile, cx, cy);
 }
 
-test "a stamped icon turns white where it was black, and leaves the rest" {
-    var under: [8 * 8]u8 = @splat(0x00);
-    const page = Page{ .buf = &under, .width = 8, .height = 8, .stride = 8 };
-    var tile_buf: [4 * 4]u8 = @splat(0xff);
-    tile_buf[5] = 0x00; // One black pixel in the icon
-    tile_buf[6] = 0x80; // One edge pixel, half covered
-    stampWhite(page, .{ .buf = &tile_buf, .width = 4, .height = 4, .stride = 4 }, 4, 4);
-    try std.testing.expectEqual(@as(u8, 0xff), under[3 * 8 + 3]);
-    try std.testing.expectEqual(@as(u8, 0x7f), under[3 * 8 + 4]);
-    try std.testing.expectEqual(@as(u8, 0x00), under[0]);
+/// A magnifier, for drawWhite.
+pub const Magnifier = struct {
+    scale: f32,
+    pub fn draw(m: Magnifier, page: Page, cx: f32, cy: f32) !void {
+        searchScaled(page, cx, cy, m.scale);
+    }
+};
+
+test "a white glyph lands centred, and only where it was drawn" {
+    var under: [40 * 40]u8 = @splat(0x00);
+    const page = Page{ .buf = &under, .width = 40, .height = 40, .stride = 40 };
+    const Dot = struct {
+        pub fn draw(_: @This(), t: Page, cx: f32, cy: f32) !void {
+            t.fillRect(@intFromFloat(cx - 1), @intFromFloat(cy - 1), 2, 2, 0x00);
+        }
+    };
+    try drawWhite(page, 10, 10, 20, 20, Dot{});
+    try std.testing.expectEqual(@as(u8, 0xff), under[19 * 40 + 19]);
+    try std.testing.expectEqual(@as(u8, 0xff), under[20 * 40 + 20]);
+    try std.testing.expectEqual(@as(u8, 0x00), under[16 * 40 + 16]); // Rest of the tile
 }
 
 /// Stats: three rounded bars of different heights on a baseline.

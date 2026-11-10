@@ -357,21 +357,15 @@ fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: c
     const y = top + 54;
     const cy: f32 = @floatFromInt(top + button_top + button_height / 2);
     const r: f32 = button_height / 2;
-    page.pill(search_cx, search_cx, cy, r, 0x00);
     if (searching) {
-        // Filled while a search is showing, like a toggle that's on: a smooth black
-        // disc with the magnifier laid on it in white
-        const tile = button_height;
-        var buf: [tile * tile]u8 = @splat(0xff);
-        const t = Page{ .buf = &buf, .width = tile, .height = tile, .stride = tile };
-        icons.searchScaled(t, tile / 2, tile / 2, 0.8);
-        icons.stampWhite(page, t, search_cx, @intFromFloat(cy));
+        // Filled while a search is showing, like a toggle that's on
+        page.pill(search_cx, search_cx, cy, r, 0x00);
+        try icons.drawWhite(page, button_height, button_height, search_cx, @intFromFloat(cy), icons.Magnifier{ .scale = 0.8 });
     } else {
-        page.pill(search_cx, search_cx, cy, r - 2, 0xff);
+        buttonOutline(page, search_cx - r, search_cx + r, top);
         icons.searchScaled(page, search_cx, cy, 0.8);
     }
-    page.pill(stats_cx, stats_cx, cy, r, 0x00);
-    page.pill(stats_cx, stats_cx, cy, r - 2, 0xff);
+    buttonOutline(page, stats_cx - r, stats_cx + r, top);
     icons.barChart(page, stats_cx, cy);
     buttonOutline(page, margin, @floatFromInt(tabs[tabs.len - 1].right), top);
     icons.funnel(page, margin + icon_inset, cy);

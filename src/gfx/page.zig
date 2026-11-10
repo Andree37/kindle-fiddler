@@ -8,15 +8,6 @@ pub const Page = struct {
     height: u32,
     stride: u32,
 
-    /// Flips everything inside a circle, for controls that fill when on.
-    pub fn invert(p: Page, x: u32, y: u32, w: u32, h: u32) void {
-        var row = y;
-        while (row < @min(y + h, p.height)) : (row += 1) {
-            const start = row * p.stride + x;
-            for (p.buf[start .. start + @min(w, p.width - x)]) |*px| px.* = ~px.*;
-        }
-    }
-
     /// Fills a rectangle, clipped to the page.
     pub fn fillRect(p: Page, x: u32, y: u32, w: u32, h: u32, value: u8) void {
         if (x >= p.width or y >= p.height) return;
@@ -29,10 +20,11 @@ pub const Page = struct {
         }
     }
 
-    /// Fades an area toward white, for disabled controls.
+    /// Fades an area toward white, for disabled controls. Clipped to the page.
     pub fn dim(p: Page, x: u32, y: u32, w: u32, h: u32) void {
+        if (x >= p.width) return;
         var row = y;
-        while (row < @min(y + h, p.height)) : (row += 1) {
+        while (row < @min(y +| h, p.height)) : (row += 1) {
             const start = row * p.stride + x;
             for (p.buf[start .. start + @min(w, p.width - x)]) |*px| px.* = 0xc8 + px.* / 5;
         }
@@ -89,23 +81,6 @@ pub const Page = struct {
                 const at = row * p.stride + col;
                 const old: f32 = @floatFromInt(p.buf[at]);
                 p.buf[at] = @intFromFloat(@round(old + (v - old) * c));
-            }
-        }
-    }
-
-    /// Rounds off the corners of whatever is drawn in a rectangle, blending them into
-    /// `outside`. For shapes drawn square first, like a key inverted to white on black.
-    pub fn roundCorners(p: Page, x: u32, y: u32, w: u32, h: u32, radius: f32, outside: u8) void {
-        const v: f32 = @floatFromInt(outside);
-        var row = y;
-        while (row < @min(y + h, p.height)) : (row += 1) {
-            var col = x;
-            while (col < @min(x + w, p.width)) : (col += 1) {
-                const c = roundCoverage(@as(f32, @floatFromInt(col)) + 0.5, @as(f32, @floatFromInt(row)) + 0.5, @floatFromInt(x), @floatFromInt(y), @floatFromInt(w), @floatFromInt(h), radius);
-                if (c >= 1) continue;
-                const at = row * p.stride + col;
-                const old: f32 = @floatFromInt(p.buf[at]);
-                p.buf[at] = @intFromFloat(@round(v + (old - v) * c));
             }
         }
     }
@@ -193,8 +168,9 @@ pub const Page = struct {
 
     /// Lifts black toward `floor`, for secondary text and lines.
     pub fn tint(p: Page, x: u32, y: u32, w: u32, h: u32, floor: u8) void {
+        if (x >= p.width) return;
         var row = y;
-        while (row < @min(y + h, p.height)) : (row += 1) {
+        while (row < @min(y +| h, p.height)) : (row += 1) {
             const start = row * p.stride + x;
             for (p.buf[start .. start + @min(w, p.width - x)]) |*px| {
                 const span: u32 = 255 - @as(u32, floor);
@@ -210,17 +186,46 @@ pub const Page = struct {
     }
 
     /// Filled disc, or a ring when `inner` is above zero.
+    /// A disc of radius `outer` centred on pixel (`cx`, `cy`), or a ring when `inner`
+    /// is above zero, in any gray, with smooth edges.
     pub fn disc(p: Page, cx: i32, cy: i32, outer: i32, inner: i32, value: u8) void {
-        var y = -outer;
-        while (y <= outer) : (y += 1) {
-            var x = -outer;
-            while (x <= outer) : (x += 1) {
-                const d = x * x + y * y;
-                if (d > outer * outer or d < inner * inner) continue;
+        const ro: f32 = @floatFromInt(outer);
+        const ri: f32 = @floatFromInt(inner);
+        const v: f32 = @floatFromInt(value);
+        var y = -outer - 1;
+        while (y <= outer + 1) : (y += 1) {
+            var x = -outer - 1;
+            while (x <= outer + 1) : (x += 1) {
                 const px = cx + x;
                 const py = cy + y;
                 if (px < 0 or py < 0 or px >= p.width or py >= p.height) continue;
-                p.buf[@as(usize, @intCast(py)) * p.stride + @as(usize, @intCast(px))] = value;
+                const d = @sqrt(@as(f32, @floatFromInt(x * x + y * y)));
+                var c = std.math.clamp(ro + 0.5 - d, 0, 1);
+                if (inner > 0) c = @min(c, std.math.clamp(d - ri + 0.5, 0, 1));
+                if (c <= 0) continue;
+                const at = @as(usize, @intCast(py)) * p.stride + @as(usize, @intCast(px));
+                const old: f32 = @floatFromInt(p.buf[at]);
+                p.buf[at] = @intFromFloat(@round(old + (v - old) * c));
+            }
+        }
+    }
+
+    /// Lays an icon drawn in black on the white `tile` onto this page in white,
+    /// centred on (`cx`, `cy`). Each pixel lightens as far as the icon covers it, so
+    /// smooth edges stay smooth over black or over gray. Clipped to the page.
+    pub fn stampWhite(p: Page, tile: Page, cx: i32, cy: i32) void {
+        const left = cx - @as(i32, @intCast(tile.width / 2));
+        const top = cy - @as(i32, @intCast(tile.height / 2));
+        for (0..tile.height) |row| {
+            const y = top + @as(i32, @intCast(row));
+            if (y < 0 or y >= p.height) continue;
+            for (0..tile.width) |col| {
+                const x = left + @as(i32, @intCast(col));
+                if (x < 0 or x >= p.width) continue;
+                const at = @as(usize, @intCast(y)) * p.stride + @as(usize, @intCast(x));
+                const cover: u32 = 0xff - @as(u32, tile.buf[row * tile.stride + col]);
+                const bg: u32 = p.buf[at];
+                p.buf[at] = @intCast(bg + (0xff - bg) * cover / 0xff);
             }
         }
     }
@@ -240,9 +245,53 @@ test "rounded rectangles fill square in the middle and leave the corners" {
     try std.testing.expectEqual(@as(u8, 0x00), buf[10 * 20 + 10]);
     try std.testing.expectEqual(@as(u8, 0x00), buf[0 * 20 + 10]); // Straight edge
     try std.testing.expectEqual(@as(u8, 0xff), buf[0]); // Corner stays out
-    p.roundCorners(0, 0, 20, 20, 6, 0x80);
-    try std.testing.expectEqual(@as(u8, 0x80), buf[0]);
-    try std.testing.expectEqual(@as(u8, 0x00), buf[10 * 20 + 10]);
+}
+
+test "stamped icons lighten by how much they cover, over any gray" {
+    // An 8x8 page inside a 10-wide buffer, half black and half mid gray
+    var under: [10 * 8]u8 = @splat(0x00);
+    for (0..8) |row| @memset(under[row * 10 + 4 .. row * 10 + 8], 0x40);
+    const page = Page{ .buf = &under, .width = 8, .height = 8, .stride = 10 };
+    // A 4x2 icon inside a 6-wide buffer: full cover, half cover, none
+    var tile_buf: [6 * 2]u8 = @splat(0xff);
+    tile_buf[0] = 0x00;
+    tile_buf[1] = 0x80;
+    tile_buf[2] = 0x00;
+    tile_buf[3] = 0x80;
+    const tile = Page{ .buf = &tile_buf, .width = 4, .height = 2, .stride = 6 };
+    page.stampWhite(tile, 4, 4); // Covers columns 2..5, rows 3..4
+    try std.testing.expectEqual(@as(u8, 0xff), under[3 * 10 + 2]); // Full, over black
+    try std.testing.expectEqual(@as(u8, 0x7f), under[3 * 10 + 3]); // Half, over black
+    try std.testing.expectEqual(@as(u8, 0xff), under[3 * 10 + 4]); // Full, over gray
+    try std.testing.expectEqual(@as(u8, 0x9f), under[3 * 10 + 5]); // Half, over gray
+    try std.testing.expectEqual(@as(u8, 0x00), under[4 * 10 + 2]); // Uncovered stays
+    try std.testing.expectEqual(@as(u8, 0x40), under[3 * 10 + 6]); // Beside it stays
+    try std.testing.expectEqual(@as(u8, 0x00), under[3 * 10 + 8]); // Past the page width
+    page.stampWhite(tile, -1, 7); // Mostly off the page: no crash, nothing outside
+    page.stampWhite(tile, 100, 100);
+}
+
+test "discs have smooth edges" {
+    var buf: [21 * 21]u8 = @splat(0xff);
+    const page = Page{ .buf = &buf, .width = 21, .height = 21, .stride = 21 };
+    page.disc(10, 10, 6, 0, 0x00);
+    try std.testing.expectEqual(@as(u8, 0x00), buf[10 * 21 + 10]);
+    try std.testing.expectEqual(@as(u8, 0xff), buf[0]);
+    var grays: usize = 0;
+    for (buf) |v| {
+        if (v != 0x00 and v != 0xff) grays += 1;
+    }
+    try std.testing.expect(grays > 8);
+    page.disc(-30, 0, 4, 0, 0x00); // Off the page: nothing happens
+}
+
+test "dim and tint clip to the page" {
+    var buf: [4 * 4]u8 = @splat(0x00);
+    const page = Page{ .buf = &buf, .width = 4, .height = 4, .stride = 4 };
+    page.dim(5, 0, 2, 2);
+    page.tint(0, 1, 2, std.math.maxInt(u32), 0x50);
+    page.dim(0, 0, 10, 10);
+    try std.testing.expect(buf[0] != 0x00);
 }
 
 test "pills fill their middle and blend their edge" {

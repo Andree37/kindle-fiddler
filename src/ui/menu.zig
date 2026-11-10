@@ -153,11 +153,14 @@ fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
         return;
     }
     page.pill(x, x, y, icon_radius + 1.5, 0x00);
-    // The icon drawn black on a white tile of its own, then laid on the disc in white
-    var buf: [tile * tile]u8 = @splat(0xff);
-    const t = Page{ .buf = &buf, .width = tile, .height = tile, .stride = tile };
-    drawGlyph(t, s, quick, tile / 2, tile / 2);
-    icons.stampWhite(page, t, s.x, s.y);
+    const Glyph = struct {
+        s: Shortcut,
+        quick: *const quick_model.Quick,
+        pub fn draw(g: @This(), t: Page, cx: f32, cy: f32) !void {
+            drawGlyph(t, g.s, g.quick, cx, cy);
+        }
+    };
+    icons.drawWhite(page, tile, tile, s.x, s.y, Glyph{ .s = s, .quick = quick }) catch {};
 }
 
 /// Toggles fill when on, like the stock panel.

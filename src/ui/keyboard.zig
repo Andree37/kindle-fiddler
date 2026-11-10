@@ -5,6 +5,8 @@ const Page = @import("../gfx/page.zig").Page;
 const draw = @import("draw.zig");
 const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
+const icons = @import("icons.zig");
+const centered = draw.centered; // Named apart from the label's own draw method
 
 const rows = [_][]const u8{ "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm" };
 const key_width = 116;
@@ -93,15 +95,15 @@ pub fn render(fonts: Fonts, page: Page) !void {
     backspaceIcon(page, backspace_x + 90, @floatFromInt(last + key_height / 2));
     const bottom: u32 = top + 4 * row_step;
     try key(fonts, page, space_left, bottom, space_width, "space", style.white);
-    // The main key: white on black. Drawn square, inverted, then its corners rounded.
-    const left = enter_left + inset;
-    const width = enter_width - 2 * inset;
-    const height = key_height - 2 * inset;
-    page.roundRect(left, bottom + inset + 3, width, height, corner, shadow);
-    page.fillRect(left, bottom + inset, width, height, style.white);
-    try draw.centered(fonts.title, page, @floatFromInt(enter_left + enter_width / 2), @intCast(bottom + 70), "Search");
-    page.invert(left, bottom + inset, width, height);
-    page.roundCorners(left, bottom + inset, width, height, corner, tray);
+    // The main key: black like a key that's on, shadow and all, its label in white
+    keyFace(page, enter_left, bottom, enter_width, style.black);
+    const Label = struct {
+        fonts: Fonts,
+        pub fn draw(l: @This(), t: Page, cx: f32, _: f32) !void {
+            try centered(l.fonts.title, t, cx, 70, "Search"); // Baseline as on the other keys
+        }
+    };
+    try icons.drawWhite(page, enter_width, key_height, enter_left + enter_width / 2, @intCast(bottom + key_height / 2), Label{ .fonts = fonts });
 }
 
 test "keys map to letters, and the special keys answer" {
