@@ -52,11 +52,13 @@ const sort_left = 860;
 /// The moment a frame is drawn for, read once so every part of it agrees.
 pub const Moment = struct { unix: u64, utc_offset: i64 };
 
-pub const Hit = union(enum) { none, hero, hero_dots, book: usize, prev, next, sort, menu, search, clear_search, tab: catalog.Filter };
+pub const Hit = union(enum) { none, hero, hero_dots, book: usize, prev, next, sort, menu, search, stats, clear_search, tab: catalog.Filter };
 
 // The round search button, a clear gap right of the filter button
 const search_cx = 564 + 36 + button_height / 2;
 const search_reach = 56; // Taps this far either side of its centre: a fingertip and more
+// The round stats button, beside search, their taps just short of meeting
+const stats_cx = search_cx + 2 * search_reach + 4;
 
 fn gridSize(hero: bool) usize {
     return (if (hero) @as(usize, hero_rows) else plain_rows) * columns;
@@ -102,6 +104,7 @@ pub fn hit(x: i32, y: i32, page: usize, books: usize, searching: bool) Hit {
     if (y >= tabs_top and y < tabs_top + tabs_height) {
         if (x >= sort_left) return .sort;
         if (@abs(x - search_cx) <= search_reach) return .search;
+        if (@abs(x - stats_cx) <= search_reach) return .stats;
         for (tabs) |t| {
             if (x >= t.left and x < t.right) return .{ .tab = t.filter };
         }
@@ -336,6 +339,9 @@ fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: c
     icons.searchScaled(page, search_cx, cy, 0.8);
     // Filled while a search is showing, like a toggle that's on
     if (searching) page.invertDisc(search_cx, @intFromFloat(cy), @intFromFloat(r - 2));
+    page.pill(stats_cx, stats_cx, cy, r, 0x00);
+    page.pill(stats_cx, stats_cx, cy, r - 2, 0xff);
+    icons.barChart(page, stats_cx, cy);
     buttonOutline(page, margin, @floatFromInt(tabs[tabs.len - 1].right), top);
     icons.funnel(page, margin + icon_inset, cy);
     for (tabs) |t| {
@@ -403,7 +409,7 @@ test "header and footer controls" {
     try std.testing.expectEqual(Hit{ .tab = .all }, hit(200, 560, 0, 79, false));
     try std.testing.expectEqual(Hit{ .tab = .unread }, hit(340, 560, 0, 79, false));
     try std.testing.expectEqual(Hit{ .tab = .read }, hit(500, 560, 0, 79, false));
-    try std.testing.expectEqual(Hit.none, hit(800, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.none, hit(840, 560, 0, 79, false)); // Between stats and sort
     try std.testing.expectEqual(Hit.sort, hit(1100, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.prev, hit(400, 1600, 0, 79, false));
     try std.testing.expectEqual(Hit.next, hit(800, 1600, 0, 79, false));
@@ -423,6 +429,9 @@ test "page count follows the layout" {
 test "search button sits beside the filter, and the search takes the hero's place" {
     try std.testing.expectEqual(Hit.search, hit(search_cx, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.none, hit(570, 560, 0, 79, false)); // The gap between them
+    try std.testing.expectEqual(Hit.stats, hit(stats_cx, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.search, hit(search_cx + search_reach, 560, 0, 79, false));
+    try std.testing.expectEqual(Hit.stats, hit(search_cx + search_reach + 4, 560, 0, 79, false));
     try std.testing.expectEqual(Hit.search, hit(search_cx, 140, 1, 79, false));
     for (tabs) |t| try std.testing.expect(t.right - t.left >= 100);
     try std.testing.expect(2 * search_reach >= 100);

@@ -244,6 +244,17 @@ pub fn highlighter(page: Page, cx: f32, cy: f32) void {
     page.fillPoly(&tip);
 }
 
+/// Stats: three rounded bars of different heights on a baseline.
+pub fn barChart(page: Page, cx: f32, cy: f32) void {
+    const heights = [_]f32{ 14, 30, 22 };
+    for (heights, 0..) |h, i| {
+        const x = cx - 14 + @as(f32, @floatFromInt(i)) * 14;
+        page.pill(x, x, cy + 14 - h + 3, 3, 0x00);
+        page.fillRect(@intFromFloat(x - 3), @intFromFloat(cy + 14 - h + 3), 6, @intFromFloat(h - 3), 0x00);
+    }
+    page.fillRect(@intFromFloat(cx - 21), @intFromFloat(cy + 14), 42, 3, 0x00);
+}
+
 /// Filter: a funnel.
 pub fn funnel(page: Page, cx: f32, cy: f32) void {
     const pts = [_][2]f32{

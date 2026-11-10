@@ -20,6 +20,7 @@ const lock = @import("lock.zig");
 const reader = @import("reader.zig");
 const keyboard = @import("../ui/keyboard.zig");
 const search_sheet = @import("../ui/search_sheet.zig");
+const stats_screen = @import("stats.zig");
 const search = @import("../model/search.zig");
 
 pub const download_poll_us = 5 * 1000 * 1000;
@@ -165,6 +166,10 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change
                 const done = choice == .mark_read;
                 store.markRead(e.key, e.kind, done);
                 e.finished = done;
+                if (done) {
+                    a.journal.finish(a.today());
+                    app.saveJournal(a);
+                }
                 if (!done and e.isLocal()) forgetFinished(a, e) catch {};
                 return .other;
             },
@@ -301,6 +306,11 @@ pub fn runLibrary(a: *app.App) !void {
                             index = 0;
                             opening = &lib.entries[e];
                         },
+                    },
+                    .stats => {
+                        try stats_screen.run(a, lib.entries);
+                        try a.present(buf, .gc16, .partial);
+                        continue;
                     },
                     .clear_search => {
                         query = .{};

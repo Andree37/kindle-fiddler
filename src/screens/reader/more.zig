@@ -51,6 +51,10 @@ pub fn run(a: *app.App, s: *sess.Session, entry: *catalog.Entry) !Result {
             const done = choice == .finished;
             store.markRead(entry.key, entry.kind, done);
             entry.finished = done;
+            if (done) {
+                a.journal.finish(a.today());
+                app.saveJournal(a);
+            }
             if (!done) library_screen.forgetFinished(a, entry) catch {};
             std.debug.print("marked {s}\n", .{if (done) "finished" else "unread"});
             return .stay;

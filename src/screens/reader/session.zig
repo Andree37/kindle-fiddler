@@ -89,7 +89,11 @@ pub const Session = struct {
         s.tick();
         const us = s.page_us;
         s.page_us = 0;
-        s.seconds_read += stats.countedSeconds(us / 1_000_000);
+        const counted = stats.countedSeconds(us / 1_000_000);
+        s.seconds_read += counted;
+        // The day's journal: the time, and the page when it was read on to the next
+        const read_on = to == s.current + 1 and counted > 0;
+        s.app.journal.add(s.app.today(), @intCast(@min(counted, std.math.maxInt(u32))), if (read_on) 1 else 0);
         if (to != s.current + 1 or us == 0) return;
         if (s.pageHasPicture(s.current)) return; // Time on a picture isn't reading speed
         const speed = &s.app.speed;
@@ -229,6 +233,7 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) voi
     const now = unixTime();
     state.save(path, .{ .para = book_model.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = seconds });
     app.saveSpeed(s.app);
+    app.saveJournal(s.app);
     entry.percent = percent;
     entry.last = now;
     entry.seconds_read = seconds;

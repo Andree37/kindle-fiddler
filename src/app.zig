@@ -22,6 +22,7 @@ const jpegxr = @import("kindle/jpegxr.zig");
 const quick_model = @import("model/quick.zig");
 const text = @import("layout/text.zig");
 const hyphen = @import("layout/hyphen.zig");
+const journal_model = @import("model/journal.zig");
 const os = @import("linux/os.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
@@ -63,6 +64,8 @@ pub const App = struct {
     library_path: [*:0]const u8,
     settings_path: [*:0]const u8,
     speed_path: [*:0]const u8,
+    journal_path: [*:0]const u8,
+    journal: journal_model.Journal = .{}, // What was read each day, for the stats screen
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
     pictures: Pictures = .{}, // Pictures of the open book, ready to copy onto pages
     settings: settings_model.Settings,
@@ -72,6 +75,11 @@ pub const App = struct {
     layout: text.Layout,
     // Made the first time a book in that language opens, then kept
     hyphenators: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?hyphen.Hyphenator = @splat(null),
+
+    /// Today, as the journal counts days: the local calendar day.
+    pub fn today(a: *const App) i32 {
+        return journal_model.dayOf(unixTime(), a.utc_offset);
+    }
 
     /// Hyphenation for a book's language, or null to break only at spaces and dashes.
     pub fn hyphenatorFor(a: *App, lang: ?hyphen.Lang) ?*const hyphen.Hyphenator {
@@ -286,6 +294,16 @@ pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
+}
+
+pub fn loadJournal(path: [*:0]const u8) journal_model.Journal {
+    var buf: [journal_model.max_format_bytes]u8 = undefined;
+    return journal_model.parse(state.readSmall(path, &buf));
+}
+
+pub fn saveJournal(a: *const App) void {
+    var buf: [journal_model.max_format_bytes]u8 = undefined;
+    state.writeSmall(a.journal_path, journal_model.format(&buf, &a.journal));
 }
 
 pub fn loadSpeed(path: [*:0]const u8) stats.Speed {

@@ -31,6 +31,8 @@ test {
     _ = @import("ui/keyboard.zig");
     _ = @import("ui/search_sheet.zig");
     _ = @import("layout/hyphen.zig");
+    _ = @import("model/journal.zig");
+    _ = @import("ui/stats.zig");
     _ = @import("model/bookmarks.zig");
     _ = @import("ui/goto.zig");
     _ = @import("ui/draw.zig");
