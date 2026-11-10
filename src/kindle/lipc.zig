@@ -52,29 +52,51 @@ pub fn signalBars(signal: []const u8) u32 {
 /// so a hung lipc costs one wait, not one per value. A value that can't be read keeps
 /// what `previous` had, so the panel never acts on a made-up zero.
 pub fn read(previous: quick_model.Quick) quick_model.Quick {
-    const deadline = lipcDeadline();
-    var q = previous;
-    var state_buf: [32]u8 = undefined;
-    const wifi_state = getText("com.lab126.wifid", "cmState", &state_buf, deadline);
-    if (wifi_state.len > 0) {
-        q.wifi_on = std.mem.eql(u8, wifi_state, "CONNECTED");
-        q.wifi_bars = 0;
-        if (q.wifi_on) {
-            var signal_buf: [16]u8 = undefined;
-            q.wifi_bars = signalBars(getText("com.lab126.wifid", "signalStrength", &signal_buf, deadline));
+    // Every value at once: nine small programs side by side take about as long as one
+    const argvs = [_][*:null]const ?[*:0]const u8{
+        &.{ lipc_get, "-s", "com.lab126.wifid", "cmState" },
+        &.{ lipc_get, "-s", "com.lab126.wifid", "signalStrength" },
+        &.{ lipc_get, "com.lab126.powerd", "flIntensity" },
+        &.{ lipc_get, "com.lab126.powerd", "currentAmberLevel" },
+        &.{ lipc_get, "com.lab126.powerd", "amberSchedEnable" },
+        &.{ lipc_get, "com.lab126.cmd", "wirelessEnable" },
+        &.{ lipc_get, bt_service, "BTstate" },
+        &.{ lipc_get, "com.lab126.powerd", "battLevel" },
+        &.{ "/bin/date", "+%H:%M - %d %b %Y" },
+    };
+    var bufs: [argvs.len][40]u8 = undefined;
+    var outs: [argvs.len][]u8 = undefined;
+    for (&outs, &bufs) |*o, *b| o.* = b;
+    var lens: [argvs.len]?usize = undefined;
+    process.runAll(&argvs, &outs, &lens, lipcDeadline());
+    const Out = struct {
+        bufs: *const [argvs.len][40]u8,
+        lens: *const [argvs.len]?usize,
+        fn text(o: @This(), i: usize) []const u8 {
+            return std.mem.trim(u8, o.bufs[i][0 .. o.lens[i] orelse 0], " \n");
         }
+        fn int(o: @This(), i: usize) ?u32 {
+            return parseInt(o.text(i));
+        }
+    };
+    const out = Out{ .bufs = &bufs, .lens = &lens };
+
+    // A value that couldn't be read keeps what `previous` had
+    var q = previous;
+    if (out.text(0).len > 0) {
+        q.wifi_on = std.mem.eql(u8, out.text(0), "CONNECTED");
+        q.wifi_bars = if (q.wifi_on) signalBars(out.text(1)) else 0;
     }
-    if (get("com.lab126.powerd", "flIntensity", deadline)) |v| q.brightness = v;
-    if (get("com.lab126.powerd", "currentAmberLevel", deadline)) |v| q.warmth = v;
-    if (get("com.lab126.powerd", "amberSchedEnable", deadline)) |v| q.schedule = v == 1;
-    if (get("com.lab126.cmd", "wirelessEnable", deadline)) |v| q.airplane = v == 0;
-    if (get(bt_service, "BTstate", deadline)) |v| q.bluetooth = v != 0; // 0 off, 1 on, 2 connected
-    if (get("com.lab126.powerd", "battLevel", deadline)) |v| q.battery = v;
-    const argv = [_:null]?[*:0]const u8{ "/bin/date", "+%H:%M - %d %b %Y" };
-    var clock: [40]u8 = undefined;
-    if (process.runUntil(&argv, &clock, deadline)) |n| {
-        q.clock = clock;
-        q.clock_len = std.mem.trimEnd(u8, clock[0..n], "\n").len;
+    if (out.int(2)) |v| q.brightness = v;
+    if (out.int(3)) |v| q.warmth = v;
+    if (out.int(4)) |v| q.schedule = v == 1;
+    if (out.int(5)) |v| q.airplane = v == 0;
+    if (out.int(6)) |v| q.bluetooth = v != 0; // 0 off, 1 on, 2 connected
+    if (out.int(7)) |v| q.battery = v;
+    const clock = out.text(8);
+    if (clock.len > 0) {
+        @memcpy(q.clock[0..clock.len], clock);
+        q.clock_len = clock.len;
     }
     return q;
 }

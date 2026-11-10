@@ -66,6 +66,55 @@ pub fn runUntil(argv: [*:null]const ?[*:0]const u8, out: []u8, deadline: u64) ?u
     return total;
 }
 
+/// Runs several commands at once, collecting what each prints into its own buffer:
+/// together they take about as long as the slowest, not the sum. `lens[i]` is how much
+/// command i printed, or null when it didn't start or wasn't done by `deadline`.
+pub fn runAll(argvs: []const [*:null]const ?[*:0]const u8, outs: [][]u8, lens: []?usize, deadline: u64) void {
+    const max = 16;
+    std.debug.assert(argvs.len <= max and outs.len == argvs.len and lens.len == argvs.len);
+    var children: [max]?Child = @splat(null);
+    var open: [max]bool = @splat(false);
+    for (argvs, 0..) |argv, i| {
+        lens[i] = null;
+        children[i] = spawn(argv);
+        if (children[i] != null) {
+            open[i] = true;
+            lens[i] = 0;
+        }
+    }
+    // Read whichever has output until all have finished printing, or time runs out
+    while (os.nowUs() < deadline) {
+        var fds: [max]linux.pollfd = undefined;
+        var which: [max]usize = undefined;
+        var n: usize = 0;
+        for (0..argvs.len) |i| {
+            if (!open[i]) continue;
+            fds[n] = .{ .fd = children[i].?.out, .events = linux.POLL.IN, .revents = 0 };
+            which[n] = i;
+            n += 1;
+        }
+        if (n == 0) break;
+        const waited = linux.poll(&fds, n, @intCast((deadline - os.nowUs()) / 1000 + 1));
+        if (failed(waited)) continue; // Interrupted by a signal
+        if (waited == 0) break;
+        for (fds[0..n], which[0..n]) |f, i| {
+            if (f.revents == 0) continue;
+            const buf = outs[i][lens[i].?..];
+            const got = if (buf.len == 0) 0 else linux.read(f.fd, buf.ptr, buf.len);
+            if (failed(got) or got == 0) {
+                open[i] = false;
+                continue;
+            }
+            lens[i] = lens[i].? + got;
+        }
+    }
+    for (0..argvs.len) |i| {
+        const child = children[i] orelse continue;
+        _ = linux.close(child.out);
+        if (open[i] or !reap(child.pid, deadline)) lens[i] = null; // Not finished in time
+    }
+}
+
 /// Waits for a child to exit until `deadline`, then kills its whole group. For
 /// `sh -c`, the stuck program is the shell's child. True when it exited in time.
 fn reap(pid: i32, deadline: u64) bool {
