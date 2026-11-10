@@ -61,6 +61,7 @@ const untouched_percent = 1; // Stock gives new books 1% without them being open
 
 pub const Order = enum {
     recent,
+    progress,
     title,
     author,
     added,
@@ -68,6 +69,7 @@ pub const Order = enum {
     pub fn label(o: Order) []const u8 {
         return switch (o) {
             .recent => "Recent",
+            .progress => "Progress",
             .title => "A to Z",
             .author => "Author",
             .added => "Newest",
@@ -76,7 +78,8 @@ pub const Order = enum {
 
     pub fn next(o: Order) Order {
         return switch (o) {
-            .recent => .title,
+            .recent => .progress,
+            .progress => .title,
             .title => .author,
             .author => .added,
             .added => .recent,
@@ -92,7 +95,23 @@ fn before(order: Order, a: Entry, b: Entry) bool {
         .added => a.added > b.added,
         .title => std.ascii.lessThanIgnoreCase(a.title, b.title),
         .author => byAuthor(a, b),
+        .progress => byProgress(a, b),
     };
+}
+
+/// Where a book stands, for sorting by progress: under way first, then not started,
+/// then finished.
+fn stage(e: Entry) u2 {
+    if (e.inProgress()) return 0;
+    if (e.isRead()) return 2;
+    return 1;
+}
+
+/// Books under way first, furthest along at the top; within the rest, most recent.
+fn byProgress(a: Entry, b: Entry) bool {
+    if (stage(a) != stage(b)) return stage(a) < stage(b);
+    if (stage(a) == 0 and a.percent != b.percent) return a.percent > b.percent;
+    return a.last > b.last;
 }
 
 /// The name an author sorts under: the part before the comma in "Adams, Douglas",
@@ -191,8 +210,25 @@ test "authors sort by surname, whichever way the name is written" {
     try std.testing.expectEqualStrings("Nameless", rows[4].title);
 }
 
+test "progress puts books under way first, furthest along at the top" {
+    var rows = [_]Entry{
+        .{ .path = "/a", .title = "Done", .author = "", .percent = 100, .last = 9 },
+        .{ .path = "/b", .title = "New", .author = "", .percent = 0, .last = 5 },
+        .{ .path = "/c", .title = "Early", .author = "", .percent = 12, .last = 8 },
+        .{ .path = "/d", .title = "Late", .author = "", .percent = 80, .last = 1 },
+        .{ .path = "/e", .title = "Newer", .author = "", .percent = 1, .last = 7 },
+    };
+    sort(&rows, .progress);
+    try std.testing.expectEqualStrings("Late", rows[0].title);
+    try std.testing.expectEqualStrings("Early", rows[1].title);
+    try std.testing.expectEqualStrings("Newer", rows[2].title); // 1% is stock's "new"
+    try std.testing.expectEqualStrings("New", rows[3].title);
+    try std.testing.expectEqualStrings("Done", rows[4].title);
+}
+
 test "sort button cycles" {
-    try std.testing.expectEqual(Order.title, Order.recent.next());
+    try std.testing.expectEqual(Order.progress, Order.recent.next());
+    try std.testing.expectEqual(Order.title, Order.progress.next());
     try std.testing.expectEqual(Order.author, Order.title.next());
     try std.testing.expectEqual(Order.added, Order.author.next());
     try std.testing.expectEqual(Order.recent, Order.added.next());
