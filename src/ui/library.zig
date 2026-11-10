@@ -358,10 +358,18 @@ fn drawTabs(fonts: Fonts, page: Page, top: i32, filter: catalog.Filter, order: c
     const cy: f32 = @floatFromInt(top + button_top + button_height / 2);
     const r: f32 = button_height / 2;
     page.pill(search_cx, search_cx, cy, r, 0x00);
-    page.pill(search_cx, search_cx, cy, r - 2, 0xff);
-    icons.searchScaled(page, search_cx, cy, 0.8);
-    // Filled while a search is showing, like a toggle that's on
-    if (searching) page.invertDisc(search_cx, @intFromFloat(cy), @intFromFloat(r - 2));
+    if (searching) {
+        // Filled while a search is showing, like a toggle that's on: a smooth black
+        // disc with the magnifier laid on it in white
+        const tile = button_height;
+        var buf: [tile * tile]u8 = @splat(0xff);
+        const t = Page{ .buf = &buf, .width = tile, .height = tile, .stride = tile };
+        icons.searchScaled(t, tile / 2, tile / 2, 0.8);
+        icons.stampWhite(page, t, search_cx, @intFromFloat(cy));
+    } else {
+        page.pill(search_cx, search_cx, cy, r - 2, 0xff);
+        icons.searchScaled(page, search_cx, cy, 0.8);
+    }
     page.pill(stats_cx, stats_cx, cy, r, 0x00);
     page.pill(stats_cx, stats_cx, cy, r - 2, 0xff);
     icons.barChart(page, stats_cx, cy);

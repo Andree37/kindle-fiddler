@@ -157,14 +157,7 @@ fn drawIcon(page: Page, s: Shortcut, quick: *const quick_model.Quick) void {
     var buf: [tile * tile]u8 = @splat(0xff);
     const t = Page{ .buf = &buf, .width = tile, .height = tile, .stride = tile };
     drawGlyph(t, s, quick, tile / 2, tile / 2);
-    const left: u32 = @intCast(s.x - tile / 2);
-    const top: u32 = @intCast(s.y - tile / 2);
-    for (0..tile) |row| {
-        for (0..tile) |col| {
-            const at = (top + row) * page.stride + left + col;
-            page.buf[at] = @max(page.buf[at], 0xff - buf[row * tile + col]);
-        }
-    }
+    icons.stampWhite(page, t, s.x, s.y);
 }
 
 /// Toggles fill when on, like the stock panel.

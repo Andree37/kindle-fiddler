@@ -244,6 +244,36 @@ pub fn highlighter(page: Page, cx: f32, cy: f32) void {
     page.fillPoly(&tip);
 }
 
+/// Lays an icon drawn black on a white `tile` onto `page` in white, centred on
+/// (`cx`, `cy`): the icon of a button that's filled black because it's on. Its smooth
+/// edges stay smooth, which inverting a disc of pixels can't manage.
+pub fn stampWhite(page: Page, tile: Page, cx: i32, cy: i32) void {
+    const left = cx - @as(i32, @intCast(tile.width / 2));
+    const top = cy - @as(i32, @intCast(tile.height / 2));
+    for (0..tile.height) |row| {
+        const y = top + @as(i32, @intCast(row));
+        if (y < 0 or y >= page.height) continue;
+        for (0..tile.width) |col| {
+            const x = left + @as(i32, @intCast(col));
+            if (x < 0 or x >= page.width) continue;
+            const at = @as(usize, @intCast(y)) * page.stride + @as(usize, @intCast(x));
+            page.buf[at] = @max(page.buf[at], 0xff - tile.buf[row * tile.stride + col]);
+        }
+    }
+}
+
+test "a stamped icon turns white where it was black, and leaves the rest" {
+    var under: [8 * 8]u8 = @splat(0x00);
+    const page = Page{ .buf = &under, .width = 8, .height = 8, .stride = 8 };
+    var tile_buf: [4 * 4]u8 = @splat(0xff);
+    tile_buf[5] = 0x00; // One black pixel in the icon
+    tile_buf[6] = 0x80; // One edge pixel, half covered
+    stampWhite(page, .{ .buf = &tile_buf, .width = 4, .height = 4, .stride = 4 }, 4, 4);
+    try std.testing.expectEqual(@as(u8, 0xff), under[3 * 8 + 3]);
+    try std.testing.expectEqual(@as(u8, 0x7f), under[3 * 8 + 4]);
+    try std.testing.expectEqual(@as(u8, 0x00), under[0]);
+}
+
 /// Stats: three rounded bars of different heights on a baseline.
 pub fn barChart(page: Page, cx: f32, cy: f32) void {
     const heights = [_]f32{ 14, 30, 22 };
