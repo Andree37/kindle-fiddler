@@ -22,6 +22,8 @@ if [ "$count" -ge 3 ]; then
     exit 0
 fi
 echo $((count + 1)) > "$DIR/boot-attempts"
-# Give the Kindle's home a moment to finish drawing, then open noface over it.
-nohup sh -c 'sleep 20; /var/local/kmc/sbin/kpm.sh launch noface' > /dev/null 2>&1 &
+# Give the Kindle's home a moment to finish drawing, then open noface over it. Straight
+# to start.sh rather than through KPM: KPM's waits are for the search keyboard,
+# which isn't there at boot.
+nohup sh -c 'sleep 20; setsid sh /mnt/us/noface/start.sh now >> /mnt/us/noface/launch.log 2>&1 < /dev/null' > /dev/null 2>&1 &
 exit 0
