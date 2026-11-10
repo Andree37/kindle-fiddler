@@ -51,8 +51,15 @@ pub const View = enum { page, toolbar, sheet, panel, note, highlight };
 fn needsAllPages(action: input_mod.Action, view: View, s: *const sess.Session) bool {
     return switch (action) {
         .tick, .drag, .drag_end => false,
-        .tap => |t| view != .page or t.y < touch_zones.top_zone or
-            (input_mod.turnDirection(t.x, s.app.input.width) < 0 and s.current == 0),
+        .tap => |t| switch (view) {
+            .page => t.y < touch_zones.top_zone or (input_mod.turnDirection(t.x, s.app.input.width) < 0 and s.current == 0),
+            // Text settings and closing don't count pages; the toolbar's other buttons do
+            .toolbar, .sheet => switch (toolbar.hit(t.x, t.y, view == .sheet)) {
+                .sheet, .close, .stay, .text => false,
+                else => true,
+            },
+            else => true,
+        },
         .swipe => |direction| direction < 0 and s.current == 0,
         else => true,
     };
@@ -360,7 +367,13 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             },
             .tick => {
                 if (session.layoutPending()) {
-                    try session.layoutStep();
+                    // Once done, show the page count that was missing: in the footer,
+                    // or in the toolbar when it's open
+                    if (try session.layoutStep()) switch (view) {
+                        .page => try session.showFooter(),
+                        .toolbar, .sheet => try controls.drawToolbar(a, &session, entry.title, view == .sheet, false),
+                        else => {},
+                    };
                     continue;
                 }
                 if (view == .page and unixTime() / 60 != a.clock_minute) try a.updateClock();

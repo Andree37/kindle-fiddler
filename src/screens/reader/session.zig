@@ -51,23 +51,28 @@ pub const Session = struct {
         return s.progress != null;
     }
 
-    /// One step of a first open's layout, for an idle moment. Once the whole book is
-    /// laid out, it takes over: page numbers count from the start, the breaks are
-    /// saved, and the page on screen gets its page number.
-    pub fn layoutStep(s: *Session) !void {
-        const p = s.progress orelse return;
+    /// One step of a layout running in the background, for an idle moment. Once the
+    /// whole book is laid out, it takes over: page numbers count from the start and
+    /// the breaks are saved. True when that just happened, so whatever is on screen
+    /// can show the page count it was missing.
+    pub fn layoutStep(s: *Session) !bool {
+        const p = s.progress orelse return false;
         try p.step(s.app);
         s.pages = p.pages();
-        if (!p.done()) return;
+        if (!p.done()) return false;
         const whole = try p.joined();
         s.pages = whole.pages;
         s.current += whole.before;
         s.progress = null;
         page_store.save(p.alloc, s.pages_path, page_store.key(s.app, s.book_bytes), s.pages);
         std.debug.print("laid out in the background: {d} pages, {d} before the reader's place\n", .{ s.pages.len, whole.before });
-        // Indexes moved, so pages drawn so far are stale; the page on screen gains its
-        // page number, which repaints only the footer
-        s.app.forgetPages();
+        s.app.forgetPages(); // Indexes moved, so pages drawn so far are stale
+        return true;
+    }
+
+    /// Puts the page number on the page on screen once it's known: only the footer
+    /// changes, so only it repaints.
+    pub fn showFooter(s: *Session) !void {
         @memcpy(s.app.screen.pixels, try s.ensure(s.current, s.current));
         const footer_top = s.app.screen.height - 110;
         try s.app.showBand(footer_top, s.app.screen.height - footer_top);
@@ -77,13 +82,13 @@ pub const Session = struct {
     pub fn layoutUntil(s: *Session, index: usize) !void {
         while (s.progress) |p| {
             if (index < s.pages.len or p.next_forward == null) return;
-            try s.layoutStep();
+            _ = try s.layoutStep();
         }
     }
 
     /// Finishes a first open's layout now, before anything that needs every page.
     pub fn finishLayout(s: *Session) !void {
-        while (s.progress != null) try s.layoutStep();
+        while (s.progress != null) _ = try s.layoutStep();
     }
 
     /// Words from the start of the book to a position.
@@ -302,9 +307,19 @@ pub fn relayout(a: *app.App, alloc: std.mem.Allocator, s: *Session) !void {
     const t0 = nowUs();
     const pages_key = page_store.key(a, s.book_bytes);
     const stored = page_store.load(alloc, s.pages_path, pages_key, s.paragraphs.len);
-    s.pages = stored orelse try paginate.book(a, alloc, s.paragraphs);
-    if (stored == null) page_store.save(alloc, s.pages_path, pages_key, s.pages);
-    std.debug.print("relayout {s} in {d} ms\n", .{ if (stored != null) "from saved pages" else "laid out", (nowUs() - t0) / 1000 });
-    s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
+    s.progress = null; // A layout still running was for the old settings
+    if (stored) |pages| {
+        s.pages = pages;
+        s.current = pageContaining(s.pages, s.anchor.para, s.anchor.byte);
+    } else {
+        // The reader's page at once, laid out from its first word with the new
+        // settings; the rest follows in idle moments, as on a first open
+        const p = try alloc.create(paginate.Progressive);
+        p.* = try paginate.Progressive.start(a, alloc, s.paragraphs, s.anchor);
+        s.progress = p;
+        s.pages = p.pages();
+        s.current = 0;
+    }
+    std.debug.print("relayout {s} in {d} ms\n", .{ if (stored != null) "from saved pages" else "first pages", (nowUs() - t0) / 1000 });
     std.debug.print("relayout: page {d} of {d}, anchor {d}:{d}\n", .{ s.current + 1, s.pages.len, s.anchor.para, s.anchor.byte });
 }

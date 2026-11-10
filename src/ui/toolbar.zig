@@ -74,11 +74,18 @@ pub fn chapterTarget(sections: []const u32, current: usize, forward: bool) usize
 }
 
 /// Band that changes while dragging, redrawn alone in pure black and white when `mono`.
+/// The page slider. A `total` of 0 means the pages are still being laid out: it says
+/// so, and has no knob until there's a place to put it.
 pub fn drawScrub(fonts: Fonts, page: Page, index: usize, total: usize, mono: bool) !void {
     page.fillRect(0, scrub_top, page.width, screen_height - scrub_top, 0xff);
     var label: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&label, "Page {d} of {d}", .{ index + 1, total }) catch "";
+    const s = if (total == 0) "Laying out pages\u{2026}" else std.fmt.bufPrint(&label, "Page {d} of {d}", .{ index + 1, total }) catch "";
     try draw.centered(fonts.small, page, @floatFromInt(page.width / 2), scrub_top + 56, s);
+    if (total == 0) {
+        page.tint(0, scrub_top + 20, page.width, 50, style.faded);
+        if (mono) page.threshold(scrub_top, screen_height - scrub_top);
+        return;
+    }
     slider.draw(page, scrub, slider.knobAt(scrub, @intCast(index), @intCast(@max(total, 1) - 1)));
     if (mono) page.threshold(scrub_top, screen_height - scrub_top);
 }
