@@ -88,6 +88,8 @@ pub fn parse(alloc: std.mem.Allocator, data: []const u8) ![]library.Entry {
             .key = key,
             .kind = kind,
             .guid = guid,
+            .series = if (library.seriesFromFileName(path)) |s| s.name else "",
+            .series_index = if (library.seriesFromFileName(path)) |s| s.index else 0,
         });
     }
     return out.toOwnedSlice(alloc);

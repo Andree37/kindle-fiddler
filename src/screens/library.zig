@@ -89,6 +89,8 @@ fn addEpubs(a: *app.App, alloc: std.mem.Allocator, catalog_entries: []catalog.En
             .seconds_read = saved.seconds,
             .thumbnail = if (have_cover or about.cover != null) try alloc.dupeSentinel(u8, cover_path, 0) else "",
             .kind = "EPUB",
+            .series = about.series,
+            .series_index = about.series_index,
         });
     }
     return out.items;

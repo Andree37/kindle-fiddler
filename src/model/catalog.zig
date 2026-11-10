@@ -25,6 +25,8 @@ pub const Entry = struct {
     cover_tried: bool = false,
     hero: ?[]u8 = null,
     hero_tried: bool = false,
+    series: []const u8 = "", // The series it belongs to, if known
+    series_index: f32 = 0, // Its place in that series: 2 for "#2"
 
     pub fn isRead(e: Entry) bool {
         return e.finished or e.percent >= finished_percent;
@@ -93,7 +95,7 @@ fn before(order: Order, a: Entry, b: Entry) bool {
     return switch (order) {
         .recent => a.last > b.last,
         .added => a.added > b.added,
-        .title => std.ascii.lessThanIgnoreCase(a.title, b.title),
+        .title => byTitle(a, b),
         .author => byAuthor(a, b),
         .progress => byProgress(a, b),
     };
@@ -114,6 +116,54 @@ fn byProgress(a: Entry, b: Entry) bool {
     return a.last > b.last;
 }
 
+/// What a book sorts under alphabetically: its series, so a series stays together,
+/// or else its title.
+fn titleKey(e: Entry) []const u8 {
+    return if (e.series.len > 0) e.series else e.title;
+}
+
+/// Books of one series in their order, or null when they aren't of the same one.
+fn seriesOrder(a: Entry, b: Entry) ?bool {
+    if (a.series.len == 0 or !std.ascii.eqlIgnoreCase(a.series, b.series)) return null;
+    if (a.series_index != b.series_index) return a.series_index < b.series_index;
+    return null;
+}
+
+fn byTitle(a: Entry, b: Entry) bool {
+    if (seriesOrder(a, b)) |o| return o;
+    const ka = titleKey(a);
+    const kb = titleKey(b);
+    if (!std.ascii.eqlIgnoreCase(ka, kb)) return std.ascii.lessThanIgnoreCase(ka, kb);
+    return std.ascii.lessThanIgnoreCase(a.title, b.title);
+}
+
+/// A series and a book's place in it, from a file name like
+/// "Restaurant -- Adams, Douglas -- The Hitchhiker's Guide #2, 1980 -- Del Rey.kfx",
+/// where the third part names the series.
+pub fn seriesFromFileName(path: []const u8) ?struct { name: []const u8, index: f32 } {
+    const base = path[(std.mem.lastIndexOfScalar(u8, path, '/') orelse return null) + 1 ..];
+    var parts = std.mem.splitSequence(u8, base, " -- ");
+    _ = parts.next() orelse return null;
+    _ = parts.next() orelse return null;
+    const third = parts.next() orelse return null;
+    const hash = std.mem.lastIndexOf(u8, third, " #") orelse return null;
+    const name = std.mem.trim(u8, third[0..hash], " ");
+    var number = third[hash + 2 ..];
+    if (std.mem.indexOfScalar(u8, number, ',')) |comma| number = number[0..comma];
+    const index = std.fmt.parseFloat(f32, std.mem.trim(u8, number, " ")) catch return null;
+    if (name.len == 0 or index < 0) return null;
+    return .{ .name = name, .index = index };
+}
+
+/// "Dune #1" for a line under a title, or "" outside a series.
+pub fn seriesLabel(buf: []u8, e: Entry) []const u8 {
+    if (e.series.len == 0) return "";
+    if (@floor(e.series_index) == e.series_index) {
+        return std.fmt.bufPrint(buf, "{s} #{d}", .{ e.series, @as(u32, @intFromFloat(e.series_index)) }) catch e.series;
+    }
+    return std.fmt.bufPrint(buf, "{s} #{d:.1}", .{ e.series, e.series_index }) catch e.series;
+}
+
 /// The name an author sorts under: the part before the comma in "Adams, Douglas",
 /// else the last word of "Andy Weir".
 pub fn surname(author: []const u8) []const u8 {
@@ -130,7 +180,7 @@ fn byAuthor(a: Entry, b: Entry) bool {
     if ((sa.len == 0) != (sb.len == 0)) return sb.len == 0;
     if (!std.ascii.eqlIgnoreCase(sa, sb)) return std.ascii.lessThanIgnoreCase(sa, sb);
     if (!std.ascii.eqlIgnoreCase(a.author, b.author)) return std.ascii.lessThanIgnoreCase(a.author, b.author);
-    return std.ascii.lessThanIgnoreCase(a.title, b.title);
+    return byTitle(a, b); // An author's series in order, among their other books
 }
 
 pub fn sort(entries: []Entry, order: Order) void {
@@ -153,13 +203,13 @@ pub fn pickHero(entries: []const Entry) ?usize {
 }
 
 /// Fills `out` with indexes of matching entries, leaving out the hero, and returns how
-/// many, stopping when `out` is full. A non-empty `query` keeps only books whose title
-/// or author has it in.
+/// many, stopping when `out` is full. A non-empty `query` keeps only books whose title,
+/// author or series has it in.
 pub fn select(entries: []const Entry, filter: Filter, hero: ?usize, query: []const u8, out: []usize) usize {
     var n: usize = 0;
     for (entries, 0..) |e, i| {
         if (i == hero) continue;
-        if (query.len > 0 and !search.contains(e.title, query) and !search.contains(e.author, query)) continue;
+        if (query.len > 0 and !search.contains(e.title, query) and !search.contains(e.author, query) and !search.contains(e.series, query)) continue;
         const matches = switch (filter) {
             .all => true,
             .read => e.isRead(),
@@ -224,6 +274,33 @@ test "progress puts books under way first, furthest along at the top" {
     try std.testing.expectEqualStrings("Newer", rows[2].title); // 1% is stock's "new"
     try std.testing.expectEqualStrings("New", rows[3].title);
     try std.testing.expectEqualStrings("Done", rows[4].title);
+}
+
+test "series come from file names" {
+    const s = seriesFromFileName("/mnt/us/documents/Restaurant -- Adams, Douglas -- The Hitchhiker's Guide To The Galaxy #2, 1980 -- Del Rey -- 2cf4.kfx").?;
+    try std.testing.expectEqualStrings("The Hitchhiker's Guide To The Galaxy", s.name);
+    try std.testing.expectEqual(@as(f32, 2), s.index);
+    try std.testing.expectEqual(@as(f32, 1.5), seriesFromFileName("/d/X -- Y -- Saga #1.5 -- Z.kfx").?.index);
+    try std.testing.expect(seriesFromFileName("/d/Snow Crash -- Stephenson, Neal -- 2010 -- Penguin.kfx") == null);
+    try std.testing.expect(seriesFromFileName("/d/Plain title.kfx") == null);
+}
+
+test "a series stays together and in order when sorted" {
+    var rows = [_]Entry{
+        .{ .path = "/a", .title = "Mostly Harmless", .author = "Adams, Douglas", .percent = 0, .last = 1, .series = "Hitchhiker's Guide", .series_index = 5 },
+        .{ .path = "/b", .title = "Artemis", .author = "Andy Weir", .percent = 0, .last = 1 },
+        .{ .path = "/c", .title = "The Restaurant", .author = "Adams, Douglas", .percent = 0, .last = 1, .series = "hitchhiker's guide", .series_index = 2 },
+        .{ .path = "/d", .title = "Zed", .author = "", .percent = 0, .last = 1 },
+    };
+    sort(&rows, .title);
+    try std.testing.expectEqualStrings("Artemis", rows[0].title);
+    try std.testing.expectEqualStrings("The Restaurant", rows[1].title);
+    try std.testing.expectEqualStrings("Mostly Harmless", rows[2].title);
+    sort(&rows, .author);
+    try std.testing.expectEqualStrings("The Restaurant", rows[0].title);
+    try std.testing.expectEqualStrings("Mostly Harmless", rows[1].title);
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("Hitchhiker's Guide #5", seriesLabel(&buf, rows[1]));
 }
 
 test "sort button cycles" {

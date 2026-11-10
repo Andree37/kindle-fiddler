@@ -196,6 +196,23 @@ fn percentBadge(font: *Font, page: Page, x: u32, y: u32, percent: u32) !void {
     try font.draw(page, left + 13, @intFromFloat(cy + 9), s);
 }
 
+/// "#2" in a small white pill over a cover's top left corner, for a book in a series.
+fn seriesBadge(font: *Font, page: Page, x: u32, y: u32, index: f32) !void {
+    var label: [12]u8 = undefined;
+    const s = if (@floor(index) == index)
+        std.fmt.bufPrint(&label, "#{d}", .{@as(u32, @intFromFloat(index))}) catch return
+    else
+        std.fmt.bufPrint(&label, "#{d:.1}", .{index}) catch return;
+    const r: f32 = 19;
+    const left: f32 = @floatFromInt(x + 12);
+    const cy: f32 = @as(f32, @floatFromInt(y)) + 12 + r;
+    const w = try font.measure(s) + 26;
+    const ends = [2]f32{ left + r, left + @max(w - r, r) };
+    page.pill(ends[0], ends[1], cy, r, 0x00);
+    page.pill(ends[0], ends[1], cy, r - 2, 0xff);
+    try font.draw(page, left + 13, @intFromFloat(cy + 9), s);
+}
+
 /// A rounded outline around a control, so it reads as something to press.
 fn buttonOutline(page: Page, left: f32, right: f32, top: i32) void {
     const r: f32 = button_height / 2;
@@ -251,13 +268,18 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
 
     const used = try drawWrapped(fonts.hero, page, left, hero_top + 104, 66, e.title, avail, 3);
     const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
-    try draw.clipped(fonts.small, page, left, author_y, e.author, avail);
+    // The author, and the series when there is one: "Liu, Cixin  ·  Three-Body #2"
+    var byline_buf: [256]u8 = undefined;
+    var series_buf: [160]u8 = undefined;
+    const series = catalog.seriesLabel(&series_buf, e.*);
+    const byline = if (series.len == 0) e.author else if (e.author.len == 0) series else std.fmt.bufPrint(&byline_buf, "{s}  \u{b7}  {s}", .{ e.author, series }) catch e.author;
+    try draw.clipped(fonts.small, page, left, author_y, byline, avail);
     page.tint(left_px, @intCast(author_y - 30), @intFromFloat(avail), 44, 0x50);
     const bar_y = hero_top + cover.hero_height - 40;
     // Under the author (or the title, when there's no author): when it was last read,
     // and how long in noface, so the card says more than the cover does. Only for a
     // book really opened, as stock also dates downloads, and only clear of the bar.
-    const line_y = if (e.author.len > 0) author_y + 56 else author_y;
+    const line_y = if (byline.len > 0) author_y + 56 else author_y;
     if (e.wasOpened() and line_y < bar_y - 22) {
         var when_buf: [24]u8 = undefined;
         var time_buf: [32]u8 = undefined;
@@ -295,6 +317,7 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
         try percentBadge(fonts.caption, page, x, y + cover.height, e.percent);
     }
     if (e.isRead()) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
+    if (e.series.len > 0) try seriesBadge(fonts.caption, page, x, y, e.series_index);
     _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
 }
 

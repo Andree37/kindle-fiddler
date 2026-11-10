@@ -19,9 +19,20 @@ pub fn rows(list: []const Option, out: []card.Row) []card.Row {
 /// The line under the title: the author and time read, or what removal means.
 pub fn subtitle(buf: []u8, e: *const catalog.Entry, confirming: bool) []const u8 {
     if (confirming) return "It stays in your Amazon library.";
+    var series_buf: [160]u8 = undefined;
     var time_buf: [32]u8 = undefined;
-    const time = stats.readingTime(&time_buf, e.seconds_read) orelse return e.author;
-    return std.fmt.bufPrint(buf, "{s}  \u{b7}  read here for {s}", .{ e.author, time }) catch e.author;
+    const series = catalog.seriesLabel(&series_buf, e.*);
+    const time = stats.readingTime(&time_buf, e.seconds_read);
+    // The author, then the series and time read here when known, dot between each
+    var w: std.Io.Writer = .fixed(buf);
+    w.writeAll(e.author) catch return e.author;
+    for ([_][]const u8{ series, if (time) |t| t else "" }, 0..) |part, i| {
+        if (part.len == 0) continue;
+        if (w.buffered().len > 0) w.writeAll("  \u{b7}  ") catch return e.author;
+        if (i == 1) w.writeAll("read here for ") catch return e.author;
+        w.writeAll(part) catch return e.author;
+    }
+    return w.buffered();
 }
 
 pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Option {

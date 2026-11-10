@@ -10,7 +10,7 @@ const xml = @import("xml.zig");
 const picture = @import("picture.zig");
 
 /// What the library shows, read without opening the whole book.
-pub const Info = struct { title: []const u8, author: []const u8, cover: ?[]const u8 = null };
+pub const Info = struct { title: []const u8, author: []const u8, cover: ?[]const u8 = null, series: []const u8 = "", series_index: f32 = 0 };
 
 /// The package document: metadata, every file it lists, and the reading order.
 const Package = struct {
@@ -21,6 +21,8 @@ const Package = struct {
     spine: []const []const u8, // Item ids, in reading order
     toc_ncx: ?[]const u8 = null, // EPUB 2 contents, an item id
     cover_id: ?[]const u8 = null,
+    series: []const u8 = "", // From Calibre's metadata, which most EPUBs carry
+    series_index: f32 = 0,
 
     const Item = struct { id: []const u8, href: []const u8, media: []const u8, properties: []const u8 };
 
@@ -116,6 +118,8 @@ fn readPackage(alloc: std.mem.Allocator, files: []const zip.Entry) !Package {
         if (std.mem.eql(u8, o.name, "meta")) {
             const name = xml.attr(o.attrs, "name") orelse "";
             if (std.mem.eql(u8, name, "cover")) p.cover_id = xml.attr(o.attrs, "content");
+            if (std.mem.eql(u8, name, "calibre:series")) p.series = xml.attr(o.attrs, "content") orelse "";
+            if (std.mem.eql(u8, name, "calibre:series_index")) p.series_index = std.fmt.parseFloat(f32, xml.attr(o.attrs, "content") orelse "") catch 0;
         }
     }
     p.items = items.items;
@@ -135,7 +139,7 @@ pub fn info(alloc: std.mem.Allocator, data: []const u8, with_cover: bool) !Info 
         cover = readFile(alloc, files, try resolve(alloc, p.dir, i.href)) catch null;
         break;
     };
-    return .{ .title = p.title, .author = p.author, .cover = cover };
+    return .{ .title = p.title, .author = p.author, .cover = cover, .series = p.series, .series_index = p.series_index };
 }
 
 /// Where a heading tag puts its text: bigger and bold, the largest centred.
