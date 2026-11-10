@@ -46,8 +46,22 @@ pub const Outcome = enum { library, quit };
 
 pub const View = enum { page, toolbar, sheet, panel, note, highlight };
 
+/// Whether an action needs every page laid out first: anything but reading on, as
+/// menus, Go To and page numbers count from the start of the book.
+fn needsAllPages(action: input_mod.Action, view: View, s: *const sess.Session) bool {
+    return switch (action) {
+        .tick, .drag, .drag_end => false,
+        .tap => |t| view != .page or t.y < touch_zones.top_zone or
+            (input_mod.turnDirection(t.x, s.app.input.width) < 0 and s.current == 0),
+        .swipe => |direction| direction < 0 and s.current == 0,
+        else => true,
+    };
+}
+
 /// Turns `delta` pages, stopping at either end, and saves the place every few turns.
 fn turnBy(session: *sess.Session, entry: *catalog.Entry, state_path: [*:0]const u8, since_save: *u32, delta: i64, touched_us: ?u64) !void {
+    // On a first open, pages ahead may not be laid out yet
+    if (delta > 0) try session.layoutUntil(session.current + @as(usize, @intCast(delta)) + 1);
     const last: i64 = @intCast(session.pages.len - 1);
     const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
     if (target == session.current) return;
@@ -94,14 +108,27 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const pages_path = try alloc.dupeSentinel(u8, try page_store.pathFor(&pages_buf, state_path), 0);
     const pages_key = page_store.key(a, data.len);
     const stored_pages = page_store.load(alloc, pages_path, pages_key, book.paragraphs.len);
-    const pages = stored_pages orelse try paginate.book(a, alloc, book.paragraphs);
-    if (pages.len == 0) return error.EmptyBook;
-    if (stored_pages == null) page_store.save(alloc, pages_path, pages_key, pages);
-    std.debug.print("open {s}: {d} pages, parsed in {d} ms, {s} in {d} ms\n", .{
-        entry.title, pages.len, (t1 - t0) / 1000, if (stored_pages != null) "saved pages" else "laid out", (nowUs() - t1) / 1000,
-    });
     const saved = state.load(state_path);
-    const start = if (state.preferKindle(saved, entry.kindle_last))
+    const from_kindle = state.preferKindle(saved, entry.kindle_last);
+    // Without saved breaks, lay out a little from the reader's place and show it at
+    // once; the rest follows in idle moments. Stock's place is a percent of the
+    // pages, so that one needs them all first.
+    var progress: ?paginate.Progressive = null;
+    if (stored_pages == null and !from_kindle) {
+        var place = book_model.Pos{ .para = book_model.fromTextIndex(book.paragraphs, saved.para), .byte = saved.byte };
+        if (place.para >= book.paragraphs.len or place.byte > book.paragraphs[place.para].text.len) place = .{};
+        progress = try paginate.Progressive.start(a, alloc, book.paragraphs, place);
+        if (progress.?.pages().len == 0) progress = null; // Nothing from there on: lay it all out
+    }
+    const pages = if (progress) |*p| p.pages() else stored_pages orelse try paginate.book(a, alloc, book.paragraphs);
+    if (pages.len == 0) return error.EmptyBook;
+    if (stored_pages == null and progress == null) page_store.save(alloc, pages_path, pages_key, pages);
+    std.debug.print("open {s}: {d} pages, parsed in {d} ms, {s} in {d} ms\n", .{
+        entry.title, pages.len, (t1 - t0) / 1000, if (stored_pages != null) "saved pages" else if (progress != null) "first pages" else "laid out", (nowUs() - t1) / 1000,
+    });
+    const start = if (progress != null)
+        0 // The place itself: the first page laid out
+    else if (from_kindle)
         @min(pages.len * entry.kindle_percent / 100, pages.len - 1)
     else
         sess.pageContaining(pages, book_model.fromTextIndex(book.paragraphs, saved.para), saved.byte);
@@ -109,6 +136,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     const stored = try alloc.alloc(u8, 1024 * 1024);
     a.layout.marks = &.{};
     var session = sess.Session{ .app = a, .paragraphs = book.paragraphs, .pages = pages, .current = start, .anchor = pages[start], .chapters = book.chapters, .seconds_read = saved.seconds, .pages_path = pages_path, .book_bytes = data.len };
+    if (progress) |*p| session.progress = p;
     const words_before = try alloc.alloc(u64, book.paragraphs.len + 1);
     words_before[0] = 0;
     for (book.paragraphs, 0..) |p, i| words_before[i + 1] = words_before[i] + (if (p.note) 0 else stats.countWords(p.text));
@@ -144,7 +172,11 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
         if (view == .page) session.resumeClock() else session.pauseClock();
         a.input.deferred = view == .page;
         a.input.edge_zones = view != .highlight;
-        switch (a.input.next()) {
+        // A first open's layout goes on in idle moments, about 40 ms at a time
+        a.input.tick_us = if (session.layoutPending()) 1000 else clock_check_us;
+        const action = a.input.next();
+        if (session.layoutPending() and needsAllPages(action, view, &session)) try session.finishLayout();
+        switch (action) {
             .unlock => {},
             .hold => |h| {
                 if (view != .page) continue;
@@ -327,6 +359,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 try turnBy(&session, entry, state_path, &since_save, direction + a.input.takeTurns(), null);
             },
             .tick => {
+                if (session.layoutPending()) {
+                    try session.layoutStep();
+                    continue;
+                }
                 if (view == .page and unixTime() / 60 != a.clock_minute) try a.updateClock();
             },
             .drag, .drag_end => {},

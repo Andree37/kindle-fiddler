@@ -85,7 +85,16 @@ pub const Layout = struct {
     marks: []const book_model.Mark = &.{},
     justify: bool = true,
     hyphenator: ?*const hyphen.Hyphenator = null, // The book's language, when known
+    // A page ends here at the latest, so a page can be made to break exactly where
+    // another page is known to start
+    stop: ?book_model.Pos = null,
 };
+
+/// Whether `p` has reached the stop position.
+fn atStop(l: Layout, para: usize, byte: usize) bool {
+    const st = l.stop orelse return false;
+    return para > st.para or (para == st.para and byte >= st.byte);
+}
 
 const max_words = 96;
 
@@ -144,6 +153,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
         pos.para += 1;
         pos.byte = 0;
     }) {
+        if (atStop(l, pos.para, pos.byte)) return pos;
         const para = paras[pos.para];
         if (para.note) continue;
         if (para.image) |img| {
@@ -179,6 +189,9 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
         while (i < text.len) {
             while (i < text.len and (text[i] == ' ' or text[i] == '\n')) i += 1;
             if (i >= text.len) break;
+            if (atStop(l, pos.para, i)) return .{ .para = pos.para, .byte = i };
+            // In the stop's paragraph, a line goes no further than the stop
+            const line_limit = if (l.stop) |st| (if (st.para == pos.para) @max(st.byte, i + 1) else text.len) else text.len;
 
             var words: [max_words][]const u8 = undefined;
             var widths: [max_words]f32 = undefined;
@@ -191,8 +204,12 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             const avail = line_width - indent;
 
             while (n < max_words) {
+                if (j >= line_limit) {
+                    line_ends_para = true; // Ends early at the stop: set like a paragraph's last line
+                    break;
+                }
                 var end = j;
-                while (end < text.len and text[end] != ' ' and text[end] != '\n') end += 1;
+                while (end < line_limit and end < text.len and text[end] != ' ' and text[end] != '\n') end += 1;
                 const word = text[j..end];
                 const wf = try wordFace(l, font, para, j);
                 const w = try wf.measure(word);

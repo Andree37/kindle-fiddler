@@ -38,12 +38,53 @@ pub const Session = struct {
     pages_path: [:0]const u8 = "", // Where this book's page breaks are saved
     notes_path: [:0]const u8 = "", // Where highlights and bookmarks are kept, for books Amazon doesn't sync
     book_bytes: usize = 0, // The book file's size, part of the saved breaks' key
+    // A first open still being laid out: pages count from the reader's place until done
+    progress: ?*paginate.Progressive = null,
     query: Query = .{}, // The last search, kept while the book is open
     chapters: []const book_model.Chapter = &.{},
     words_before: []const u64 = &.{}, // Words before each paragraph, for time left
     shown_us: u64 = 0, // When the clock last started on this page; 0 while paused
     page_us: u64 = 0, // Time on the current page before that
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
+
+    pub fn layoutPending(s: *const Session) bool {
+        return s.progress != null;
+    }
+
+    /// One step of a first open's layout, for an idle moment. Once the whole book is
+    /// laid out, it takes over: page numbers count from the start, the breaks are
+    /// saved, and the page on screen gets its page number.
+    pub fn layoutStep(s: *Session) !void {
+        const p = s.progress orelse return;
+        try p.step(s.app);
+        s.pages = p.pages();
+        if (!p.done()) return;
+        const whole = try p.joined();
+        s.pages = whole.pages;
+        s.current += whole.before;
+        s.progress = null;
+        page_store.save(p.alloc, s.pages_path, page_store.key(s.app, s.book_bytes), s.pages);
+        std.debug.print("laid out in the background: {d} pages, {d} before the reader's place\n", .{ s.pages.len, whole.before });
+        // Indexes moved, so pages drawn so far are stale; the page on screen gains its
+        // page number, which repaints only the footer
+        s.app.forgetPages();
+        @memcpy(s.app.screen.pixels, try s.ensure(s.current, s.current));
+        const footer_top = s.app.screen.height - 110;
+        try s.app.showBand(footer_top, s.app.screen.height - footer_top);
+    }
+
+    /// Lays out until page `index` exists, or the book ends, for turning on.
+    pub fn layoutUntil(s: *Session, index: usize) !void {
+        while (s.progress) |p| {
+            if (index < s.pages.len or p.next_forward == null) return;
+            try s.layoutStep();
+        }
+    }
+
+    /// Finishes a first open's layout now, before anything that needs every page.
+    pub fn finishLayout(s: *Session) !void {
+        while (s.progress != null) try s.layoutStep();
+    }
 
     /// Words from the start of the book to a position.
     pub fn wordsAt(s: *const Session, p: book_model.Pos) u64 {
@@ -183,7 +224,8 @@ pub const Session = struct {
         _ = try text.renderPage(a.body, page, s.paragraphs, s.pages[index], a.layout, &a.slots[victim].hits);
 
         var label: [32]u8 = undefined;
-        const counter = std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, s.pages.len }) catch "";
+        // Left out until the whole book is laid out, rather than a wrong number
+        const counter = if (s.progress != null) "" else std.fmt.bufPrint(&label, "{d} / {d}", .{ index + 1, s.pages.len }) catch "";
         const x = @as(f32, @floatFromInt(a.screen.width)) / 2 - 50;
         try a.footer.draw(page, x, @intCast(a.screen.height - 60), counter);
         if (s.isBookmarked(index)) icons.ribbon(page, a.screen.width);
@@ -229,7 +271,8 @@ pub fn saveProgress(entry: *catalog.Entry, path: [*:0]const u8, s: *Session) voi
     s.pauseClock(); // The reader's loop starts it again
     const seconds = s.secondsRead();
     const pos = s.pages[s.current];
-    const percent: u32 = @intCast((s.current + 1) * 100 / s.pages.len);
+    // While a first open is laid out, the page count isn't known: keep the last percent
+    const percent: u32 = if (s.progress != null) entry.percent else @intCast((s.current + 1) * 100 / s.pages.len);
     const now = unixTime();
     state.save(path, .{ .para = book_model.textIndex(s.paragraphs, pos.para), .byte = pos.byte, .percent = percent, .opened = now, .seconds = seconds });
     app.saveSpeed(s.app);
