@@ -84,6 +84,7 @@ pub const Action = union(enum) {
     hold: struct { x: i32, y: i32 },
     pull,
     drag: i32, // Finger x while a drag is being followed
+    swipe: i32, // A sideways stroke that lifted: 1 is on (leftwards), -1 back
     drag_end,
     tick,
     lock,
@@ -322,8 +323,14 @@ pub const Input = struct {
                         in.drag_slot = null;
                         return .drag_end;
                     } else if (in.top_slot == in.slot) {
-                        // Lifted without dragging, so it was a tap on the top row.
+                        // Lifted without being followed: a sideways stroke is a swipe,
+                        // anything else a tap where it began.
                         in.top_slot = null;
+                        const x = @divTrunc(in.xs[in.slot] * in.width, in.x_max);
+                        const y = @divTrunc(in.ys[in.slot] * in.height, in.y_max);
+                        if (in.top_moved) {
+                            if (touch_zones.swipeDirection(in.top_x, in.top_y, x, y)) |dir| return .{ .swipe = dir };
+                        }
                         return .{ .tap = .{ .x = in.top_x, .y = in.top_y, .us = in.top_us } };
                     }
                 },
@@ -471,6 +478,17 @@ test "a followed finger drags, then ends on lift" {
     try std.testing.expectEqual(@as(i32, 420), press(&in, 0, 420, 910, false).?.drag);
     try std.testing.expectEqual(@as(i32, 910), in.drag_y);
     try std.testing.expect(lift(&in, 0).? == .drag_end);
+}
+
+test "on waiting pages a sideways stroke swipes instead of tapping" {
+    var in = testInput();
+    in.deferred = true;
+    try std.testing.expect(press(&in, 0, 900, 800, true) == null);
+    _ = press(&in, 0, 600, 810, false);
+    try std.testing.expectEqual(@as(i32, 1), lift(&in, 0).?.swipe);
+    try std.testing.expect(press(&in, 0, 900, 800, true) == null);
+    _ = press(&in, 0, 920, 805, false); // A wobble
+    try std.testing.expectEqual(@as(i32, 900), lift(&in, 0).?.tap.x);
 }
 
 test "a second finger taps while a thumb rests" {

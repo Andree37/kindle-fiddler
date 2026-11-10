@@ -311,7 +311,7 @@ pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
                 marker = try follow.moved(x, a.input.drag_y);
             },
             .drag_end => break,
-            .tap, .hold, .pull, .tick, .unlock => {},
+            .tap, .hold, .pull, .swipe, .tick, .unlock => {},
             .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
                 break;

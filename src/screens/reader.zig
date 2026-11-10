@@ -46,6 +46,19 @@ pub const Outcome = enum { library, quit };
 
 pub const View = enum { page, toolbar, sheet, panel, note, highlight };
 
+/// Turns `delta` pages, stopping at either end, and saves the place every few turns.
+fn turnBy(session: *sess.Session, entry: *catalog.Entry, state_path: [*:0]const u8, since_save: *u32, delta: i64, touched_us: ?u64) !void {
+    const last: i64 = @intCast(session.pages.len - 1);
+    const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
+    if (target == session.current) return;
+    try session.show(@intCast(target), touched_us, false);
+    since_save.* += 1;
+    if (since_save.* >= save_every) {
+        sess.saveProgress(entry, state_path, session);
+        since_save.* = 0;
+    }
+}
+
 pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     // The open book: parsed text, pages, highlights. All freed together on close.
     var book_budget = memory.Budget{ .name = "book", .child = std.heap.smp_allocator, .limit = 128 << 20 };
@@ -301,16 +314,12 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                         continue;
                     }
                     const delta = input_mod.turnDirection(t.x, a.input.width) + a.input.takeTurns();
-                    const last: i64 = @intCast(session.pages.len - 1);
-                    const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
-                    if (target == session.current) continue;
-                    try session.show(@intCast(target), t.us, false);
-                    since_save += 1;
-                    if (since_save >= save_every) {
-                        sess.saveProgress(entry, state_path, &session);
-                        since_save = 0;
-                    }
+                    try turnBy(&session, entry, state_path, &since_save, delta, t.us);
                 },
+            },
+            .swipe => |direction| {
+                if (view != .page) continue;
+                try turnBy(&session, entry, state_path, &since_save, direction + a.input.takeTurns(), null);
             },
             .tick => {
                 if (view == .page and unixTime() / 60 != a.clock_minute) try a.updateClock();

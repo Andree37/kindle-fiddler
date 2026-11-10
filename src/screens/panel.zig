@@ -133,7 +133,7 @@ pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
                     else => {},
                 }
             },
-            .pull, .hold, .drag, .drag_end, .tick, .unlock => {},
+            .pull, .hold, .drag, .drag_end, .swipe, .tick, .unlock => {},
             .lock => {
                 a.input.stashed = .lock;
                 try closeMenu(a, background);

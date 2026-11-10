@@ -28,6 +28,25 @@ pub fn isPull(start_y: i32, y: i32) bool {
     return y - start_y >= pull_distance;
 }
 
+const swipe_distance = 120; // Sideways travel that turns a tap into a swipe
+
+/// A finger that went from (x0, y0) to (x, y) and lifted: -1 swiped right (back),
+/// 1 swiped left (on), null for anything else, which stays a tap. Mostly sideways:
+/// at least twice as far across as up or down.
+pub fn swipeDirection(x0: i32, y0: i32, x: i32, y: i32) ?i32 {
+    const dx = x - x0;
+    const dy = y - y0;
+    if (@abs(dx) < swipe_distance or @abs(dx) < 2 * @abs(dy)) return null;
+    return if (dx < 0) 1 else -1;
+}
+
+test "a sideways stroke swipes, anything else taps" {
+    try std.testing.expectEqual(@as(?i32, 1), swipeDirection(900, 800, 600, 830));
+    try std.testing.expectEqual(@as(?i32, -1), swipeDirection(300, 800, 700, 760));
+    try std.testing.expect(swipeDirection(300, 800, 380, 800) == null); // Too short
+    try std.testing.expect(swipeDirection(300, 800, 500, 1000) == null); // Diagonal
+}
+
 /// True when a finger has wandered too far to count as a hold.
 pub fn movedOff(x0: i32, y0: i32, x: i32, y: i32) bool {
     return @abs(x - x0) > hold_slop or @abs(y - y0) > hold_slop;

@@ -380,6 +380,16 @@ pub fn runLibrary(a: *app.App) !void {
                     .hero, .hero_dots => acting = &lib.entries[hero orelse continue],
                     else => continue,
                 },
+                .swipe => |direction| {
+                    // Swiping pages through the library, like the arrows
+                    if (direction > 0) {
+                        if (index + 1 >= library.pageCount(count)) continue;
+                        index += 1;
+                    } else {
+                        if (index == 0) continue;
+                        index -= 1;
+                    }
+                },
                 .drag, .drag_end, .unlock => continue,
                 .lock => {
                     try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null);
