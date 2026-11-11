@@ -153,9 +153,12 @@ int main(int argc, char **argv) {
     char name[256];
     if (!next_job(argv[2], name, sizeof(name))) return 0; // Nothing to do: never load the model
 
-    // Read into memory: from the Kindle's user drive, mapped weights are ~30x slower
+    // Mapped, the weights live in the file cache, which the Kindle can drop and read
+    // again when it needs the room. But not through /mnt/us: that's a FUSE layer, ~30x
+    // slower to map from, so from there they're read into memory instead. Pass the
+    // model's path under /mnt/base-us, the same files on plain ext4.
     struct llama_model_params mp = llama_model_default_params();
-    mp.load_mode = LLAMA_LOAD_MODE_NONE;
+    mp.load_mode = strncmp(argv[1], "/mnt/us/", 8) == 0 ? LLAMA_LOAD_MODE_NONE : LLAMA_LOAD_MODE_MMAP;
     struct llama_model *model = llama_model_load_from_file(argv[1], mp);
     if (!model) {
         fprintf(stderr, "model not loaded: %s\n", argv[1]);
