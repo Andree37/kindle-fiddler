@@ -52,7 +52,7 @@ const sort_left = 860;
 /// The moment a frame is drawn for, read once so every part of it agrees.
 pub const Moment = struct { unix: u64, utc_offset: i64 };
 
-pub const Hit = union(enum) { none, hero, hero_dots, book: usize, prev, next, sort, menu, search, stats, clear_search, tab: catalog.Filter };
+pub const Hit = union(enum) { none, hero, hero_dots, book: usize, prev, next, sort, menu, battery, search, stats, clear_search, tab: catalog.Filter };
 
 // The round search button, a clear gap right of the filter button
 const search_cx = 564 + 36 + button_height / 2;
@@ -93,7 +93,12 @@ fn gridTop(hero: bool) i32 {
 /// holds the search, and tapping it clears the search.
 pub fn hit(x: i32, y: i32, page: usize, books: usize, searching: bool) Hit {
     const hero = page == 0;
-    if (y < status_height) return if (x < 220) .menu else .none;
+    if (y < status_height) {
+        if (x < 220) return .menu;
+        // The battery and its percent, with room for a fingertip
+        if (x >= style.screen_width - 300) return .battery;
+        return .none;
+    }
     if (hero and y >= hero_top and y < hero_bottom) {
         if (searching) return .clear_search;
         if (x >= 1100 and y < hero_top + 90) return .hero_dots;

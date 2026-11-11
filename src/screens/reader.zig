@@ -167,6 +167,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     // A while into the book, Wi-Fi goes off; leaving it, it comes back
     const wifi_off_at = nowUs() + wifi_saver.after_us;
     var wifi_tried = false;
+    var battery_minute: u64 = 0; // The battery is noted once a minute at most
     defer wifi_saver.restore();
     var view: View = .page;
     var active: ?[]const u8 = null;
@@ -220,6 +221,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             .lock => {
                 session.pauseClock(); // Asleep isn't reading
                 try lock.lockScreen(a, entry);
+                a.noteBattery(); // What sleeping cost
                 if (view == .page) try a.updateClock();
             },
             .tap => |t| switch (view) {
@@ -384,6 +386,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 if (view == .page and !wifi_tried and nowUs() >= wifi_off_at) {
                     wifi_tried = true;
                     _ = wifi_saver.pause();
+                }
+                if (unixTime() / 60 != battery_minute) {
+                    battery_minute = unixTime() / 60;
+                    a.noteBattery();
                 }
                 if (view == .page and unixTime() / 60 != a.clock_minute) try a.updateClock();
             },

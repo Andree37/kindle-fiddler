@@ -70,6 +70,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const speed_path = try std.fmt.bufPrintSentinel(&speed_buf, "{s}/speed", .{state_dir}, 0);
     var journal_buf: [320]u8 = undefined;
     const journal_path = try std.fmt.bufPrintSentinel(&journal_buf, "{s}/journal", .{state_dir}, 0);
+    var battery_buf: [320]u8 = undefined;
+    const battery_path = try std.fmt.bufPrintSentinel(&battery_buf, "{s}/battery", .{state_dir}, 0);
     const ui = Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
 
     var shared = app.App{
@@ -89,6 +91,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .settings_path = settings_path,
         .speed_path = speed_path,
         .journal_path = journal_path,
+        .battery_path = battery_path,
         .journal = app.loadJournal(journal_path),
         .app_budget = &app_budget,
         .stb_budget = &stb_budget,

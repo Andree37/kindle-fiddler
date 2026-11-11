@@ -16,6 +16,7 @@ const store = @import("../kindle/store.zig");
 const nowUs = os.nowUs;
 const app = @import("../app.zig");
 const hwtcon = @import("../kindle/hwtcon.zig");
+const battery_screen = @import("battery.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const reader = @import("reader.zig");
@@ -299,6 +300,7 @@ pub fn runLibrary(a: *app.App) !void {
         // Drawn with the last status at once; read again now, and redrawn (only what
         // changed, without a flash) if the battery, Wi-Fi or clock moved on
         const status = lipc.read(a.quick);
+        a.noteBattery();
         if (!status.same(&a.quick)) {
             a.quick = status;
             try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
@@ -341,6 +343,10 @@ pub fn runLibrary(a: *app.App) !void {
                     },
                     .menu => {
                         if (try panel.libraryMenu(a, buf)) return;
+                        continue;
+                    },
+                    .battery => {
+                        try battery_screen.show(a);
                         continue;
                     },
                     .tab => |f| {

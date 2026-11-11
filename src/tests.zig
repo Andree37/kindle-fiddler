@@ -28,6 +28,8 @@ test {
     _ = @import("app.zig");
     _ = @import("model/stats.zig");
     _ = @import("model/search.zig");
+    _ = @import("model/battery.zig");
+    _ = @import("screens/battery.zig");
     _ = @import("ui/keyboard.zig");
     _ = @import("ui/search_sheet.zig");
     _ = @import("layout/hyphen.zig");

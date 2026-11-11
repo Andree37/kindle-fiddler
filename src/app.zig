@@ -25,6 +25,8 @@ const hyphen = @import("layout/hyphen.zig");
 const journal_model = @import("model/journal.zig");
 const dictionary = @import("model/dictionary.zig");
 const os = @import("linux/os.zig");
+const battery_model = @import("model/battery.zig");
+const battery_log = @import("kindle/battery_log.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
 
@@ -66,6 +68,8 @@ pub const App = struct {
     settings_path: [*:0]const u8,
     speed_path: [*:0]const u8,
     journal_path: [*:0]const u8,
+    battery_path: [*:0]const u8,
+    battery_last: ?battery_model.Sample = null, // Last level noted, so only changes are
     journal: journal_model.Journal = .{}, // What was read each day, for the stats screen
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
     pictures: Pictures = .{}, // Pictures of the open book, ready to copy onto pages
@@ -197,6 +201,11 @@ pub const App = struct {
         const time = clock.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
         draw.centered(a.ui.caption, target, @floatFromInt(a.screen.width / 2), clock_top + 38, time) catch {};
         a.clock_minute = unixTime() / 60;
+    }
+
+    /// Notes the battery level if it changed, for how long it will last.
+    pub fn noteBattery(a: *App) void {
+        battery_log.note(a.battery_path, &a.battery_last);
     }
 
     /// Redraws just the clock, which is too small to need a flash.
