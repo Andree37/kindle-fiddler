@@ -171,7 +171,18 @@ pub fn setAirplane(on: bool) void {
     set("com.lab126.cmd", "wirelessEnable", if (on) 0 else 1);
 }
 
+pub fn airplaneOn() ?bool {
+    const v = get("com.lab126.cmd", "wirelessEnable", lipcDeadline()) orelse return null;
+    return v == 0;
+}
+
 const bt_service: [*:0]const u8 = "com.lab126.btfd";
+
+/// Null when btfd can't be asked. Its state is 0 off, 1 on, 2 connected.
+pub fn bluetoothOn() ?bool {
+    const v = get(bt_service, "BTstate", lipcDeadline()) orelse return null;
+    return v != 0;
+}
 
 /// btfd takes "<on>:<mode>". Mode 2 is the user's own switch, which btfd remembers
 /// across reboots; mode 1 belongs to VoiceView, and other modes are refused.

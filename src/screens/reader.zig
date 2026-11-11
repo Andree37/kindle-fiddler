@@ -26,6 +26,7 @@ const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
 const local_notes = @import("reader/local_notes.zig");
 const more = @import("reader/more.zig");
+const wifi_saver = @import("../kindle/wifi_saver.zig");
 const page_store = @import("reader/page_store.zig");
 const paginate = @import("reader/paginate.zig");
 const search = @import("reader/search.zig");
@@ -163,6 +164,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     sess.saveProgress(entry, state_path, &session);
 
     var since_save: u32 = 0;
+    // A while into the book, Wi-Fi goes off; leaving it, it comes back
+    const wifi_off_at = nowUs() + wifi_saver.after_us;
+    var wifi_tried = false;
+    defer wifi_saver.restore();
     var view: View = .page;
     var active: ?[]const u8 = null;
     var delete_top: ?usize = null;
@@ -375,6 +380,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                         else => {},
                     };
                     continue;
+                }
+                if (view == .page and !wifi_tried and nowUs() >= wifi_off_at) {
+                    wifi_tried = true;
+                    _ = wifi_saver.pause();
                 }
                 if (view == .page and unixTime() / 60 != a.clock_minute) try a.updateClock();
             },

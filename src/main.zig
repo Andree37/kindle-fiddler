@@ -18,6 +18,7 @@ const clock = @import("linux/clock.zig");
 const input_mod = @import("kindle/input.zig");
 const app = @import("app.zig");
 const library_screen = @import("screens/library.zig");
+const wifi_saver = @import("kindle/wifi_saver.zig");
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
@@ -53,6 +54,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer input_mod.release(&input);
 
     input_mod.installSignals();
+    wifi_saver.restore(); // Left off by a crash or a reboot mid-book
     const saved_screen = try alloc.alloc(u8, screen.pixels.len);
     @memcpy(saved_screen, screen.pixels);
     defer {

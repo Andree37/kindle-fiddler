@@ -2,6 +2,7 @@
 const std = @import("std");
 const library = @import("../ui/library.zig");
 const menu = @import("../ui/menu.zig");
+const wifi_saver = @import("../kindle/wifi_saver.zig");
 const lipc = @import("../kindle/lipc.zig");
 const quick_model = @import("../model/quick.zig");
 const app = @import("../app.zig");
@@ -105,9 +106,15 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
             try menu.drawShortcut(a.ui, a.page(a.screen.pixels), choice, &a.quick);
             const marker = try a.screen.updateRegion(box.left, box.top, box.width, box.height, app.page_waveform, .partial);
             switch (choice) {
-                .airplane => lipc.setAirplane(a.quick.airplane),
+                .airplane => {
+                    wifi_saver.forget();
+                    lipc.setAirplane(a.quick.airplane);
+                },
                 .bluetooth => lipc.setBluetooth(a.quick.bluetooth),
-                else => lipc.syncNow(),
+                else => {
+                    wifi_saver.restore(); // Paused while reading: syncing needs it
+                    lipc.syncNow();
+                },
             }
             try a.screen.waitComplete(marker);
         },

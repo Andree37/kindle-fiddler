@@ -13,6 +13,11 @@ restore() {
         tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -E -- "-m com.lab126.powerd goingToScreenSaver outOfScreenSaver|-m com.lab126.volumd usbConfigured" && kill "$p"
     done
     [ -n "$watchdog" ] && kill "$watchdog" 2>/dev/null
+    # Wi-Fi noface turned off while reading, in case it couldn't turn it back on
+    if [ -e "$DIR/wifi-paused" ]; then
+        lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
+        rm -f "$DIR/wifi-paused"
+    fi
 }
 trap restore EXIT
 
