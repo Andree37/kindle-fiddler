@@ -1,6 +1,5 @@
-//! The reader's three-dots menu: go to a page, back to the start, a recap and the
-//! characters so far, book details, a screen refresh, and marking the book finished
-//! or unread.
+//! The reader's three-dots menu: go to a page, back to the start, book details,
+//! a screen refresh, and marking the book finished or unread.
 const std = @import("std");
 const card = @import("../../ui/card.zig");
 const catalog = @import("../../model/catalog.zig");
@@ -10,8 +9,6 @@ const app = @import("../../app.zig");
 const library_screen = @import("../library.zig");
 const page_number = @import("page_number.zig");
 const sess = @import("session.zig");
-const recap_view = @import("recap.zig");
-const cast = @import("cast.zig");
 
 /// What the reader does after the menu.
 pub const Result = union(enum) {
@@ -20,14 +17,12 @@ pub const Result = union(enum) {
     refresh, // Show the current page with a full, clean refresh
 };
 
-const Option = enum { go_to_page, beginning, recap, characters, details, refresh, finished, unread, cancel };
+const Option = enum { go_to_page, beginning, details, refresh, finished, unread, cancel };
 
 fn label(o: Option) []const u8 {
     return switch (o) {
         .go_to_page => "Go to page\u{2026}",
         .beginning => "Go to beginning",
-        .recap => "Previously\u{2026}",
-        .characters => "Characters",
         .details => "Book details",
         .refresh => "Refresh screen",
         .finished => "Mark as finished",
@@ -36,9 +31,9 @@ fn label(o: Option) []const u8 {
     };
 }
 
-pub fn run(a: *app.App, s: *sess.Session, entry: *catalog.Entry, scratch: std.mem.Allocator) !Result {
+pub fn run(a: *app.App, s: *sess.Session, entry: *catalog.Entry) !Result {
     // No Cancel: tapping above the sheet closes it
-    const list = [_]Option{ .go_to_page, .beginning, .recap, .characters, .details, .refresh, if (entry.isRead()) .unread else .finished };
+    const list = [_]Option{ .go_to_page, .beginning, .details, .refresh, if (entry.isRead()) .unread else .finished };
     var rows: [list.len]card.Row = undefined;
     for (list, &rows) |o, *r| r.* = .{ .label = label(o) };
     const background = try s.ensure(s.current, s.current);
@@ -47,14 +42,6 @@ pub fn run(a: *app.App, s: *sess.Session, entry: *catalog.Entry, scratch: std.me
         .cancel => return .stay,
         .go_to_page => return if (try page_number.run(a, s)) |index| .{ .page = index } else .stay,
         .beginning => return .{ .page = 0 },
-        .recap => {
-            try recap_view.show(a, s, scratch, null);
-            return .stay;
-        },
-        .characters => {
-            try cast.run(a, s, scratch);
-            return .stay;
-        },
         .refresh => return .refresh,
         .details => {
             try details(a, s, entry, background);

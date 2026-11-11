@@ -22,16 +22,7 @@ pub fn clipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f3
     try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
 }
 
-/// Bytes of `s` that fit on a line `avail` wide, ending at a space when it can.
-pub fn wrapEnd(font: *Font, s: []const u8, avail: f32) !usize {
-    if (try font.measure(s) <= avail) return s.len;
-    const cut = try font.fit(s, avail);
-    if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
-        if (space > 0) return space;
-    }
-    return @max(cut, 1);
-}
-
+/// A white box with a thin black outline.
 /// An outlined box with rounded corners, the shape every button and bubble shares.
 pub fn box(page: Page, x: u32, y: u32, w: u32, h: u32) void {
     const corner: f32 = @floatFromInt(@min(24, h / 2));

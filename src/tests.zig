@@ -28,8 +28,6 @@ test {
     _ = @import("app.zig");
     _ = @import("model/stats.zig");
     _ = @import("model/search.zig");
-    _ = @import("model/recap.zig");
-    _ = @import("screens/reader/recap.zig");
     _ = @import("ui/keyboard.zig");
     _ = @import("ui/search_sheet.zig");
     _ = @import("layout/hyphen.zig");
@@ -37,7 +35,6 @@ test {
     _ = @import("ui/stats.zig");
     _ = @import("model/dictionary.zig");
     _ = @import("ui/definition.zig");
-    _ = @import("model/characters.zig");
     _ = @import("model/bookmarks.zig");
     _ = @import("ui/goto.zig");
     _ = @import("ui/draw.zig");
