@@ -181,6 +181,28 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change
     }
 }
 
+const UpNext = enum { none, read, download };
+
+/// After finishing a book of a series: the next one, to read now or download.
+fn upNext(a: *app.App, next: *const catalog.Entry, background: []const u8) !UpNext {
+    var label_buf: [160]u8 = undefined;
+    var subtitle_buf: [200]u8 = undefined;
+    const subtitle = std.fmt.bufPrint(&subtitle_buf, "Up next in {s}", .{catalog.seriesLabel(&label_buf, next.*)}) catch "Up next";
+    const row: card.Row = switch (next.availability) {
+        .local => .{ .label = "Read it now" },
+        .cloud => .{ .label = "Download" },
+        .downloading => .{ .label = "Downloading\u{2026}", .quiet = true },
+    };
+    std.debug.print("up next: {s}\n", .{next.title});
+    const picked = try app.chooseFromCard(a, background, next.title, subtitle, &.{row}) orelse return .none;
+    _ = picked;
+    return switch (next.availability) {
+        .local => .read,
+        .cloud => .download,
+        .downloading => .none,
+    };
+}
+
 pub fn logPage(lib: *const Library, index: usize, count: usize) void {
     const range = library.pageRange(index, count);
     var i = range.first;
@@ -430,15 +452,36 @@ pub fn runLibrary(a: *app.App) !void {
                 },
                 .power, .computer, .stop => return,
             }
-            if (opening) |entry| {
+            if (opening) |first| {
                 a.input.tick_us = 0;
-                const outcome = reader.readBook(a, entry) catch |err| blk: {
-                    std.debug.print("could not open book: {s}\n", .{@errorName(err)});
-                    message = "This book can't be opened here.";
-                    break :blk reader.Outcome.library;
-                };
-                if (outcome == .quit) return;
-                a.slots[0].page = -1;
+                var entry = first;
+                // Finishing a book of a series offers the next one, and may go straight on
+                while (true) {
+                    const was_read = entry.isRead();
+                    const outcome = reader.readBook(a, entry) catch |err| blk: {
+                        std.debug.print("could not open book: {s}\n", .{@errorName(err)});
+                        message = "This book can't be opened here.";
+                        break :blk reader.Outcome.library;
+                    };
+                    if (outcome == .quit) return;
+                    a.slots[0].page = -1;
+                    if (was_read or !entry.isRead()) break;
+                    const next = &lib.entries[catalog.nextInSeries(lib.entries, entry) orelse break];
+                    switch (try upNext(a, next, buf)) {
+                        .none => break,
+                        .read => entry = next,
+                        .download => {
+                            store.downloadBook(next.key, next.kind);
+                            watch_until = nowUs() + download_watch_us;
+                            catalog_db.exportLibrary();
+                            var fresh = loadLibrary(a) catch break :browse;
+                            lib.deinit();
+                            lib = fresh;
+                            fresh = undefined;
+                            break;
+                        },
+                    }
+                }
                 break :browse;
             }
             if (acting) |entry| {
