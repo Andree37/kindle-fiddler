@@ -34,25 +34,36 @@ pub fn scale(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: us
 /// and dark areas flatten into one murky gray.
 pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
     if (w == 0) return;
-    const errs = try alloc.alloc(i16, 2 * (w + 2));
+    // The panel gray nearest each value, -255..510 (errors can push past either end)
+    const nearest = comptime blk: {
+        @setEvalBranchQuota(10000);
+        var t: [766]u8 = undefined;
+        for (&t, 0..) |*v, i| {
+            const want = std.math.clamp(@as(i32, i) - 255, 0, 255);
+            v.* = @intCast(@divTrunc(want + 8, 17) * 17);
+        }
+        break :blk t;
+    };
+    const errs = try alloc.alloc(i32, 2 * (w + 2));
     defer alloc.free(errs);
     @memset(errs, 0);
     var cur = errs[0 .. w + 2];
     var nxt = errs[w + 2 ..];
     const h = pixels.len / w;
     for (0..h) |y| {
-        for (0..w) |x| {
-            const i = y * w + x;
-            const want = std.math.clamp(@as(i16, pixels[i]) + @divTrunc(cur[x + 1], 16), 0, 255);
-            const got = @divTrunc(want + 8, 17) * 17;
-            pixels[i] = @intCast(got);
-            const e = want - got;
-            cur[x + 2] += e * 7;
-            nxt[x] += e * 3;
-            nxt[x + 1] += e * 5;
-            nxt[x + 2] += e;
+        const row = pixels[y * w ..][0..w];
+        for (row, 0..) |*p, x| {
+            // Wrapping math: values stay well inside i32, so the checks are just cost
+            const want = std.math.clamp(@as(i32, p.*) +% @divTrunc(cur[x + 1], 16), -255, 510);
+            const got = nearest[@intCast(want + 255)];
+            p.* = got;
+            const e = std.math.clamp(want, 0, 255) -% got;
+            cur[x + 2] +%= e *% 7;
+            nxt[x] +%= e *% 3;
+            nxt[x + 1] +%= e *% 5;
+            nxt[x + 2] +%= e;
         }
-        std.mem.swap([]i16, &cur, &nxt);
+        std.mem.swap([]i32, &cur, &nxt);
         @memset(nxt, 0);
     }
 }
@@ -173,4 +184,129 @@ test "covers keep their shape on screen" {
     try std.testing.expectEqual(@as(usize, 1060), narrow.w);
     try std.testing.expectEqual(@as(usize, 1696), narrow.h);
     try std.testing.expectEqual(@as(usize, 636), fitted(800, 400, screen_w, screen_h).h);
+}
+
+/// A decoded picture at its own size, one gray byte per pixel.
+pub const Gray = struct { pixels: []u8, width: usize, height: usize };
+
+/// Decodes a JPEG or PNG at full size. The caller owns the pixels.
+pub fn decodeGray(alloc: std.mem.Allocator, encoded: []const u8) ?Gray {
+    var w: c_int = 0;
+    var h: c_int = 0;
+    const pixels = img_gray(encoded.ptr, @intCast(encoded.len), &w, &h) orelse return null;
+    defer img_free(pixels);
+    if (w <= 0 or h <= 0) return null;
+    const n: usize = @intCast(w * h);
+    const out = alloc.alloc(u8, n) catch return null;
+    @memcpy(out, pixels[0..n]);
+    return .{ .pixels = out, .width = @intCast(w), .height = @intCast(h) };
+}
+
+/// A view into a picture for zooming: `zoom` screen pixels per picture pixel, with
+/// picture point (`cx`, `cy`) at the middle of a `dw` x `dh` box, white past the
+/// picture's edge. `smooth` blends the four nearest picture pixels, so a small
+/// picture blown up isn't blocks; without it, each screen pixel takes the nearest
+/// one, quick enough to follow a finger.
+pub fn zoomed(src: Gray, cx: f32, cy: f32, zoom: f32, page: Page, dw: u32, dh: u32, smooth: bool) void {
+    if (smooth and zoom > 1) return blended(src, cx, cy, zoom, page, dw, dh);
+    const half_w: f32 = @as(f32, @floatFromInt(dw)) / 2;
+    const half_h: f32 = @as(f32, @floatFromInt(dh)) / 2;
+    const sw: f32 = @floatFromInt(src.width);
+    const sh: f32 = @floatFromInt(src.height);
+    // The picture column for each screen column, worked out once
+    var columns: [2048]i32 = undefined;
+    const cols = @min(dw, columns.len);
+    for (0..cols) |x| {
+        const sx = cx + (@as(f32, @floatFromInt(x)) + 0.5 - half_w) / zoom;
+        columns[x] = if (sx < 0 or sx >= sw) -1 else @intFromFloat(sx);
+    }
+    for (0..dh) |y| {
+        const row = page.buf[y * page.stride ..][0..cols];
+        const sy = cy + (@as(f32, @floatFromInt(y)) + 0.5 - half_h) / zoom;
+        if (sy < 0 or sy >= sh) {
+            @memset(row, 0xff);
+            continue;
+        }
+        const src_row = src.pixels[@as(usize, @intFromFloat(sy)) * src.width ..][0..src.width];
+        for (row, columns[0..cols]) |*d, sx| d.* = if (sx < 0) 0xff else src_row[@intCast(sx)];
+    }
+}
+
+/// The smooth view: each screen pixel mixes the four picture pixels around it, in
+/// whole numbers (weights out of 256), with each column's sums worked out once.
+fn blended(src: Gray, cx: f32, cy: f32, zoom: f32, page: Page, dw: u32, dh: u32) void {
+    const Col = struct { x0: u32, x1: u32, fx: u32, inside: bool };
+    var cols: [2048]Col = undefined;
+    const n = @min(dw, cols.len);
+    const half_w: f32 = @as(f32, @floatFromInt(dw)) / 2;
+    const half_h: f32 = @as(f32, @floatFromInt(dh)) / 2;
+    const max_x: f32 = @floatFromInt(src.width - 1);
+    const max_y: f32 = @floatFromInt(src.height - 1);
+    for (cols[0..n], 0..) |*c, x| {
+        const sx = cx + (@as(f32, @floatFromInt(x)) + 0.5 - half_w) / zoom - 0.5;
+        const xc = std.math.clamp(sx, 0, max_x);
+        const x0: u32 = @intFromFloat(@floor(xc));
+        c.* = .{
+            .x0 = x0,
+            .x1 = @min(x0 + 1, @as(u32, @intCast(src.width - 1))),
+            .fx = @intFromFloat((xc - @floor(xc)) * 256),
+            .inside = sx >= -0.5 and sx <= max_x + 0.5,
+        };
+    }
+    for (0..dh) |y| {
+        const row = page.buf[y * page.stride ..][0..n];
+        const sy = cy + (@as(f32, @floatFromInt(y)) + 0.5 - half_h) / zoom - 0.5;
+        if (sy < -0.5 or sy > max_y + 0.5) {
+            @memset(row, 0xff);
+            continue;
+        }
+        const yc = std.math.clamp(sy, 0, max_y);
+        const y0: usize = @intFromFloat(@floor(yc));
+        const y1 = @min(y0 + 1, src.height - 1);
+        const fy: u32 = @intFromFloat((yc - @floor(yc)) * 256);
+        const r0 = src.pixels[y0 * src.width ..][0..src.width];
+        const r1 = src.pixels[y1 * src.width ..][0..src.width];
+        for (row, cols[0..n]) |*d, c| {
+            if (!c.inside) {
+                d.* = 0xff;
+                continue;
+            }
+            const top = @as(u32, r0[c.x0]) * (256 - c.fx) + @as(u32, r0[c.x1]) * c.fx;
+            const bottom = @as(u32, r1[c.x0]) * (256 - c.fx) + @as(u32, r1[c.x1]) * c.fx;
+            d.* = @intCast((top * (256 - fy) + bottom * fy + 32768) >> 16);
+        }
+    }
+}
+
+/// Where the middle of a view can sit so the picture covers it where it can: centred
+/// on an axis where the picture is smaller than the view.
+pub fn clampCentre(c: f32, picture: f32, view: f32, zoom: f32) f32 {
+    const half = view / zoom / 2;
+    if (picture <= 2 * half) return picture / 2;
+    return std.math.clamp(c, half, picture - half);
+}
+
+test "a view keeps inside the picture" {
+    // 1000 px picture, 500 px view at 1x: the middle stays 250..750
+    try std.testing.expectEqual(@as(f32, 250), clampCentre(0, 1000, 500, 1));
+    try std.testing.expectEqual(@as(f32, 750), clampCentre(990, 1000, 500, 1));
+    try std.testing.expectEqual(@as(f32, 600), clampCentre(600, 1000, 500, 1));
+    // Smaller than the view: centred
+    try std.testing.expectEqual(@as(f32, 50), clampCentre(10, 100, 500, 1));
+}
+
+test "zoomed views sample the nearest pixel, white outside" {
+    var src_px = [_]u8{ 10, 20, 30, 40 }; // 2 x 2
+    const src = Gray{ .pixels = &src_px, .width = 2, .height = 2 };
+    var buf: [16]u8 = undefined;
+    const page = Page{ .buf = &buf, .width = 4, .height = 4, .stride = 4 };
+    zoomed(src, 1, 1, 2, page, 4, 4, false); // Each picture pixel becomes 2 x 2
+    try std.testing.expectEqualSlices(u8, &.{ 10, 10, 20, 20, 10, 10, 20, 20, 30, 30, 40, 40, 30, 30, 40, 40 }, &buf);
+    zoomed(src, 1, 1, 1, page, 4, 4, false); // Half the view is past the edge
+    try std.testing.expectEqual(@as(u8, 0xff), buf[0]);
+    try std.testing.expectEqual(@as(u8, 10), buf[5]);
+    zoomed(src, 1, 1, 2, page, 4, 4, true); // Blended: in between, corners kept
+    try std.testing.expectEqual(@as(u8, 10), buf[0]);
+    try std.testing.expectEqual(@as(u8, 40), buf[15]);
+    try std.testing.expect(buf[1] > 10 and buf[1] < 20);
 }

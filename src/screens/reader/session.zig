@@ -193,6 +193,13 @@ pub const Session = struct {
         if (s.shown_us != 0) s.shown_us = nowUs();
     }
 
+    /// The picture at a point on the page on screen, if any.
+    pub fn pictureAt(s: *Session, x: i32, y: i32) ?book_model.Image {
+        const slot = s.app.slotFor(s.current) orelse return null;
+        const para = slot.hits.pictureAt(x, y) orelse return null;
+        return s.paragraphs[para].image;
+    }
+
     pub fn referenceAt(s: *Session, x: i32, y: i32) ?u32 {
         const slot = s.app.slotFor(s.current) orelse return null;
         return slot.hits.find(x, y);

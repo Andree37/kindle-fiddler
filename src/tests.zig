@@ -30,6 +30,7 @@ test {
     _ = @import("model/search.zig");
     _ = @import("model/battery.zig");
     _ = @import("screens/battery.zig");
+    _ = @import("screens/reader/picture.zig");
     _ = @import("ui/keyboard.zig");
     _ = @import("ui/search_sheet.zig");
     _ = @import("layout/hyphen.zig");

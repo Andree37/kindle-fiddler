@@ -26,6 +26,7 @@ const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
 const local_notes = @import("reader/local_notes.zig");
 const more = @import("reader/more.zig");
+const picture_view = @import("reader/picture.zig");
 const wifi_saver = @import("../kindle/wifi_saver.zig");
 const page_store = @import("reader/page_store.zig");
 const paginate = @import("reader/paginate.zig");
@@ -193,6 +194,13 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             .unlock => {},
             .hold => |h| {
                 if (view != .page) continue;
+                // Holding a picture shows it on the whole screen
+                if (session.pictureAt(h.x, h.y)) |img| {
+                    a.input.drag_slot = null;
+                    session.pauseClock();
+                    try picture_view.show(a, img);
+                    continue;
+                }
                 // Holding an existing highlight selects it, rather than starting over it.
                 if (selection.wordUnder(hl.pageWords(a, &session), h.x, h.y)) |word| {
                     if (highlights.atWord(session.highlights.items, word)) |id| {

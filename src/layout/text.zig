@@ -25,10 +25,27 @@ pub const Hits = struct {
     len: usize = 0,
     words: [1024]book_model.Word = undefined,
     word_count: usize = 0,
+    pictures: [4]Hit = undefined, // Where each picture sits; target is its paragraph
+    picture_count: usize = 0,
 
     pub fn clear(h: *Hits) void {
         h.len = 0;
         h.word_count = 0;
+        h.picture_count = 0;
+    }
+
+    fn addPicture(h: *Hits, hit: Hit) void {
+        if (h.picture_count == h.pictures.len) return;
+        h.pictures[h.picture_count] = hit;
+        h.picture_count += 1;
+    }
+
+    /// The paragraph of the picture at a point, if there's one there.
+    pub fn pictureAt(h: *const Hits, x: i32, y: i32) ?u32 {
+        for (h.pictures[0..h.picture_count]) |r| {
+            if (x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h) return r.target;
+        }
+        return null;
     }
 
     fn addWord(h: *Hits, word: book_model.Word) void {
@@ -141,6 +158,11 @@ fn spaceLines(tenths: u8, base: *Font) i32 {
 
 /// Lay out one page and return where the next page starts.
 /// With `page` null this only measures, which is how the book gets paginated.
+/// Where a picture `w` wide starts: centred in the text column.
+fn pictureLeft(l: Layout, line_width: f32, w: i32) u32 {
+    return @intCast(l.margin_x + @divTrunc(@as(i32, @intFromFloat(line_width)) - w, 2));
+}
+
 pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: book_model.Pos, l: Layout, hits: ?*Hits) !book_model.Pos {
     if (maybe_page) |p| @memset(p.buf, 0xff);
     const page = geometry;
@@ -163,9 +185,10 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             if (top + size.h > bottom + font.ascent and top > l.margin_top) return .{ .para = pos.para, .byte = 0 };
             if (maybe_page) |p| {
                 if (l.images) |im| {
-                    const x: u32 = @intCast(l.margin_x + @divTrunc(@as(i32, @intFromFloat(line_width)) - size.w, 2));
+                    const x: u32 = pictureLeft(l, line_width, size.w);
                     im.draw(im.ctx, p, img, x, @intCast(top), @intCast(size.w), @intCast(size.h));
                 }
+                if (hits) |h| h.addPicture(.{ .x = @intCast(pictureLeft(l, line_width, size.w)), .y = @intCast(top), .w = size.w, .h = size.h, .target = @intCast(pos.para) });
             }
             top += size.h + @divTrunc(font.line_height, 2);
             continue;
