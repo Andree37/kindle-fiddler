@@ -25,7 +25,7 @@ pub const Hits = struct {
     len: usize = 0,
     words: [1024]book_model.Word = undefined,
     word_count: usize = 0,
-    pictures: [4]Hit = undefined, // Where each picture sits; target is its paragraph
+    pictures: [16]Hit = undefined, // Where each picture sits; target is its paragraph
     picture_count: usize = 0,
 
     pub fn clear(h: *Hits) void {
@@ -156,13 +156,13 @@ fn spaceLines(tenths: u8, base: *Font) i32 {
     return @divTrunc(@as(i32, tenths) * base.line_height, 10);
 }
 
-/// Lay out one page and return where the next page starts.
-/// With `page` null this only measures, which is how the book gets paginated.
 /// Where a picture `w` wide starts: centred in the text column.
 fn pictureLeft(l: Layout, line_width: f32, w: i32) u32 {
     return @intCast(l.margin_x + @divTrunc(@as(i32, @intFromFloat(line_width)) - w, 2));
 }
 
+/// Lay out one page and return where the next page starts.
+/// With `page` null this only measures, which is how the book gets paginated.
 pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const Paragraph, start: book_model.Pos, l: Layout, hits: ?*Hits) !book_model.Pos {
     if (maybe_page) |p| @memset(p.buf, 0xff);
     const page = geometry;
@@ -184,11 +184,9 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             // A picture never splits: it starts the next page unless it opens this one.
             if (top + size.h > bottom + font.ascent and top > l.margin_top) return .{ .para = pos.para, .byte = 0 };
             if (maybe_page) |p| {
-                if (l.images) |im| {
-                    const x: u32 = pictureLeft(l, line_width, size.w);
-                    im.draw(im.ctx, p, img, x, @intCast(top), @intCast(size.w), @intCast(size.h));
-                }
-                if (hits) |h| h.addPicture(.{ .x = @intCast(pictureLeft(l, line_width, size.w)), .y = @intCast(top), .w = size.w, .h = size.h, .target = @intCast(pos.para) });
+                const x = pictureLeft(l, line_width, size.w);
+                if (l.images) |im| im.draw(im.ctx, p, img, x, @intCast(top), @intCast(size.w), @intCast(size.h));
+                if (hits) |h| h.addPicture(.{ .x = @intCast(x), .y = @intCast(top), .w = size.w, .h = size.h, .target = @intCast(pos.para) });
             }
             top += size.h + @divTrunc(font.line_height, 2);
             continue;

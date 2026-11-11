@@ -204,11 +204,13 @@ pub fn decodeGray(alloc: std.mem.Allocator, encoded: []const u8) ?Gray {
 
 /// A view into a picture for zooming: `zoom` screen pixels per picture pixel, with
 /// picture point (`cx`, `cy`) at the middle of a `dw` x `dh` box, white past the
-/// picture's edge. `smooth` blends the four nearest picture pixels, so a small
-/// picture blown up isn't blocks; without it, each screen pixel takes the nearest
-/// one, quick enough to follow a finger.
+/// picture's edge. `smooth` blends the four nearest picture pixels when blowing a
+/// picture up, so it isn't blocks, and averages all it covers when shrinking, so
+/// thin lines aren't skipped; without it, each screen pixel takes the nearest one,
+/// quick enough to follow a finger.
 pub fn zoomed(src: Gray, cx: f32, cy: f32, zoom: f32, page: Page, dw: u32, dh: u32, smooth: bool) void {
     if (smooth and zoom > 1) return blended(src, cx, cy, zoom, page, dw, dh);
+    if (smooth and zoom < 1) return averaged(src, cx, cy, zoom, page, dw, dh);
     const half_w: f32 = @as(f32, @floatFromInt(dw)) / 2;
     const half_h: f32 = @as(f32, @floatFromInt(dh)) / 2;
     const sw: f32 = @floatFromInt(src.width);
@@ -229,6 +231,47 @@ pub fn zoomed(src: Gray, cx: f32, cy: f32, zoom: f32, page: Page, dw: u32, dh: u
         }
         const src_row = src.pixels[@as(usize, @intFromFloat(sy)) * src.width ..][0..src.width];
         for (row, columns[0..cols]) |*d, sx| d.* = if (sx < 0) 0xff else src_row[@intCast(sx)];
+    }
+}
+
+/// Shrinking: each screen pixel averages every picture pixel it covers, as `scale`
+/// does for pages, with each column's span worked out once.
+fn averaged(src: Gray, cx: f32, cy: f32, zoom: f32, page: Page, dw: u32, dh: u32) void {
+    const Span = struct { from: u32, to: u32 }; // to == from: past the edge
+    var cols: [2048]Span = undefined;
+    const n = @min(dw, cols.len);
+    const half_w: f32 = @as(f32, @floatFromInt(dw)) / 2;
+    const half_h: f32 = @as(f32, @floatFromInt(dh)) / 2;
+    const span = struct {
+        fn of(screen: usize, centre: f32, half: f32, z: f32, size: usize) Span {
+            const a = centre + (@as(f32, @floatFromInt(screen)) - half) / z;
+            const b = centre + (@as(f32, @floatFromInt(screen + 1)) - half) / z;
+            const lo: f32 = @floatFromInt(size);
+            if (b <= 0 or a >= lo) return .{ .from = 0, .to = 0 };
+            const from: u32 = @intFromFloat(@max(a, 0));
+            const to: u32 = @intFromFloat(@min(@ceil(b), lo));
+            return .{ .from = from, .to = @max(to, from + 1) };
+        }
+    }.of;
+    for (cols[0..n], 0..) |*c, x| c.* = span(x, cx, half_w, zoom, src.width);
+    for (0..dh) |y| {
+        const row = page.buf[y * page.stride ..][0..n];
+        const rows = span(y, cy, half_h, zoom, src.height);
+        if (rows.to == rows.from) {
+            @memset(row, 0xff);
+            continue;
+        }
+        for (row, cols[0..n]) |*d, c| {
+            if (c.to == c.from) {
+                d.* = 0xff;
+                continue;
+            }
+            var sum: u32 = 0;
+            for (rows.from..rows.to) |sy| {
+                for (src.pixels[sy * src.width + c.from .. sy * src.width + c.to]) |v| sum += v;
+            }
+            d.* = @intCast(sum / ((rows.to - rows.from) * (c.to - c.from)));
+        }
     }
 }
 
@@ -309,4 +352,17 @@ test "zoomed views sample the nearest pixel, white outside" {
     try std.testing.expectEqual(@as(u8, 10), buf[0]);
     try std.testing.expectEqual(@as(u8, 40), buf[15]);
     try std.testing.expect(buf[1] > 10 and buf[1] < 20);
+}
+
+test "shrunk views keep thin lines" {
+    // An 8 x 8 picture, white with one black column, shown at half size
+    var src_px: [64]u8 = @splat(0xff);
+    for (0..8) |y| src_px[y * 8 + 3] = 0;
+    const src = Gray{ .pixels = &src_px, .width = 8, .height = 8 };
+    var buf: [16]u8 = undefined;
+    const page = Page{ .buf = &buf, .width = 4, .height = 4, .stride = 4 };
+    zoomed(src, 4, 4, 0.5, page, 4, 4, true);
+    // The line is averaged into its column, not skipped
+    for (0..4) |y| try std.testing.expect(buf[y * 4 + 1] < 0xc0);
+    try std.testing.expectEqual(@as(u8, 0xff), buf[0]);
 }

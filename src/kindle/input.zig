@@ -255,7 +255,10 @@ pub const Input = struct {
 
             // Locked with no watcher, wake now and then to start a new one.
             const sleep_ms: i32 = if (in.power_events < 0) watcher_retry_ms else -1;
-            const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) sleep_ms else 1000;
+            // Awake, no longer than until the next tick is due, so a short tick (a
+            // double tap's window) isn't stretched to the full second
+            const until_tick: i32 = if (in.tick_us == 0) 1000 else @intCast(@max(1, @min(1000, (in.last_tick + in.tick_us -| nowUs()) / 1000)));
+            const wait: i32 = if (in.top_slot != null) 30 else if (in.locked and in.tick_us == 0) sleep_ms else until_tick;
             _ = linux.poll(&fds, fds.len, wait);
 
             // powerd acts on the key itself. Read only so it can't pile up, except

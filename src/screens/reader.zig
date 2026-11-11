@@ -195,7 +195,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             .hold => |h| {
                 if (view != .page) continue;
                 // Holding a picture shows it on the whole screen
-                if (session.pictureAt(h.x, h.y)) |img| {
+                if (try session.pictureAt(h.x, h.y)) |img| {
                     a.input.drag_slot = null;
                     session.pauseClock();
                     try picture_view.show(a, img);

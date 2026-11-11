@@ -193,8 +193,10 @@ pub const Session = struct {
         if (s.shown_us != 0) s.shown_us = nowUs();
     }
 
-    /// The picture at a point on the page on screen, if any.
-    pub fn pictureAt(s: *Session, x: i32, y: i32) ?book_model.Image {
+    /// The picture at a point on the page on screen, if any. The page is drawn again
+    /// first if its drawing was dropped (a finished layout forgets them all).
+    pub fn pictureAt(s: *Session, x: i32, y: i32) !?book_model.Image {
+        _ = try s.ensure(s.current, s.current);
         const slot = s.app.slotFor(s.current) orelse return null;
         const para = slot.hits.pictureAt(x, y) orelse return null;
         return s.paragraphs[para].image;
