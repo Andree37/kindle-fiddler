@@ -326,13 +326,16 @@ pub const Input = struct {
                         in.drag_slot = null;
                         return .drag_end;
                     } else if (in.top_slot == in.slot) {
-                        // Lifted without being followed: a sideways stroke is a swipe,
-                        // anything else a tap where it began.
+                        // Lifted without being followed: a sideways stroke is a swipe, a
+                        // finger that stayed put a tap where it began. One that moved
+                        // some other way is neither: turning a page by where an arc
+                        // began would be a guess, often the wrong way.
                         in.top_slot = null;
                         const x = @divTrunc(in.xs[in.slot] * in.width, in.x_max);
                         const y = @divTrunc(in.ys[in.slot] * in.height, in.y_max);
                         if (in.top_moved) {
                             if (touch_zones.swipeDirection(in.top_x, in.top_y, x, y)) |dir| return .{ .swipe = dir };
+                            return null;
                         }
                         return .{ .tap = .{ .x = in.top_x, .y = in.top_y, .us = in.top_us } };
                     }
@@ -492,6 +495,15 @@ test "on waiting pages a sideways stroke swipes instead of tapping" {
     try std.testing.expect(press(&in, 0, 900, 800, true) == null);
     _ = press(&in, 0, 920, 805, false); // A wobble
     try std.testing.expectEqual(@as(i32, 900), lift(&in, 0).?.tap.x);
+    // A thumb's arc, as far down as across, still swipes
+    try std.testing.expect(press(&in, 0, 900, 700, true) == null);
+    _ = press(&in, 0, 780, 760, false);
+    _ = press(&in, 0, 650, 860, false);
+    try std.testing.expectEqual(@as(i32, 1), lift(&in, 0).?.swipe);
+    // Moved, but mostly up or down: nothing, not a tap where it began
+    try std.testing.expect(press(&in, 0, 600, 600, true) == null);
+    _ = press(&in, 0, 620, 900, false);
+    try std.testing.expect(lift(&in, 0) == null);
 }
 
 test "a second finger taps while a thumb rests" {

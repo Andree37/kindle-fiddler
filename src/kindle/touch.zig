@@ -28,15 +28,15 @@ pub fn isPull(start_y: i32, y: i32) bool {
     return y - start_y >= pull_distance;
 }
 
-const swipe_distance = 120; // Sideways travel that turns a tap into a swipe
+const swipe_distance = 100; // Sideways travel that turns a tap into a swipe
 
 /// A finger that went from (x0, y0) to (x, y) and lifted: -1 swiped right (back),
-/// 1 swiped left (on), null for anything else, which stays a tap. Mostly sideways:
-/// at least twice as far across as up or down.
+/// 1 swiped left (on), null for anything else. At least as far across as up or
+/// down: a thumb swipes in an arc, not a straight line.
 pub fn swipeDirection(x0: i32, y0: i32, x: i32, y: i32) ?i32 {
     const dx = x - x0;
     const dy = y - y0;
-    if (@abs(dx) < swipe_distance or @abs(dx) < 2 * @abs(dy)) return null;
+    if (@abs(dx) < swipe_distance or @abs(dx) < @abs(dy)) return null;
     return if (dx < 0) 1 else -1;
 }
 
@@ -44,7 +44,8 @@ test "a sideways stroke swipes, anything else taps" {
     try std.testing.expectEqual(@as(?i32, 1), swipeDirection(900, 800, 600, 830));
     try std.testing.expectEqual(@as(?i32, -1), swipeDirection(300, 800, 700, 760));
     try std.testing.expect(swipeDirection(300, 800, 380, 800) == null); // Too short
-    try std.testing.expect(swipeDirection(300, 800, 500, 1000) == null); // Diagonal
+    try std.testing.expectEqual(@as(?i32, -1), swipeDirection(300, 800, 500, 950)); // An arc
+    try std.testing.expect(swipeDirection(300, 800, 450, 1000) == null); // Mostly down
 }
 
 /// True when a finger has wandered too far to count as a hold.
