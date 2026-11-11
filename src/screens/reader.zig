@@ -26,6 +26,8 @@ const app = @import("../app.zig");
 const goto = @import("reader/goto.zig");
 const local_notes = @import("reader/local_notes.zig");
 const more = @import("reader/more.zig");
+const recap_view = @import("reader/recap.zig");
+const recap = @import("../model/recap.zig");
 const page_store = @import("reader/page_store.zig");
 const paginate = @import("reader/paginate.zig");
 const search = @import("reader/search.zig");
@@ -161,6 +163,9 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     try hl.refreshMarks(a, &session, alloc);
     try session.show(start, null, true);
     sess.saveProgress(entry, state_path, &session);
+    // Back after days away: what was happening, before reading on
+    if (recap.wantsRecap(saved.opened, unixTime()) and session.pages[session.current].para > 0)
+        try recap_view.show(a, &session, scratch, unixTime() - saved.opened);
 
     var since_save: u32 = 0;
     var view: View = .page;
@@ -214,8 +219,12 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             },
             .lock => {
                 session.pauseClock(); // Asleep isn't reading
+                const locked_at = unixTime();
                 try lock.lockScreen(a, entry);
                 if (view == .page) try a.updateClock();
+                // Left asleep for days on this page: the same recap as opening the book
+                if (view == .page and recap.wantsRecap(locked_at, unixTime()))
+                    try recap_view.show(a, &session, scratch, unixTime() - locked_at);
             },
             .tap => |t| switch (view) {
                 .highlight => {
@@ -274,7 +283,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     const sheet = view == .sheet;
                     switch (toolbar.hit(t.x, t.y, sheet)) {
                         .stay => {},
-                        .more => switch (try more.run(a, &session, entry)) {
+                        .more => switch (try more.run(a, &session, entry, scratch)) {
                             .stay => try controls.drawToolbar(a, &session, entry.title, sheet, true),
                             .page => |target| {
                                 view = .page;

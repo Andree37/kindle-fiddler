@@ -21,6 +21,9 @@
 
 #define MAX_CONTEXT 4096
 #define MAX_JOB_BYTES (32 * 1024)
+// Prompt tokens read per step. The scratch memory grows with it times the vocabulary
+// (151k words for Qwen), so a whole prompt at once needs hundreds of MB; 64 needs ~40.
+#define STEP 64
 
 static char *read_file(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
@@ -74,7 +77,8 @@ static int answer(struct llama_model *model, const char *request, int max_tokens
 
     struct llama_context_params cp = llama_context_default_params();
     cp.n_ctx = n_prompt + max_tokens + 8;
-    cp.n_batch = n_prompt;
+    cp.n_batch = STEP;
+    cp.n_ubatch = STEP;
     cp.n_threads = 2;
     cp.n_threads_batch = 2;
     struct llama_context *ctx = llama_init_from_model(model, cp);
@@ -88,22 +92,21 @@ static int answer(struct llama_model *model, const char *request, int max_tokens
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(1));
 
     struct llama_batch_ext *batch = llama_batch_ext_init(ctx);
-    batch_set_tokens(batch, tokens, n_prompt, 0);
-    int n_tokens = n_prompt;
     int failed = 0;
-    for (int n_pos = 0, made = 0; made < max_tokens; made++) {
-        if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch)) {
-            failed = 1;
-            break;
-        }
-        n_pos += n_tokens;
+    // The prompt, a step at a time; only its last token's logits are kept
+    for (int at = 0; at < n_prompt && !failed; at += STEP) {
+        const int n = n_prompt - at < STEP ? n_prompt - at : STEP;
+        batch_set_tokens(batch, tokens + at, n, at);
+        failed = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch) != 0;
+    }
+    for (int n_pos = n_prompt, made = 0; !failed && made < max_tokens; made++) {
         llama_token next = llama_sampler_sample(smpl, ctx, -1);
         if (llama_vocab_is_eog(vocab, next)) break;
         char piece[128];
         int n = llama_token_to_piece(vocab, next, piece, sizeof(piece), 0, false);
         if (n > 0) fwrite(piece, 1, n, out);
-        batch_set_tokens(batch, &next, 1, n_pos);
-        n_tokens = 1;
+        batch_set_tokens(batch, &next, 1, n_pos++);
+        failed = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch) != 0;
     }
     llama_batch_ext_free(batch);
     llama_sampler_free(smpl);

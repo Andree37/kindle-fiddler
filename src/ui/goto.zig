@@ -28,7 +28,8 @@ pub const Tab = enum { contents, notes };
 pub const Mark = enum { none, bookmark, highlight };
 
 /// One row: a chapter, a bookmark or a highlight.
-pub const Row = struct { label: []const u8, page: usize, depth: u8 = 0, mark: Mark = .none };
+/// `note`, when given, shows on the right in place of the page number.
+pub const Row = struct { label: []const u8, page: usize, depth: u8 = 0, mark: Mark = .none, note: ?[]const u8 = null };
 
 pub fn pageCount(count: usize) usize {
     return @max(1, (count + rows - 1) / rows);
@@ -84,6 +85,18 @@ pub fn render(fonts: Fonts, page: Page, tab: Tab, list: []const Row, reading: ?u
     try renderList(fonts, page, list, reading, list_page, empty);
 }
 
+/// The sheet with a heading in place of the tabs, and a note on the right of it.
+pub fn renderTitled(fonts: Fonts, page: Page, title: []const u8, note: []const u8, list: []const Row, list_page: usize, empty: []const u8) !void {
+    page.fillRect(0, top, page.width, page.height - top, style.white);
+    page.fillRect(0, top, page.width, 1, style.rule);
+    try fonts.title.draw(page, style.margin, tabs_baseline, title);
+    const right: f32 = @floatFromInt(page.width - style.margin);
+    const w = try fonts.caption.measure(note);
+    try fonts.caption.draw(page, right - w, tabs_baseline, note);
+    page.tint(@intFromFloat(right - w), tabs_baseline - 30, @intFromFloat(w + 1), 40, style.faded);
+    try renderList(fonts, page, list, null, list_page, empty);
+}
+
 /// The rows under the header, with the pager below. `empty` shows when there are none.
 pub fn renderList(fonts: Fonts, page: Page, list: []const Row, reading: ?usize, list_page: usize, empty: []const u8) !void {
     page.fillRect(0, list_top - 12, page.width, page.height - (list_top - 12), style.white);
@@ -108,7 +121,7 @@ pub fn renderList(fonts: Fonts, page: Page, list: []const Row, reading: ?usize, 
         try draw.clipped(font, page, left, baseline, r.label, right - page_label_width - left);
         if (here) page.fillRect(style.margin - 28, y + 22, 8, 56, style.black);
         var label: [16]u8 = undefined;
-        const number = std.fmt.bufPrint(&label, "{d}", .{r.page + 1}) catch "";
+        const number = r.note orelse std.fmt.bufPrint(&label, "{d}", .{r.page + 1}) catch "";
         try fonts.caption.draw(page, right - try fonts.caption.measure(number), baseline, number);
     }
     try pager.render(fonts, page, list_page, pageCount(list.len));

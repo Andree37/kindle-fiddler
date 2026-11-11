@@ -36,15 +36,42 @@ const not_names = [_][]const u8{
 /// Titles that stay part of a name when they come just before it.
 const titles = [_][]const u8{ "Mr", "Mrs", "Ms", "Miss", "Dr", "Sir", "Lady", "Lord", "Captain", "Colonel", "Professor", "Commander", "General" };
 
+/// Titles shortened with a full stop; a whole word's full stop ends the sentence
+/// ("Yes, Commander. I'm here").
+const abbreviations = [_][]const u8{ "Mr", "Mrs", "Ms", "Dr" };
+
 fn isTitle(word: []const u8) bool {
     const w = std.mem.trimEnd(u8, word, ".");
+    const dotted = w.len < word.len;
     for (titles) |t| {
-        if (std.mem.eql(u8, w, t)) return true;
+        if (!std.mem.eql(u8, w, t)) continue;
+        if (!dotted) return true;
+        for (abbreviations) |short| {
+            if (std.mem.eql(u8, t, short)) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+/// Words before a name that say it's a thing or a place, not someone: "the
+/// Wallfacer", "at Netherfield".
+fn isPlaceWord(word: []const u8) bool {
+    for ([_][]const u8{ "the", "a", "an", "in", "on", "at", "into" }) |w| {
+        if (std.ascii.eqlIgnoreCase(word, w)) return true;
     }
     return false;
 }
 
 fn isNotName(word: []const u8) bool {
+    // Contractions, with either apostrophe: I'm, You're, We'll. A name's apostrophe
+    // comes before a capital (O'Brien), and "'s" is trimmed before this.
+    for ([_][]const u8{ "'", "\u{2019}" }) |mark| {
+        if (std.mem.indexOf(u8, word, mark)) |i| {
+            const after = word[i + mark.len ..];
+            if (after.len > 0 and std.ascii.isLower(after[0])) return true;
+        }
+    }
     for (not_names) |n| {
         if (std.mem.eql(u8, word, n)) return true;
     }
@@ -101,7 +128,7 @@ fn endsSentence(word: []const u8) bool {
 /// The characters in `paragraphs` up to (not including) paragraph `until`, most
 /// mentioned first, at most `out.len` of them. Names point into the paragraphs.
 pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, until: usize, out: []Character) ![]Character {
-    const Entry = struct { name: []const u8, mentions: u32, first_para: u32 };
+    const Entry = struct { name: []const u8, mentions: u32, first_para: u32, placey: u32 = 0 };
     var by_key: std.StringArrayHashMapUnmanaged(Entry) = .empty;
     defer by_key.deinit(alloc);
     // Words seen capitalised mid-sentence: only those count at a sentence's start too
@@ -120,6 +147,8 @@ pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, 
             var run_end: usize = 0;
             var run_from_start = false;
             var run_closed = false; // The run's last word had punctuation after it
+            var last: []const u8 = ""; // The word before this one
+            var run_after: []const u8 = ""; // The word before the run
             while (true) {
                 const next = words.next();
                 const word = next orelse "";
@@ -132,21 +161,24 @@ pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, 
                     if (run_start == null) {
                         run_start = at + (@intFromPtr(clean.ptr) - @intFromPtr(word.ptr));
                         run_from_start = sentence_start;
+                        run_after = last;
                     }
                     run_end = at + (@intFromPtr(clean.ptr) - @intFromPtr(word.ptr)) + clean.len;
                     run_closed = closesRun(word);
                 } else if (run_start) |rs| {
-                    try takeRun(alloc, p.text[rs..run_end], run_from_start, pass, @intCast(para), &by_key, &mid, &forms);
+                    try takeRun(alloc, p.text[rs..run_end], run_from_start, isPlaceWord(bare(run_after)), pass, @intCast(para), &by_key, &mid, &forms);
                     run_start = null;
                     if (capital) {
                         run_start = at + (@intFromPtr(clean.ptr) - @intFromPtr(word.ptr));
                         run_end = run_start.? + clean.len;
                         run_from_start = sentence_start;
+                        run_after = last;
                         run_closed = closesRun(word);
                     }
                 }
                 if (next == null) break;
                 sentence_start = endsSentence(word);
+                last = word;
             }
         }
         if (pass == 0) by_key.clearRetainingCapacity();
@@ -169,8 +201,12 @@ pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, 
             }
             if (best) |b| {
                 const extra = by_key.values()[i];
-                by_key.values()[b].mentions += extra.mentions;
-                by_key.values()[b].first_para = @min(by_key.values()[b].first_para, extra.first_para);
+                const into = &by_key.values()[b];
+                into.mentions += extra.mentions;
+                into.placey += extra.placey;
+                into.first_para = @min(into.first_para, extra.first_para);
+                // Shown the way the book names them most: "Luo Ji", not "Dr. Luo"
+                if ((forms.get(extra.name) orelse 0) > (forms.get(into.name) orelse 0)) into.name = extra.name;
                 by_key.swapRemoveAt(i);
                 continue; // The entry now at i is unchecked
             }
@@ -182,6 +218,11 @@ pub fn find(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, 
     var it = by_key.iterator();
     while (it.next()) |kv| {
         if (kv.value_ptr.mentions < min_mentions) continue;
+        // Mostly after "the", "at" and such: a thing or a place
+        if (kv.value_ptr.placey * 10 > kv.value_ptr.mentions * 4) continue;
+        // "Wallfacers" beside "Wallfacer": a group of them, not one more person
+        const key = kv.key_ptr.*;
+        if (key.len > 2 and key[key.len - 1] == 's' and by_key.contains(key[0 .. key.len - 1])) continue;
         const c = Character{ .name = kv.value_ptr.name, .key = kv.key_ptr.*, .mentions = kv.value_ptr.mentions, .first_para = kv.value_ptr.first_para };
         if (n < out.len) {
             out[n] = c;
@@ -211,6 +252,7 @@ fn takeRun(
     alloc: std.mem.Allocator,
     run: []const u8,
     at_sentence_start: bool,
+    placey: bool, // After "the", "at" and the like
     pass: usize,
     para: u32,
     by_key: anytype,
@@ -257,6 +299,7 @@ fn takeRun(
     const gop = try by_key.getOrPut(alloc, key);
     if (!gop.found_existing) gop.value_ptr.* = .{ .name = name, .mentions = 0, .first_para = para };
     gop.value_ptr.mentions += 1;
+    if (placey) gop.value_ptr.placey += 1;
     // Show the most usual way of writing the name, the fuller one on a tie
     const form = try forms.getOrPut(alloc, name);
     if (!form.found_existing) form.value_ptr.* = 0;
@@ -287,7 +330,7 @@ test "names are found mid-sentence and merged by their first word" {
     var saw_bingley = false;
     var saw_jane = false;
     for (found) |c| {
-        if (std.mem.eql(u8, c.name, "Mr. Bingley")) saw_bingley = true;
+        if (std.mem.eql(u8, c.key, "Mr. Bingley")) saw_bingley = true;
         if (std.mem.eql(u8, c.name, "Elizabeth")) saw_elizabeth = true; // Her usual form
         if (std.mem.eql(u8, c.key, "Jane")) saw_jane = true;
         try std.testing.expect(!std.mem.eql(u8, c.key, "Bingley")); // Joined Mr. Bingley
@@ -308,4 +351,26 @@ test "only the part already read counts" {
     const found = try find(std.testing.allocator, ps[0..texts.len], 1, &out);
     try std.testing.expectEqual(@as(usize, 1), found.len);
     try std.testing.expectEqualStrings("Ann", found[0].key);
+}
+
+test "places, groups and lines of dialogue aren't characters" {
+    const texts = [_][]const u8{
+        "They rode to Netherfield, and at Netherfield the Wallfacer waited. Luo Ji smiled.",
+        "In Netherfield, Luo Ji spoke to the Wallfacer. The Wallfacers met at Netherfield.",
+        "“Yes, Commander. I’m ready,” said Luo Ji. Dr. Luo laughed, and the Wallfacers left.",
+        "Later Luo Ji met Dr. Luo's friend, and the Wallfacer and the Wallfacers left Netherfield.",
+    };
+    const ps = paras(&texts);
+    var out: [10]Character = undefined;
+    const found = try find(std.testing.allocator, ps[0..texts.len], texts.len, &out);
+    try std.testing.expectEqual(@as(usize, 1), found.len);
+    try std.testing.expectEqualStrings("Luo Ji", found[0].name); // His usual name, not "Dr. Luo"
+}
+
+test "contractions aren't names, apostrophes in names are" {
+    try std.testing.expect(isNotName("I’m"));
+    try std.testing.expect(isNotName("You’re"));
+    try std.testing.expect(isNotName("We'll"));
+    try std.testing.expect(!isNotName("O'Brien"));
+    try std.testing.expect(!isNotName("Elizabeth"));
 }
