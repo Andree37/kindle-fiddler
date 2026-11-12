@@ -18,6 +18,8 @@ const settings_model = @import("model/settings.zig");
 const state = @import("linux/state.zig");
 const os = @import("linux/os.zig");
 const reader = @import("screens/reader.zig");
+const library_screen = @import("screens/library.zig");
+const library_ui = @import("ui/library.zig");
 const dictionary = @import("model/dictionary.zig");
 const FakeKindle = @import("fake_kindle.zig").FakeKindle;
 const wifi_saver = @import("kindle/wifi_saver.zig");
@@ -60,12 +62,25 @@ const Outcome = struct {
     airplane_at_end: bool, // The Kindle's airplane mode when it was over
     wifi_note_left: bool, // noface's "I turned Wi-Fi off" note is still there
     looked_up: bool, // The dictionary was opened for a word
+    opened: [2]bool, // Whether the first two books were opened
+    finished: [2]bool, // Whether they were marked finished
     highlights: usize, // Highlights and bookmarks saved for the book
     bookmarks: usize,
 };
 
-/// How the pretend Kindle starts.
-const Kindle = struct { airplane: bool = false, bluetooth: bool = false, dictionary: bool = false };
+/// How the pretend Kindle starts, and where a scenario begins.
+const Kindle = struct {
+    airplane: bool = false,
+    bluetooth: bool = false,
+    dictionary: bool = false,
+    /// The books in the documents folder, all the scenario book under these names. A
+    /// scenario that starts in a book opens the first.
+    books: []const []const u8 = &.{"book.epub"},
+    /// Starts in the library instead of the first book.
+    library: bool = false,
+    /// A book read a while already, so the library shows it to continue.
+    read_before: ?usize = null,
+};
 
 /// Every word in the scenario book, for a small English dictionary of them.
 const book_words = [_][]const u8{ "a", "bright", "chapter", "evening", "garden", "green", "house", "letter", "light", "long", "new", "old", "page", "quiet", "reader", "river", "road", "slow", "small", "turns", "window" };
@@ -124,9 +139,15 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     const dir = try std.fmt.bufPrintSentinel(&dir_buf, "/tmp/noface-scenarios-{d}-{d}", .{ linux.getpid(), run_counter }, 0);
     _ = linux.mkdir(dir, 0o755);
     defer cleanUp(dir);
-    var book_path_buf: [128]u8 = undefined;
-    const book_path = try std.fmt.bufPrintSentinel(&book_path_buf, "{s}/book.epub", .{dir}, 0);
-    try writeFile(book_path, book_bytes);
+    var book_paths: [4][:0]const u8 = undefined;
+    for (kindle.books, 0..) |name, i| {
+        book_paths[i] = try std.fmt.allocPrintSentinel(alloc, "{s}/{s}", .{ dir, name }, 0);
+        try writeFile(book_paths[i], book_bytes);
+    }
+    const book_path = book_paths[0];
+    var library_buf: [128]u8 = undefined;
+    const library_path = try std.fmt.bufPrintSentinel(&library_buf, "{s}/library.tsv", .{dir}, 0);
+    try writeFile(library_path, "\n"); // No Kindle books: only the EPUBs in the folder
     if (kindle.dictionary) {
         var dict_buf: [128]u8 = undefined;
         try writeDictionary(alloc, try std.fmt.bufPrintSentinel(&dict_buf, "{s}/dict-en", .{dir}, 0));
@@ -186,7 +207,7 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         .lock_saved = try alloc.alloc(u8, screen.pixels.len),
         .lock_cover = try alloc.alloc(u8, screen.pixels.len),
         .state_dir = dir,
-        .library_path = "/dev/null",
+        .library_path = library_path,
         .settings_path = settings_path,
         .speed_path = speed_path,
         .journal_path = journal_path,
@@ -207,6 +228,10 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     }
     try a.applySettings();
 
+    if (kindle.read_before) |i| {
+        var before_buf: [320]u8 = undefined;
+        state.save(try a.statePath(&before_buf, book_paths[i]), .{ .para = 0, .byte = 0, .percent = 5, .opened = 1_700_000_000, .seconds = 600 });
+    }
     var entry = catalog.Entry{ .path = book_path, .title = "Scenario Book", .author = "noface tests", .percent = 0, .last = 0, .kind = "EPUB" };
     // The app reports as it goes; a run shows only its results
     const saved_stderr: i32 = @intCast(linux.dup(2));
@@ -219,12 +244,22 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         _ = linux.dup2(@intCast(quiet), 2);
         _ = linux.close(@intCast(quiet));
     }
-    _ = try reader.readBook(&a, &entry);
+    if (kindle.library) try library_screen.runLibrary(&a) else _ = try reader.readBook(&a, &entry);
 
     var state_buf: [320]u8 = undefined;
     var note_buf: [8]u8 = undefined;
     const state_path = try a.statePath(&state_buf, book_path);
+    var opened: [2]bool = @splat(false);
+    var finished: [2]bool = @splat(false);
+    for (kindle.books[0..@min(2, kindle.books.len)], 0..) |_, i| {
+        var b: [320]u8 = undefined;
+        const s = state.load(try a.statePath(&b, book_paths[i]));
+        opened[i] = s.opened > 1_700_000_000;
+        finished[i] = s.finished;
+    }
     return .{
+        .opened = opened,
+        .finished = finished,
         .saved = state.load(state_path),
         .looked_up = a.dictionaries[0] != null or a.dictionaries[1] != null,
         .highlights = countNotes(state_path, "highlight"),
@@ -359,7 +394,35 @@ const scenarios = [_]Scenario{
             try expect(twice.bookmarks == 0, "the bookmark stayed");
         }
     }.run },
+    .{ .name = "a book opens from the library, and Home goes back", .run = struct {
+        fn run() !void {
+            const r = try playOn(.{ .library = true }, &.{ tapIn(library_ui.bookRect(0, 0)), wait(2_000), top, tap(150, 118) });
+            try expect(r.opened[0], "the book didn't open");
+        }
+    }.run },
+    .{ .name = "finishing a book of a series offers the next, and it opens", .run = struct {
+        fn run() !void {
+            const r = try playOn(.{
+                .library = true,
+                .books = &.{ "Scenario Book -- noface tests -- Scenario Saga #1.epub", "Scenario Book -- noface tests -- Scenario Saga #2.epub" },
+                .read_before = 0,
+            }, &.{
+                tapIn(library_ui.heroRect(width)), wait(2_000), // Continue the first
+                top, tap(1176, 118), tap(600, 1600), // ⋮, Mark as finished
+                top, tap(150, 118), // Home, where the next one is offered
+                tap(600, 1604), // Up next: Read it now
+                wait(2_000), top, tap(150, 118), // Home
+            });
+            try expect(r.finished[0], "the first wasn't marked finished");
+            try expect(r.opened[1], "the next one didn't open");
+        }
+    }.run },
 };
+
+/// A tap in the middle of `r`.
+fn tapIn(r: library_ui.Rect) Step {
+    return tap(@intCast(r.x + r.w / 2), @intCast(r.y + r.h / 2));
+}
 
 fn expect(ok: bool, why: []const u8) !void {
     if (!ok) {
