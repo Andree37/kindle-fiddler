@@ -3,7 +3,9 @@
 const std = @import("std");
 
 /// A byte range of a paragraph that links to another paragraph.
-pub const Link = struct { start: usize, end: usize, target: u32 };
+/// `inside`: the target is an anchor partway into its paragraph (a page marker, say),
+/// not the paragraph's start, so it can't be where a note begins.
+pub const Link = struct { start: usize, end: usize, target: u32, inside: bool = false };
 
 /// How text is set: weight, slant, size, alignment and spacing around it.
 pub const Look = struct {

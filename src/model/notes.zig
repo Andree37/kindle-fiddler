@@ -45,6 +45,10 @@ pub fn markNotes(paragraphs: []book.Paragraph) void {
     for (paragraphs, 0..) |p, i| {
         for (p.links) |l| {
             if (l.target <= i or l.target >= paragraphs.len) continue;
+            // A page marker partway into a paragraph, a heading or a picture: body, not a note.
+            // (A list of illustrations links its page numbers to such places.)
+            const t = paragraphs[l.target];
+            if (l.inside or t.image != null or t.look.size != book.normal_size) continue;
             const span = l.end - l.start;
             if (span > max_reference_bytes or span * 2 > p.text.len) continue;
             if (!isMark(p.text[l.start..l.end])) continue;
@@ -86,6 +90,20 @@ test "short forward references mark their target as a note" {
     try std.testing.expect(paras[2].note);
     try std.testing.expect(!paras[0].note); // Back-link from the note
     try std.testing.expect(!paras[1].note);
+}
+
+test "page numbers that point at headings or into paragraphs hide nothing" {
+    var paras = [_]book.Paragraph{
+        .{ .text = "The efforts of his aunt 448", .style = 0, .links = &.{
+            .{ .start = 24, .end = 27, .target = 1 },
+            .{ .start = 24, .end = 27, .target = 2, .inside = true },
+        } },
+        .{ .text = "Chapter I.", .style = 0, .look = .{ .size = book.normal_size + 1 } },
+        .{ .text = "It is a truth universally acknowledged", .style = 0 },
+    };
+    markNotes(&paras);
+    try std.testing.expect(!paras[1].note);
+    try std.testing.expect(!paras[2].note);
 }
 
 test "a contents line does not hide its chapter" {

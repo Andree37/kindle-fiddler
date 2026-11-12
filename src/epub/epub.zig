@@ -177,6 +177,7 @@ const Builder = struct {
     files: []const zip.Entry,
     paragraphs: std.ArrayList(book.Paragraph) = .empty,
     anchors: std.StringHashMapUnmanaged(u32) = .empty, // "file#id" or "file" to paragraph
+    inner_anchors: std.StringHashMapUnmanaged(void) = .empty, // "file#id" that fall partway into a paragraph
     links: std.ArrayList(PendingLink) = .empty,
     text: std.ArrayList(u8) = .empty,
     runs: std.ArrayList(book.Run) = .empty,
@@ -271,7 +272,11 @@ const Builder = struct {
                     skipping = o.name;
                     continue;
                 }
-                if (xml.attr(o.attrs, "id")) |id| try b.waiting_ids.append(b.alloc, id);
+                if (xml.attr(o.attrs, "id")) |id| {
+                    // Text already started: the anchor is partway in, not where it begins
+                    if (b.text.items.len > 0) try b.inner_anchors.put(b.alloc, try std.fmt.allocPrint(b.alloc, "{s}#{s}", .{ b.file, id }), {});
+                    try b.waiting_ids.append(b.alloc, id);
+                }
                 if (isBlock(o.name)) {
                     try b.flush();
                     b.look = headingLook(o.name) orelse .{};
@@ -345,7 +350,7 @@ const Builder = struct {
             const target = b.anchors.get(l.target) orelse continue;
             const slot = try per_para.getOrPut(b.alloc, l.para);
             if (!slot.found_existing) slot.value_ptr.* = .empty;
-            try slot.value_ptr.append(b.alloc, .{ .start = l.start, .end = l.end, .target = target });
+            try slot.value_ptr.append(b.alloc, .{ .start = l.start, .end = l.end, .target = target, .inside = b.inner_anchors.contains(l.target) });
         }
         var it = per_para.iterator();
         while (it.next()) |kv| b.paragraphs.items[kv.key_ptr.*].links = kv.value_ptr.items;
