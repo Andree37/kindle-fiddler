@@ -11,33 +11,27 @@ your Amazon library, sync, highlights and Wi‑Fi.
 <p align="center"><b>New page in ~60 ms with noface, ~330 ms with the stock reader.</b><br>
 <sub>Same Kindle, same book, measured on the device. <a href="docs/DEVELOPING.md#how-the-speed-comparison-was-measured">How</a>.</sub></p>
 
-## What's different from the stock Kindle
+## Unique features
 
-| | Stock Kindle | noface |
-|---|---|---|
-| Turning a page | ~330 ms | **~60 ms** |
-| Home screen | Store shelves, deals and subscriptions | **Just your books** |
-| EPUBs copied over USB | Won't open; they have to go through Send to Kindle | **Open right away** |
-| Wi‑Fi while you read | Stays on | **Off while you read, back when you're done** |
-| Battery | A percentage | **Also how long your charge will last** |
-| Series in your own files | Not recognised | **Grouped, in order, next book offered when you finish** |
+Things the stock Kindle doesn't do:
 
-## Why you'll like it
+- **⚡ Pages in ~60 ms.** About five times faster than the stock reader, measured on
+  the same Kindle.
+- **📚 Just your books.** A home screen with your library and nothing else: no store
+  shelves, deals or subscription banners.
+- **📖 EPUBs that just open.** Copy them over USB and read them; no Send to Kindle.
+- **🔋 Wi‑Fi off while you read.** It switches itself off a couple of minutes into a
+  book and back on when you're done, so the battery lasts longer.
+- **⏳ How long your charge will last.** Tap the battery for an estimate in days, from
+  how you actually read.
+- **🔗 Series from your own files.** Books in a series are grouped and kept in order,
+  and finishing one offers the next.
 
-- **Instant pages.** Tap or swipe, and the next page is already there.
-- **A library that gets out of your way.** Pick up where you left off, search as you
-  type, and keep series together in order, with the next book ready when you finish one.
-- **Read your way.** Four typefaces, bold, size, spacing, margins, and hyphenation
-  that fills justified lines neatly.
-- **Look things up.** Hold a word for its definition, drag to highlight. Highlights
-  sync with the Kindle apps.
-- **Pictures, up close.** Hold a map or illustration to see it full screen, then zoom
-  and pan.
-- **Lasts longer.** Wi‑Fi switches off while you read and back on when you're done.
-  Tap the battery for how long your charge will last.
-- **Know your reading.** Time read today and this week, your streak, books finished
-  and your reading speed.
-- **Your books too.** EPUBs copied over USB sit right next to your Kindle books.
+## And everything you'd expect
+
+Definitions and highlights (synced with the Kindle apps for Amazon books), search as
+you type, four typefaces with size, spacing, margins and hyphenation, pictures full
+screen with zoom, and reading stats with your daily minutes and streak.
 
 ## Get it
 
