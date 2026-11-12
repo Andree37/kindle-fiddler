@@ -14,7 +14,7 @@ const top = 228; // Under the toolbar
 const tabs_height = 92;
 /// Where the sheet ends on screen: lower on More, which has a row more.
 pub fn heightFor(tab: Tab) u32 {
-    return if (tab == .more) max_height else 760;
+    return if (tab == .more or tab == .font) max_height else 760;
 }
 pub const max_height = 860;
 const margin = style.margin;
@@ -39,10 +39,11 @@ pub const Hit = union(enum) {
     time_left,
     autostart,
     lock_picture,
+    bold_starts,
 };
 
 pub const Row = struct { hit: Hit, label: []const u8, top: u32, steps: usize };
-pub const size_row = Row{ .hit = .text_size, .label = "Text size", .top = content_top + 256, .steps = settings_model.sizes.len };
+pub const size_row = Row{ .hit = .text_size, .label = "Text size", .top = content_top + 356, .steps = settings_model.sizes.len };
 pub const spacing_row = Row{ .hit = .spacing, .label = "Line spacing", .top = content_top, .steps = settings_model.spacings.len };
 pub const margin_row = Row{ .hit = .margins, .label = "Margins", .top = content_top + 146, .steps = settings_model.margins.len };
 pub const row_height = 146;
@@ -59,6 +60,7 @@ fn familyWidth() u32 {
     return (screen_width - 2 * margin) / familyColumns();
 }
 const bold_top = content_top + 186;
+const bold_starts_top = content_top + 286;
 const toggle_height = 76;
 const align_top = content_top + 292;
 const clock_top = content_top + 8;
@@ -122,6 +124,7 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
                 return if (i < settings_model.families.len) .{ .family = i } else .none;
             }
             if (onToggle(y, bold_top)) return .bold;
+            if (onToggle(y, bold_starts_top)) return .bold_starts;
             if (within(y, size_row.top, row_height)) return .text_size;
         },
         .layout => {
@@ -239,6 +242,7 @@ fn drawFont(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
         } else try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), family, i == chosen.font, y + 70);
     }
     try drawToggle(fonts, page, bold_top, "Bold", chosen.bold);
+    try drawToggle(fonts, page, bold_starts_top, "Bold word starts", chosen.bold_starts);
     try drawRow(fonts, page, size_row, chosen.size, false);
 }
 
@@ -284,6 +288,7 @@ test "each tab maps its own controls" {
     try std.testing.expectEqual(Hit{ .family = 3 }, hit(.font, 900, family_top + family_height + 20));
     try std.testing.expectEqual(Hit.bold, hit(.font, 600, bold_top + 20));
     try std.testing.expectEqual(Hit.text_size, hit(.font, 600, size_row.top + 90));
+    try std.testing.expectEqual(Hit.bold_starts, hit(.font, 600, bold_starts_top + 20));
     try std.testing.expectEqual(Hit.spacing, hit(.layout, 600, spacing_row.top + 90));
     try std.testing.expectEqual(Hit.margins, hit(.layout, 600, margin_row.top + 90));
     try std.testing.expectEqual(Hit.alignment, hit(.layout, 600, align_top + 20));

@@ -138,7 +138,9 @@ test "toolbar buttons map to actions" {
 test "text sheet takes taps only while open" {
     try std.testing.expectEqual(Hit.close, hit(350, 320, null));
     try std.testing.expectEqual(Hit.sheet, hit(350, 320, .font));
-    try std.testing.expectEqual(Hit.close, hit(700, 800, .font));
+    try std.testing.expectEqual(Hit.sheet, hit(700, 800, .font)); // Font and More reach lower
+    try std.testing.expectEqual(Hit.close, hit(700, 800, .layout));
+    try std.testing.expectEqual(Hit.close, hit(700, 900, .font));
 }
 
 test "scrubber maps position to page" {

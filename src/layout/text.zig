@@ -101,6 +101,7 @@ pub const Layout = struct {
     reference: ?*Font = null, // Smaller font for note references
     marks: []const book_model.Mark = &.{},
     justify: bool = true,
+    bold_starts: bool = false, // The first half of each word's letters in bold, to lead the eye
     hyphenator: ?*const hyphen.Hyphenator = null, // The book's language, when known
     // A page ends here at the latest, so a page can be made to break exactly where
     // another page is known to start
@@ -128,6 +129,59 @@ fn findReference(links: []const Link, paras: []const Paragraph, start: usize, le
 fn face(l: Layout, base: *Font, bold: bool, italic: bool, size: u8) !*Font {
     const f = l.faces orelse return base;
     return f.pick(f.ctx, bold, italic, size);
+}
+
+/// How many bytes of `word` are set bold with bold word starts: anything before its
+/// first letter, then half its letters (one for words of up to three), rounded up.
+pub fn boldStart(word: []const u8) usize {
+    var letters: usize = 0;
+    var it = (std.unicode.Utf8View.init(word) catch return 0).iterator();
+    while (it.nextCodepoint()) |cp| {
+        if (isLetter(cp)) letters += 1;
+    }
+    if (letters == 0) return 0;
+    const want = if (letters <= 3) 1 else (letters + 1) / 2;
+    var seen: usize = 0;
+    it = (std.unicode.Utf8View.init(word) catch return 0).iterator();
+    while (it.nextCodepoint()) |cp| {
+        if (isLetter(cp)) seen += 1;
+        if (seen == want) return it.i;
+    }
+    return word.len;
+}
+
+/// Letters and digits; beyond ASCII, anything but Latin-1's symbols and the general
+/// punctuation block (curly quotes, dashes, ellipses).
+fn isLetter(cp: u21) bool {
+    if (cp < 128) return std.ascii.isAlphanumeric(@intCast(cp));
+    return cp > 0xbf and !(cp >= 0x2000 and cp <= 0x206f);
+}
+
+/// The bold face for a word's start with bold word starts on, or null: off, or the
+/// word is bold already, or it's the rest of a word broken at the line before.
+fn startFace(l: Layout, base: *Font, p: Paragraph, wf: *Font, text: []const u8, word_start: usize) !?*Font {
+    if (!l.bold_starts) return null;
+    if (word_start > 0 and text[word_start - 1] != ' ' and text[word_start - 1] != '\n') return null;
+    var italic = p.look.italic;
+    for (p.runs) |r| {
+        if (word_start >= r.start and word_start < r.end) italic = italic or r.italic;
+    }
+    const bold = try face(l, base, true, italic, p.look.size);
+    return if (bold == wf) null else bold;
+}
+
+/// A word's width, its start in `start` when given.
+fn wordWidth(wf: *Font, start: ?*Font, word: []const u8) !f32 {
+    const b = start orelse return wf.measure(word);
+    const k = boldStart(word);
+    return try b.measure(word[0..k]) + try wf.measure(word[k..]);
+}
+
+fn drawWord(p: Page, wf: *Font, start: ?*Font, x: f32, y: i32, word: []const u8) !void {
+    const b = start orelse return wf.draw(p, x, y, word);
+    const k = boldStart(word);
+    try b.draw(p, x, y, word[0..k]);
+    try wf.draw(p, x + try b.measure(word[0..k]), y, word[k..]);
 }
 
 /// Bold and italic for a word: its paragraph's, plus any run it starts in.
@@ -217,6 +271,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
             var words: [max_words][]const u8 = undefined;
             var widths: [max_words]f32 = undefined;
             var fonts: [max_words]*Font = undefined;
+            var starts: [max_words]?*Font = undefined; // Bold word starts' face, per word
             var n: usize = 0;
             var used: f32 = 0;
             var j = i;
@@ -233,13 +288,15 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 while (end < line_limit and end < text.len and text[end] != ' ' and text[end] != '\n') end += 1;
                 const word = text[j..end];
                 const wf = try wordFace(l, font, para, j);
-                const w = try wf.measure(word);
+                const sf = try startFace(l, font, para, wf, text, j);
+                const w = try wordWidth(wf, sf, word);
                 if (n == 0 and w > avail) {
                     // Wider than a whole line, as with a URL or unspaced CJK: split it.
                     const part = word[0..try wf.fit(word, avail)];
                     words[0] = part;
                     widths[0] = try wf.measure(part);
                     fonts[0] = wf;
+                    starts[0] = null;
                     n = 1;
                     j += part.len;
                     break;
@@ -255,11 +312,12 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                         while (k > 0) {
                             k -= 1;
                             const b = breaks[k];
-                            const head_w = try wf.measure(word[0..b.at]) + if (b.hyphen) try wf.measure("-") else 0;
+                            const head_w = try wordWidth(wf, sf, word[0..b.at]) + if (b.hyphen) try wf.measure("-") else 0;
                             if (head_w > room) continue;
                             words[n] = word[0..b.at];
                             widths[n] = head_w;
                             fonts[n] = wf;
+                            starts[n] = sf;
                             n += 1;
                             j += b.at;
                             hyphen_end = b.hyphen;
@@ -271,6 +329,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 words[n] = word;
                 widths[n] = w;
                 fonts[n] = wf;
+                starts[n] = sf;
                 n += 1;
                 used += gap + w;
                 j = end;
@@ -301,7 +360,7 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                 .right => @max(avail - line_used, 0),
                 else => 0,
             };
-            for (words[0..n], widths[0..n], fonts[0..n], 0..) |word, w, wf, word_index| {
+            for (words[0..n], widths[0..n], fonts[0..n], starts[0..n], 0..) |word, w, wf, sf, word_index| {
                 var shrink: f32 = 0; // A small mark takes less room than was measured
                 if (maybe_page) |p| {
                     const word_start = @intFromPtr(word.ptr) - @intFromPtr(text.ptr);
@@ -339,9 +398,9 @@ pub fn layoutPage(font: *Font, maybe_page: ?Page, geometry: Page, paras: []const
                             .target = r.target,
                         });
                     } else {
-                        try wf.draw(p, x, y, word);
+                        try drawWord(p, wf, sf, x, y, word);
                     }
-                    if (hyphen_end and word_index + 1 == n) try wf.draw(p, x + try wf.measure(word), y, "-");
+                    if (hyphen_end and word_index + 1 == n) try wf.draw(p, x + try wordWidth(wf, sf, word), y, "-");
                 }
                 x += w + gap - shrink;
             }
@@ -371,4 +430,12 @@ test "pictures fit the page and small ones stay small" {
     try std.testing.expectEqual(@as(i32, 1400), tall.h);
     const ornament = imageSize(.{ .data = "", .width = 50, .height = 16 }, 1000, 1400);
     try std.testing.expectEqual(@as(i32, 100), ornament.w);
+}
+
+test "bold word starts cover half of each word's letters" {
+    try std.testing.expectEqualStrings("acknow", "acknowledged"[0..boldStart("acknowledged")]);
+    try std.testing.expectEqualStrings("t", "the"[0..boldStart("the")]);
+    try std.testing.expectEqualStrings("\u{201c}Bing", "\u{201c}Bingley.\u{201d}"[0..boldStart("\u{201c}Bingley.\u{201d}")]);
+    try std.testing.expectEqualStrings("caf", "caf\u{e9}s"[0..boldStart("caf\u{e9}s")]);
+    try std.testing.expectEqual(@as(usize, 0), boldStart("\u{2014}"));
 }

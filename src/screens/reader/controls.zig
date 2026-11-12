@@ -116,6 +116,7 @@ pub fn tapSheet(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, title: 
         },
         .family => |i| a.settings.font = i,
         .bold => a.settings.bold = !a.settings.bold,
+        .bold_starts => a.settings.bold_starts = !a.settings.bold_starts,
         .alignment => a.settings.left_align = !a.settings.left_align,
         .clock => {
             a.settings.clock = !a.settings.clock;

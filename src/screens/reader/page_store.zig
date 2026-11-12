@@ -44,7 +44,7 @@ pub fn key(a: *const app.App, book_bytes: usize) u64 {
     const l = a.layout;
     const parts = [_]u64{
         book_bytes,              a.screen.width,          a.screen.height,      s.size, s.spacing, s.font, s.margin,
-        @intFromBool(s.bold),    @intFromBool(l.justify), @bitCast(@as(i64, l.margin_x)),
+        @intFromBool(s.bold),    @intFromBool(l.justify), @intFromBool(l.bold_starts), @bitCast(@as(i64, l.margin_x)),
         @bitCast(@as(i64, l.margin_top)), @bitCast(@as(i64, l.margin_bottom)), @as(u32, @bitCast(l.indent)),
     };
     h.update(std.mem.sliceAsBytes(&parts));

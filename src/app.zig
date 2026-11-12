@@ -135,6 +135,7 @@ pub const App = struct {
         a.layout.images = .{ .ctx = a, .draw = drawImage };
         a.layout.margin_x = settings_model.margins[a.settings.margin];
         a.layout.justify = !a.settings.left_align;
+        a.layout.bold_starts = a.settings.bold_starts;
     }
 
     /// Each typeface offered, at interface size, to show its name in itself. One that
