@@ -101,6 +101,24 @@ pub fn build(b: *std.Build) void {
         scenarios_step.dependOn(&b.addRunArtifact(host_scenarios).step);
     }
 
+    // The simulator: noface on this computer, shown in a browser
+    const sim_step = b.step("sim", "Run noface on this computer, in a browser (-Dbooks=<folder of EPUBs>)");
+    const sim_books = b.option([]const u8, "books", "The simulator's books: a folder of EPUBs (the test book if not given)");
+    const sim = b.addExecutable(.{
+        .name = "noface-sim",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/sim.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseSafe,
+            .link_libc = true,
+        }),
+    });
+    addFontAndImageCode(b, sim.root_module);
+    b.step("sim-build", "Build the simulator without running it").dependOn(&b.addInstallArtifact(sim, .{}).step);
+    const run_sim = b.addRunArtifact(sim);
+    if (sim_books) |folder| run_sim.addArg(folder);
+    sim_step.dependOn(&run_sim.step);
+
     const test_step = b.step("test", "Run unit tests on the host");
     const tests = b.addTest(.{
         .root_module = b.createModule(.{

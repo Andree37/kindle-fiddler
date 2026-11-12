@@ -14,6 +14,9 @@ pub const FakeKindle = struct {
     sets: std.ArrayList([]const u8) = .empty,
     /// Every other program noface asked to run, by name.
     ran: std.ArrayList([]const u8) = .empty,
+    /// What `date` prints, "12:00 - 01 Jan 2026", when set: the simulator's real clock.
+    /// Otherwise a fixed time, so tests see the same screen every run.
+    clock: ?*const fn (out: []u8) usize = null,
 
     /// A Kindle awake, on Wi-Fi, Bluetooth off, not in airplane mode.
     pub fn init(alloc: std.mem.Allocator) !FakeKindle {
@@ -98,6 +101,7 @@ pub const FakeKindle = struct {
             return 0;
         }
         if (std.mem.eql(u8, program, "date")) {
+            if (k.clock) |read| return read(out);
             const now = "12:00 - 01 Jan 2026";
             const n = @min(now.len, out.len);
             @memcpy(out[0..n], now[0..n]);

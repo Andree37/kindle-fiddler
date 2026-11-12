@@ -187,6 +187,30 @@ pub const Input = struct {
     watcher_retry_us: u64 = 0, // When to restart a power-event watcher that died
     told_powerd_us: u64 = 0, // When powerd last heard the reader is active
     script: ?*Script = null, // Set in scenario tests: actions to play instead of the panel
+    /// Set in the simulator: a pipe of whole Actions, written by its web page's taps.
+    remote: i32 = -1,
+
+    /// The next action from the simulator's pipe, or a tick when one is due first.
+    fn fromRemote(in: *Input) Action {
+        while (true) {
+            const now = nowUs();
+            if (in.tick_us != 0 and now - in.last_tick >= in.tick_us) {
+                in.last_tick = now;
+                return .tick;
+            }
+            const wait: i32 = if (in.tick_us == 0) 1000 else @intCast(@max(1, @min(1000, (in.last_tick + in.tick_us -| now) / 1000)));
+            var fds = [_]linux.pollfd{.{ .fd = in.remote, .events = linux.POLL.IN, .revents = 0 }};
+            const ready = linux.poll(&fds, 1, wait);
+            if (stop_requested.load(.acquire)) return .stop;
+            if (failed(ready) or ready == 0) continue;
+            var action: Action = undefined;
+            const got = linux.read(in.remote, @ptrCast(&action), @sizeOf(Action));
+            if (got == 0) return .stop; // The simulator closed it
+            if (got != @sizeOf(Action)) continue;
+            in.last_input = nowUs();
+            return action;
+        }
+    }
 
     /// Whether powerd's or USB's watcher has something to say, without waiting.
     fn newsWaiting(in: *Input) bool {
@@ -293,6 +317,7 @@ pub const Input = struct {
                 return action;
             }
             if (in.script) |sc| return sc.next(in);
+            if (in.remote >= 0) return in.fromRemote();
             if (in.waiting()) |action| return action;
             if (in.deferred and !in.top_moved) {
                 if (in.top_slot) |slot| {

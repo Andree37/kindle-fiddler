@@ -20,7 +20,15 @@ pub const read = chosen.read;
 pub const write = chosen.write;
 pub const off_t = chosen.off_t;
 pub const SEEK = chosen.SEEK;
-pub const llseek = chosen.llseek;
+/// 32-bit Linux seeks with llseek; 64-bit Linux has only lseek, which is wide enough.
+pub const llseek = if (!is_linux or @sizeOf(usize) == 4) chosen.llseek else lseek64;
+
+fn lseek64(fd: i32, offset: u64, result: *linux.off_t, whence: usize) usize {
+    const rc = linux.lseek(fd, @bitCast(offset), @intCast(whence));
+    if (rc > std.math.maxInt(usize) - 4096) return rc;
+    result.* = @intCast(rc);
+    return 0;
+}
 pub const mmap = chosen.mmap;
 pub const munmap = chosen.munmap;
 pub const timespec = chosen.timespec;
