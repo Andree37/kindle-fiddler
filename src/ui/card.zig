@@ -33,8 +33,20 @@ fn heightWith(rows: usize, cover: ?Cover) u32 {
     return headerFor(cover) + @as(u32, @intCast(rows)) * row_height + bottom_pad;
 }
 
+/// The middle of row `i` of a card of `rows` (one without a cover), for tests to tap.
+pub fn rowCentre(rows: usize, i: usize) u32 {
+    return style.screen_height - bottom_pad - @as(u32, @intCast(rows - i)) * row_height + row_height / 2;
+}
+
 pub fn top(rows: usize) u32 {
     return style.screen_height - height(rows);
+}
+
+test "a row's middle is a tap on that row" {
+    for (1..4) |rows| for (0..rows) |i| {
+        const c = rowCentre(rows, i);
+        try std.testing.expectEqual(@as(?usize, i), hit(600, @intCast(c), rows));
+    };
 }
 
 /// Which row a tap lands on: `rows` itself for the sheet's header, null above it.

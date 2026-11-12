@@ -47,8 +47,8 @@ only Kindle it's tested on so far.
 3. Eject, and type `;kpm launch noface` in the Kindle's search bar.
 
 Updating is the same copy: your settings, reading positions and stats live in a
-separate **noface-data** folder that updates never touch. Dictionaries are an optional
-download, explained in the release notes.
+separate **noface-data** folder that updates never touch. Dictionaries download by
+themselves the first time you hold a word, if you want them.
 
 ## Good to know
 

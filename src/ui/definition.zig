@@ -17,11 +17,17 @@ const actions_top = style.screen_height - 150;
 const button_height = 84;
 const button_width = 300;
 
-pub const Hit = enum { close, highlight, none };
+pub const Hit = enum { close, highlight, get_dictionary, none };
+
+/// Where "Get dictionary" sits, beside Highlight, when there's none to show.
+const get_left = style.margin + button_width + 32;
+const get_width = 400;
 
 pub fn hit(x: i32, y: i32) Hit {
     if (y < top) return .close;
-    if (y >= actions_top and y < actions_top + button_height + 20 and x >= style.margin - 10 and x < style.margin + button_width + 10) return .highlight;
+    const on_row = y >= actions_top and y < actions_top + button_height + 20;
+    if (on_row and x >= style.margin - 10 and x < style.margin + button_width + 10) return .highlight;
+    if (on_row and x >= get_left - 10 and x < get_left + get_width + 10) return .get_dictionary;
     return .none;
 }
 
@@ -31,6 +37,8 @@ pub const Found = struct {
     entry: ?dictionary.Entry = null,
     base: ?dictionary.Entry = null,
     no_dictionary: bool = false,
+    /// With no dictionary: the one that could be downloaded, like "English".
+    can_get: ?[]const u8 = null,
 };
 
 /// Bytes of `s` that fit in `avail`, ending at a space when it can.
@@ -100,7 +108,11 @@ pub fn render(fonts: Fonts, page: Page, found: Found) !void {
     try draw.clipped(fonts.hero, page, style.margin, top + 104, shown, avail);
     var w = Writer{ .fonts = fonts, .page = page, .y = top + 170 };
     if (found.no_dictionary) {
-        try fonts.small.draw(page, style.margin, w.y, "No dictionary for this book's language.");
+        if (found.can_get) |name| {
+            var buf: [96]u8 = undefined;
+            const line = std.fmt.bufPrint(&buf, "The {s} dictionary isn't on this Kindle yet.", .{name}) catch "";
+            try fonts.small.draw(page, style.margin, w.y, line);
+        } else try fonts.small.draw(page, style.margin, w.y, "No dictionary for this book's language.");
     } else if (found.entry) |e| {
         try w.entry(e);
         if (found.base) |b| {
@@ -119,6 +131,10 @@ pub fn render(fonts: Fonts, page: Page, found: Found) !void {
     page.fillRect(style.margin, actions_top - 12, page.width - 2 * style.margin, 1, style.rule);
     draw.box(page, style.margin, actions_top + 4, button_width, button_height);
     try draw.centered(fonts.small, page, style.margin + button_width / 2, actions_top + 4 + button_height / 2 + 12, "Highlight");
+    if (found.no_dictionary and found.can_get != null) {
+        draw.box(page, get_left, actions_top + 4, get_width, button_height);
+        try draw.centered(fonts.small, page, get_left + get_width / 2, actions_top + 4 + button_height / 2 + 12, "Get dictionary");
+    }
     const credit = "Wiktionary, CC BY-SA";
     const right: f32 = @floatFromInt(page.width - style.margin);
     const baseline = actions_top + 4 + button_height / 2 + 12; // In line with "Highlight"
@@ -130,5 +146,6 @@ test "taps above close, the button highlights, the rest stays" {
     try std.testing.expectEqual(Hit.close, hit(600, top - 10));
     try std.testing.expectEqual(Hit.highlight, hit(style.margin + 50, actions_top + 50));
     try std.testing.expectEqual(Hit.none, hit(600, top + 300));
+    try std.testing.expectEqual(Hit.get_dictionary, hit(get_left + 100, actions_top + 50));
     try std.testing.expect(button_height >= 84 and button_width >= 100);
 }

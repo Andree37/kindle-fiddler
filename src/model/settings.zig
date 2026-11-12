@@ -44,6 +44,7 @@ pub const Settings = struct {
     time_left: bool = true,
     autostart: bool = false, // Open noface when the Kindle starts: device/autostart.sh reads it
     bold_starts: bool = false, // The first half of each word's letters in bold
+    offer_dictionary: bool = true, // Ask to download a missing dictionary; "Not now" stops it
     lock_picture: bool = false, // The reader's own picture when locked, instead of the book's cover
 
     pub fn px(s: Settings) f32 {
@@ -84,6 +85,7 @@ pub fn parse(content: []const u8) Settings {
         if (std.mem.eql(u8, name, "time-left")) s.time_left = isOn(value, s.time_left);
         if (std.mem.eql(u8, name, "autostart")) s.autostart = isOn(value, s.autostart);
         if (std.mem.eql(u8, name, "bold-starts")) s.bold_starts = isOn(value, s.bold_starts);
+        if (std.mem.eql(u8, name, "offer-dictionary")) s.offer_dictionary = isOn(value, s.offer_dictionary);
         if (std.mem.eql(u8, name, "lock-picture")) s.lock_picture = isOn(value, s.lock_picture);
     }
     return s;
@@ -103,8 +105,9 @@ pub fn format(buf: []u8, s: Settings) []const u8 {
         \\autostart {s}
         \\lock-picture {s}
         \\bold-starts {s}
+        \\offer-dictionary {s}
         \\
-    , .{ s.size, s.spacing, s.margin, families[s.font], onOff(s.bold), onOff(!s.left_align), onOff(s.clock), onOff(s.refresh), onOff(s.time_left), onOff(s.autostart), onOff(s.lock_picture), onOff(s.bold_starts) }) catch "";
+    , .{ s.size, s.spacing, s.margin, families[s.font], onOff(s.bold), onOff(!s.left_align), onOff(s.clock), onOff(s.refresh), onOff(s.time_left), onOff(s.autostart), onOff(s.lock_picture), onOff(s.bold_starts), onOff(s.offer_dictionary) }) catch "";
 }
 
 fn step(value: []const u8, count: usize, fallback: usize) usize {
@@ -164,7 +167,7 @@ fn fromOldFile(content: []const u8) Settings {
 
 test "settings survive being saved" {
     var buf: [256]u8 = undefined;
-    const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true, .time_left = false, .autostart = true, .lock_picture = true, .bold_starts = true };
+    const s = Settings{ .size = 4, .spacing = 3, .font = 2, .margin = 3, .bold = true, .left_align = true, .clock = false, .refresh = true, .time_left = false, .autostart = true, .lock_picture = true, .bold_starts = true, .offer_dictionary = false };
     try std.testing.expectEqual(s, parse(format(&buf, s)));
     try std.testing.expectEqual(Settings{}, parse(format(&buf, .{})));
     try std.testing.expect(std.mem.indexOf(u8, format(&buf, s), "font Baskerville\n") != null);

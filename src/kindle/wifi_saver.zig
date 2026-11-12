@@ -43,7 +43,8 @@ pub fn pause(downloading: bool) Outcome {
     return .paused;
 }
 
-fn marked() bool {
+/// Whether noface has the radio off right now (so it may turn it back on).
+pub fn marked() bool {
     var buf: [8]u8 = undefined;
     return state.readSmall(marker, &buf).len > 0;
 }

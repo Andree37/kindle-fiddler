@@ -76,6 +76,7 @@ pub const App = struct {
     documents: []const u8 = "/mnt/us/documents", // Where EPUBs copied over USB are found
     battery_last: ?battery_model.Sample = null, // Last level noted, so only changes are logged
     downloads_until: u64 = 0, // A download may still be running until then (nowUs)
+    dictionary_base: []const u8 = @import("kindle/dict_download.zig").default_base, // Where dictionaries download from
     wifi_hands_off: bool = false, // The reader took charge of airplane mode in this book
     journal: journal_model.Journal = .{}, // What was read each day, for the stats screen
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
@@ -89,6 +90,13 @@ pub const App = struct {
     hyphenators: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?hyphen.Hyphenator = @splat(null),
     // Mapped the first time a word in that language is looked up, then kept
     dictionaries: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?dictionary.Dictionary = @splat(null),
+
+    /// Forgets a language's dictionary, so the next lookup maps the file again: after
+    /// one has just been downloaded.
+    pub fn forgetDictionary(a: *App, lang: hyphen.Lang) void {
+        if (a.dictionaries[@intFromEnum(lang)]) |d| file.unmap(d.data);
+        a.dictionaries[@intFromEnum(lang)] = null;
+    }
 
     /// The dictionary for a book's language, from dict-en or dict-pt beside the
     /// settings. Null when the language isn't known or its file isn't there.

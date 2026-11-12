@@ -20,6 +20,14 @@ const os = @import("linux/os.zig");
 const reader = @import("screens/reader.zig");
 const library_screen = @import("screens/library.zig");
 const library_ui = @import("ui/library.zig");
+const card = @import("ui/card.zig");
+
+/// Row `i` of a card of `rows`.
+fn cardRow(rows: usize, i: usize) Step {
+    return tap(636, @intCast(card.rowCentre(rows, i)));
+}
+const highlight_button = tap(122, 1596); // On the definition sheet
+const above_sheet = tap(636, 300);
 const dictionary = @import("model/dictionary.zig");
 const FakeKindle = @import("fake_kindle.zig").FakeKindle;
 const wifi_saver = @import("kindle/wifi_saver.zig");
@@ -62,6 +70,7 @@ const Outcome = struct {
     airplane_at_end: bool, // The Kindle's airplane mode when it was over
     wifi_note_left: bool, // noface's "I turned Wi-Fi off" note is still there
     looked_up: bool, // The dictionary was opened for a word
+    offers_dictionary: bool, // Still asks to download a missing dictionary
     ms: u64, // How long the run took, by the wall clock
     looks_right: bool, // The screen at the end matched its reference image, if one was asked for
     opened: [2]bool, // Whether the first two books were opened
@@ -342,6 +351,7 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         .finished = finished,
         .saved = state.load(state_path),
         .looked_up = a.dictionaries[0] != null or a.dictionaries[1] != null,
+        .offers_dictionary = a.settings.offer_dictionary,
         .highlights = countNotes(state_path, "highlight"),
         .bookmarks = countNotes(state_path, "bookmark"),
         .updates = screen.updates,
@@ -455,14 +465,26 @@ const scenarios = [_]Scenario{
     }.run },
     .{ .name = "holding a word looks it up, and its Highlight button highlights it", .run = struct {
         fn run() !void {
-            const r = try playOn(.{ .dictionary = true }, &.{ hold(600, 700), lift, tap(122, 1596), page_middle });
+            const r = try playOn(.{ .dictionary = true }, &.{ hold(600, 700), lift, highlight_button, page_middle });
             try expect(r.looked_up, "the dictionary wasn't opened");
             try expect(r.highlights == 1, "the word wasn't highlighted");
         }
     }.run },
-    .{ .name = "without a dictionary, holding a word still offers a highlight", .run = struct {
+    .{ .name = "without a dictionary, holding a word asks once to get it, and Not now stops the asking", .run = struct {
         fn run() !void {
-            const r = try play(&.{ hold(600, 700), lift, tap(122, 1596), page_middle });
+            const r = try play(&.{
+                hold(600, 700), lift, cardRow(2, 1), above_sheet, // Asked: Not now, then the sheet closed
+                hold(600, 700), lift, highlight_button, page_middle, // Not asked again: straight to the sheet
+            });
+            try expect(!r.offers_dictionary, "it would ask again");
+            try expect(r.highlights == 1, "the word wasn't highlighted");
+        }
+    }.run },
+    .{ .name = "a dictionary download that can't start says so, and the word can still be highlighted", .run = struct {
+        fn run() !void {
+            // The pretend Kindle starts no programs, so curl never runs
+            const r = try play(&.{ hold(600, 700), lift, cardRow(2, 0), cardRow(1, 0), highlight_button, page_middle });
+            try expect(!r.looked_up, "a dictionary appeared from nowhere");
             try expect(r.highlights == 1, "the word wasn't highlighted");
         }
     }.run },

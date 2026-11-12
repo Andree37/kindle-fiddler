@@ -116,6 +116,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .battery_path = battery_path,
         // A different folder for EPUBs, for a demo or test run beside the real library
         .documents = if (init.environ.getPosix("NOFACE_DOCUMENTS")) |d| d else "/mnt/us/documents",
+        .dictionary_base = init.environ.getPosix("NOFACE_DICT_URL") orelse @import("kindle/dict_download.zig").default_base,
         .journal = app.loadJournal(journal_path),
         .app_budget = &app_budget,
         .stb_budget = &stb_budget,

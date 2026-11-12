@@ -153,3 +153,21 @@ fn reap(pid: i32, deadline: u64) bool {
     _ = linux.waitpid(pid, &status, 0);
     return false;
 }
+
+/// A spawned child's state, without waiting: null while it runs, then whether it
+/// exited cleanly (status 0). Reaps it once it's done.
+pub fn exited(pid: i32) ?bool {
+    var status: i32 = 0;
+    const rc = linux.waitpid(pid, &status, linux.W.NOHANG);
+    if (rc == 0) return null;
+    if (failed(rc)) return false;
+    const st: u32 = @bitCast(status);
+    return linux.W.IFEXITED(st) and linux.W.EXITSTATUS(st) == 0;
+}
+
+/// Stops a spawned child and everything it started, and reaps it.
+pub fn stop(pid: i32) void {
+    _ = linux.kill(-pid, linux.SIG.KILL);
+    var status: i32 = 0;
+    _ = linux.waitpid(pid, &status, 0);
+}

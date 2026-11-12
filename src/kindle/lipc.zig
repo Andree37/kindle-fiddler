@@ -171,6 +171,14 @@ pub fn setAirplane(on: bool) void {
     set("com.lab126.cmd", "wirelessEnable", if (on) 0 else 1);
 }
 
+/// Whether Wi-Fi has a connection. Null when wifid can't be asked.
+pub fn wifiConnected() ?bool {
+    var buf: [32]u8 = undefined;
+    const state = getText("com.lab126.wifid", "cmState", &buf, lipcDeadline());
+    if (state.len == 0) return null;
+    return std.mem.eql(u8, state, "CONNECTED");
+}
+
 pub fn airplaneOn() ?bool {
     const v = get("com.lab126.cmd", "wirelessEnable", lipcDeadline()) orelse return null;
     return v == 0;
