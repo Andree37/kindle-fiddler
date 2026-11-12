@@ -279,7 +279,9 @@ const Builder = struct {
                 }
                 if (isBlock(o.name)) {
                     try b.flush();
-                    b.look = headingLook(o.name) orelse .{};
+                    // A line break stays in its block's style: "<h2><img/><br/>Chapter I.</h2>"
+                    // is still a heading after the picture
+                    if (!std.mem.eql(u8, o.name, "br")) b.look = headingLook(o.name) orelse .{};
                 }
                 if (eqlAny(o.name, &.{ "b", "strong" })) {
                     try b.endRun();
@@ -474,6 +476,17 @@ test "a small EPUB reads into paragraphs, styles, links and contents" {
     try std.testing.expectEqualStrings("Caf\u{e9} \u{2014} done", b.paragraphs[b.paragraphs.len - 1].text);
     try std.testing.expectEqual(@as(u32, 1), b.paragraphs[0].position);
     try std.testing.expect(b.paragraphs[1].position > b.paragraphs[0].position);
+}
+
+test "a heading's text after a picture and a line break stays a heading" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var b = Builder{ .alloc = arena.allocator(), .files = &.{} };
+    try b.chapter("c.xhtml", "<html><body><h2><img src=\"x.jpg\"/><br/><br/>Chapter I.</h2><p>It is a truth.</p></body></html>");
+    try b.flush();
+    try std.testing.expectEqualStrings("Chapter I.", b.paragraphs.items[0].text);
+    try std.testing.expect(b.paragraphs.items[0].look.size != book.normal_size);
+    try std.testing.expectEqual(book.normal_size, b.paragraphs.items[1].look.size);
 }
 
 test "hrefs resolve against their folder" {

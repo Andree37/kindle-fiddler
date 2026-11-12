@@ -8,6 +8,15 @@ const style = @import("style.zig");
 const Fonts = @import("fonts.zig").Fonts;
 
 const header = 176;
+const cover_header = 260; // Room for a small cover beside the title
+const cover_gap = 32;
+
+/// A book's cover shown small beside the title, already scaled.
+pub const Cover = struct { pixels: []const u8, width: u32, height: u32 };
+
+fn headerFor(cover: ?Cover) u32 {
+    return if (cover != null) cover_header else header;
+}
 const row_height = 112; // A fingertip and some
 const bottom_pad = 40;
 const corner = 36;
@@ -17,7 +26,11 @@ const corner = 36;
 pub const Row = struct { label: []const u8, quiet: bool = false, danger: bool = false };
 
 pub fn height(rows: usize) u32 {
-    return header + @as(u32, @intCast(rows)) * row_height + bottom_pad;
+    return heightWith(rows, null);
+}
+
+fn heightWith(rows: usize, cover: ?Cover) u32 {
+    return headerFor(cover) + @as(u32, @intCast(rows)) * row_height + bottom_pad;
 }
 
 pub fn top(rows: usize) u32 {
@@ -26,10 +39,14 @@ pub fn top(rows: usize) u32 {
 
 /// Which row a tap lands on: `rows` itself for the sheet's header, null above it.
 pub fn hit(x: i32, y: i32, rows: usize) ?usize {
+    return hitWith(x, y, rows, null);
+}
+
+pub fn hitWith(x: i32, y: i32, rows: usize, cover: ?Cover) ?usize {
     _ = x;
-    const sheet_top: i32 = @intCast(top(rows));
+    const sheet_top: i32 = @intCast(style.screen_height - heightWith(rows, cover));
     if (y < sheet_top) return null;
-    const first = sheet_top + header;
+    const first = sheet_top + @as(i32, @intCast(headerFor(cover)));
     if (y < first) return rows;
     const row: usize = @intCast(@divTrunc(y - first, row_height));
     return if (row < rows) row else rows;
@@ -38,23 +55,39 @@ pub fn hit(x: i32, y: i32, rows: usize) ?usize {
 /// Draws the sheet over `page`, which should hold what's behind it. That gets dimmed,
 /// so the sheet is plainly in front.
 pub fn render(fonts: Fonts, page: Page, title: []const u8, subtitle: []const u8, rows: []const Row) !void {
+    return renderWith(fonts, page, title, subtitle, rows, null);
+}
+
+/// The sheet with a small cover beside the title, when there is one.
+pub fn renderWith(fonts: Fonts, page: Page, title: []const u8, subtitle: []const u8, rows: []const Row, cover: ?Cover) !void {
     page.dim(0, 0, page.width, page.height);
-    const sheet_top = top(rows.len);
+    const h = heightWith(rows.len, cover);
+    const sheet_top = style.screen_height - h;
     // Rounded at the top; the bottom corners run off the screen
-    page.roundRect(0, sheet_top, page.width, height(rows.len) + corner, corner, style.black);
-    page.roundRect(0, sheet_top + 2, page.width, height(rows.len) + corner, corner - 1, style.white);
+    page.roundRect(0, sheet_top, page.width, h + corner, corner, style.black);
+    page.roundRect(0, sheet_top + 2, page.width, h + corner, corner - 1, style.white);
     page.roundRect(page.width / 2 - 36, sheet_top + 18, 72, 8, 4, 0xb0); // Grab bar
-    const x: f32 = style.margin;
-    const avail: f32 = @floatFromInt(page.width - 2 * style.margin);
-    try draw.clipped(fonts.title, page, x, @intCast(sheet_top + 92), title, avail);
-    try draw.clipped(fonts.caption, page, x, @intCast(sheet_top + 140), subtitle, avail);
-    page.tint(style.margin, sheet_top + 112, @intFromFloat(avail), 44, style.faded);
+    var x: f32 = style.margin;
+    var title_y: u32 = sheet_top + 92;
+    if (cover) |c| {
+        const cover_top = sheet_top + 52;
+        page.copyImage(style.margin, cover_top, c.pixels, c.width, c.height);
+        page.fillRect(style.margin, cover_top + c.height - 1, c.width, 1, style.rule);
+        x = @floatFromInt(style.margin + c.width + cover_gap);
+        title_y = cover_top + c.height / 2;
+    }
+    const avail: f32 = @as(f32, @floatFromInt(page.width - style.margin)) - x;
+    try draw.clipped(fonts.title, page, x, @intCast(title_y), title, avail);
+    try draw.clipped(fonts.caption, page, x, @intCast(title_y + 48), subtitle, avail);
+    page.tint(@intFromFloat(x), title_y + 20, @intFromFloat(avail), 44, style.faded);
+    const row_x: f32 = style.margin;
+    const row_avail: f32 = @floatFromInt(page.width - 2 * style.margin);
     for (rows, 0..) |r, i| {
-        const y = sheet_top + header + @as(u32, @intCast(i)) * row_height;
+        const y = sheet_top + headerFor(cover) + @as(u32, @intCast(i)) * row_height;
         page.fillRect(style.margin, y, page.width - 2 * style.margin, 1, style.rule);
         const font = if (r.danger) fonts.title else fonts.small;
-        try draw.clipped(font, page, x, @intCast(y + 70), r.label, avail);
-        if (r.quiet) page.tint(style.margin, y + 30, @intFromFloat(avail), 54, style.faded);
+        try draw.clipped(font, page, row_x, @intCast(y + 70), r.label, row_avail);
+        if (r.quiet) page.tint(style.margin, y + 30, @intFromFloat(row_avail), 54, style.faded);
     }
 }
 

@@ -17,6 +17,7 @@ const nowUs = os.nowUs;
 const app = @import("../app.zig");
 const hwtcon = @import("../kindle/hwtcon.zig");
 const battery_screen = @import("battery.zig");
+const cover_image = @import("../gfx/image.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
 const reader = @import("reader.zig");
@@ -200,7 +201,13 @@ fn upNext(a: *app.App, next: *const catalog.Entry, background: []u8) !bool {
     a.input.deferred = true;
     // Over the page just left, not whatever the reader last kept in this buffer
     @memcpy(background, a.screen.pixels);
-    return try app.chooseFromCard(a, background, next.title, subtitle, &.{.{ .label = "Read it now" }}) != null;
+    // Its cover beside the title, half the grid's size, when it has one
+    const w = cover_image.width / 2;
+    const h = cover_image.height / 2;
+    const small = if (next.thumbnail.len > 0) cover_image.load(a.alloc, next.thumbnail, w, h) else null;
+    defer if (small) |px| a.alloc.free(px);
+    const book_cover: ?card.Cover = if (small) |px| .{ .pixels = px, .width = w, .height = h } else null;
+    return try app.chooseFromCardWith(a, background, next.title, subtitle, &.{.{ .label = "Read it now" }}, book_cover) != null;
 }
 
 pub fn logPage(lib: *const Library, index: usize, count: usize) void {

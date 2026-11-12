@@ -257,8 +257,13 @@ pub const App = struct {
 /// tap lands above the sheet, or the Kindle locks or quits (which is passed on to
 /// the caller's loop). What was under the sheet is put back either way.
 pub fn chooseFromCard(a: *App, background: []const u8, title: []const u8, subtitle: []const u8, rows: []const card.Row) !?usize {
+    return chooseFromCardWith(a, background, title, subtitle, rows, null);
+}
+
+/// The same, with a small cover beside the title.
+pub fn chooseFromCardWith(a: *App, background: []const u8, title: []const u8, subtitle: []const u8, rows: []const card.Row, book_cover: ?card.Cover) !?usize {
     @memcpy(a.overlay, background);
-    try card.render(a.ui, a.page(a.overlay), title, subtitle, rows);
+    try card.renderWith(a.ui, a.page(a.overlay), title, subtitle, rows, book_cover);
     @memcpy(a.screen.pixels, a.overlay);
     // The whole screen dims behind the sheet
     try a.showBand(0, a.screen.height);
@@ -266,7 +271,7 @@ pub fn chooseFromCard(a: *App, background: []const u8, title: []const u8, subtit
         const action = a.input.next();
         switch (action) {
             .tap => |t| {
-                const index = card.hit(t.x, t.y, rows.len) orelse break null;
+                const index = card.hitWith(t.x, t.y, rows.len, book_cover) orelse break null;
                 if (index < rows.len) break index;
             },
             .lock, .power, .computer, .stop => {
