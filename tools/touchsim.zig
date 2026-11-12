@@ -52,9 +52,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (argv.len < 4) return error.Usage;
     fd = @intCast(linux.open("/dev/input/event1", .{ .ACCMODE = .WRONLY }, 0));
     if (std.mem.eql(u8, std.mem.sliceTo(argv[1], 0), "tap")) {
+        const t_down = core.os.nowUs();
         down(arg(argv[2]), arg(argv[3]));
         sleepMs(40);
         up();
+        // When it touched and lifted, on fbrec's clock, for timing what follows
+        std.debug.print("touch {d} {d}\n", .{ t_down, core.os.nowUs() });
         return;
     }
     const x0 = arg(argv[2]);
@@ -72,4 +75,5 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
     sleepMs(delay);
     up();
+    std.debug.print("lift {d}\n", .{core.os.nowUs()});
 }
