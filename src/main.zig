@@ -21,12 +21,18 @@ const app = @import("app.zig");
 const library_screen = @import("screens/library.zig");
 const wifi_saver = @import("kindle/wifi_saver.zig");
 const doctor = @import("kindle/doctor.zig");
+const battery_log = @import("kindle/battery_log.zig");
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
     // `noface doctor`: what this Kindle has, and whether noface can run on it
     if (argv.len == 2 and std.mem.eql(u8, std.mem.sliceTo(argv[1], 0), "doctor")) {
         std.process.exit(if (doctor.report(1)) 0 else 1);
+    }
+    // `noface battery-report [data folder]`: how the battery has done off the charger
+    if (argv.len >= 2 and std.mem.eql(u8, std.mem.sliceTo(argv[1], 0), "battery-report")) {
+        battery_log.report(1, if (argv.len >= 3) std.mem.sliceTo(argv[2], 0) else "/mnt/us/noface-data");
+        return;
     }
     if (argv.len != 7) return error.Usage;
     // Everything that lives as long as the app: screen buffers, fonts, picture cache.

@@ -60,3 +60,51 @@ pub fn load(path: [*:0]const u8, out: []battery.Sample) []battery.Sample {
     std.mem.rotate(battery.Sample, out, n % out.len);
     return out;
 }
+
+/// `noface battery-report`: how the battery has done on days off the charger, from the
+/// battery log and the reading journal in `data_dir`, written to `fd`.
+pub fn report(fd: i32, data_dir: []const u8) void {
+    const journal = @import("../model/journal.zig");
+    const clock = @import("../linux/clock.zig");
+    const out = struct {
+        fn line(f: i32, comptime fmt: []const u8, args: anytype) void {
+            var buf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+            _ = linux.write(f, s.ptr, s.len);
+        }
+    }.line;
+
+    var path_buf: [320]u8 = undefined;
+    var samples: [4096]battery.Sample = undefined;
+    const log_path = std.fmt.bufPrintSentinel(&path_buf, "{s}/battery", .{data_dir}, 0) catch return;
+    const log = load(log_path, &samples);
+    var journal_buf: [journal.max_format_bytes]u8 = undefined;
+    const journal_path = std.fmt.bufPrintSentinel(&path_buf, "{s}/journal", .{data_dir}, 0) catch return;
+    const j = journal.parse(state.readSmall(journal_path, &journal_buf));
+
+    out(fd, "noface battery report", .{});
+    if (log.len < 2) {
+        out(fd, "Not enough noted yet: read off the charger for a few days, then run this again.", .{});
+        return;
+    }
+    // Seconds read on each day the log covers
+    const offset = clock.utcOffset();
+    const first = journal.dayOf(log[0].time, offset);
+    const last = journal.dayOf(log[log.len - 1].time, offset);
+    var read: [400]u32 = @splat(0);
+    const span: usize = @intCast(@min(@max(last - first + 1, 0), read.len));
+    for (read[0..span], 0..) |*r, i| r.* = j.get(first + @as(i32, @intCast(i))).seconds;
+
+    const u = battery.usage(log, first, read[0..span], offset) orelse {
+        out(fd, "No whole day off the charger yet: leave it unplugged for a day or more, then run this again.", .{});
+        return;
+    };
+    out(fd, "days measured: {d} (unplugged all day)", .{u.days});
+    out(fd, "reading:       {d:.1} hours a day on average", .{u.hours_read});
+    out(fd, "drain:         {d:.1}% a day", .{u.per_day});
+    if (u.per_hour_reading) |h| {
+        out(fd, "  reading:     {d:.1}% an hour", .{h});
+        out(fd, "  standby:     {d:.1}% a day", .{u.per_day_idle.?});
+    } else out(fd, "  (read different amounts on different days to split reading from standby)", .{});
+    if (u.per_day > 0.05) out(fd, "a full charge: about {d:.0} days at this rate", .{100 / u.per_day});
+}
