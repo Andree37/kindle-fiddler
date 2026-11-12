@@ -11,7 +11,9 @@ const sess = @import("session.zig");
 pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, whole_page: bool) !void {
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
     const total = if (s.layoutPending()) 0 else s.pages.len; // No page count until it's known
-    try toolbar.render(a.ui, a.page(a.overlay), title, s.current, total, &a.quick, if (sheet) a.tab else null, a.settings, s.isBookmarked(s.current));
+    var fonts = a.ui;
+    if (sheet and a.tab == .font) fonts.families = a.familySamples();
+    try toolbar.render(fonts, a.page(a.overlay), title, s.current, total, &a.quick, if (sheet) a.tab else null, a.settings, s.isBookmarked(s.current));
     @memcpy(a.screen.pixels, a.overlay);
     if (whole_page) {
         try a.showBand(0, a.screen.height);

@@ -224,7 +224,12 @@ fn drawFont(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
         const row: u32 = @as(u32, @intCast(i)) / cols;
         const left: u32 = margin + @as(u32, @intCast(i)) % cols * familyWidth();
         const y = family_top + row * family_height;
-        try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), family, i == chosen.font, y + 70);
+        // The name in its own typeface, when it's loaded; underlined when chosen
+        const own = if (i < fonts.families.len) fonts.families[i] else null;
+        if (own) |font| {
+            try draw.clipped(font, page, @floatFromInt(left), @intCast(y + 56), family, @floatFromInt(familyWidth() - 24));
+            if (i == chosen.font) page.fillRect(left, y + 70, @intFromFloat(@min(try font.measure(family), @as(f32, @floatFromInt(familyWidth() - 24)))), style.underline, style.black);
+        } else try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), family, i == chosen.font, y + 70);
     }
     try drawToggle(fonts, page, bold_top, "Bold", chosen.bold);
     try drawRow(fonts, page, size_row, chosen.size, false);

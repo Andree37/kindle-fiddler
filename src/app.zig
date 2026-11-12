@@ -54,6 +54,9 @@ pub const App = struct {
     // Body fonts by family, face (bold, italic), reader size and book size, made on first use.
     face_fonts: [settings_model.max_families][4][settings_model.sizes.len][book_model.size_scales.len]?Font = @splat(@splat(@splat(@splat(null)))),
     face_files: [settings_model.max_families][4]?[]const u8 = @splat(@splat(null)),
+    // Each family's regular at interface size, for its name in Aa; made on first use
+    family_samples: [settings_model.max_families]?Font = @splat(null),
+    family_sample_ptrs: [settings_model.max_families]?*Font = @splat(null),
     tab: aa.Tab = .font,
     turns: u32 = 0,
     note_font: *Font,
@@ -132,6 +135,19 @@ pub const App = struct {
         a.layout.images = .{ .ctx = a, .draw = drawImage };
         a.layout.margin_x = settings_model.margins[a.settings.margin];
         a.layout.justify = !a.settings.left_align;
+    }
+
+    /// Each typeface offered, at interface size, to show its name in itself. One that
+    /// can't be loaded is null, and its name shows in the interface font.
+    pub fn familySamples(a: *App) []const ?*Font {
+        for (settings_model.families, 0..) |_, i| {
+            if (a.family_sample_ptrs[i] != null) continue;
+            const file_slot = &a.face_files[i][0];
+            if (file_slot.* == null) file_slot.* = file.map(fonts_db.path(i, false, false)) catch continue;
+            a.family_samples[i] = Font.init(a.alloc, file_slot.*.?, 36, 1.2) catch continue;
+            a.family_sample_ptrs[i] = &a.family_samples[i].?;
+        }
+        return a.family_sample_ptrs[0..settings_model.families.len];
     }
 
     /// The body font for a weight, slant and book size, in the reader's family and size.
