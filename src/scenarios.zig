@@ -62,6 +62,7 @@ const Outcome = struct {
     airplane_at_end: bool, // The Kindle's airplane mode when it was over
     wifi_note_left: bool, // noface's "I turned Wi-Fi off" note is still there
     looked_up: bool, // The dictionary was opened for a word
+    ms: u64, // How long the run took, by the wall clock
     opened: [2]bool, // Whether the first two books were opened
     finished: [2]bool, // Whether they were marked finished
     highlights: usize, // Highlights and bookmarks saved for the book
@@ -80,6 +81,9 @@ const Kindle = struct {
     library: bool = false,
     /// A book read a while already, so the library shows it to continue.
     read_before: ?usize = null,
+    /// One of the reader's own books, opened where it is (never written to), with the
+    /// Kindle's own fonts: the self-test's timing of real books.
+    real_book: ?[:0]const u8 = null,
 };
 
 /// Every word in the scenario book, for a small English dictionary of them.
@@ -142,8 +146,9 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     var book_paths: [4][:0]const u8 = undefined;
     for (kindle.books, 0..) |name, i| {
         book_paths[i] = try std.fmt.allocPrintSentinel(alloc, "{s}/{s}", .{ dir, name }, 0);
-        try writeFile(book_paths[i], book_bytes);
+        if (kindle.real_book == null) try writeFile(book_paths[i], book_bytes);
     }
+    if (kindle.real_book) |p| book_paths[0] = p;
     const book_path = book_paths[0];
     var library_buf: [128]u8 = undefined;
     const library_path = try std.fmt.bufPrintSentinel(&library_buf, "{s}/library.tsv", .{dir}, 0);
@@ -219,20 +224,22 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         .utc_offset = 0,
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &reference },
     };
-    // Every typeface the settings could pick is the test font: no Kindle fonts needed
-    for (&a.face_files) |*family| {
+    // Every typeface the settings could pick is the test font: no Kindle fonts needed.
+    // A real book is set in the Kindle's own, found by the app as it always does.
+    if (kindle.real_book == null) for (&a.face_files) |*family| {
         family[0] = go_regular;
         family[1] = go_bold;
         family[2] = go_regular;
         family[3] = go_bold;
-    }
+    };
     try a.applySettings();
 
     if (kindle.read_before) |i| {
         var before_buf: [320]u8 = undefined;
         state.save(try a.statePath(&before_buf, book_paths[i]), .{ .para = 0, .byte = 0, .percent = 5, .opened = 1_700_000_000, .seconds = 600 });
     }
-    var entry = catalog.Entry{ .path = book_path, .title = "Scenario Book", .author = "noface tests", .percent = 0, .last = 0, .kind = "EPUB" };
+    const kind = if (std.mem.endsWith(u8, book_path, ".epub")) "EPUB" else "KFX";
+    var entry = catalog.Entry{ .path = book_path, .title = "Scenario Book", .author = "noface tests", .percent = 0, .last = 0, .kind = kind };
     // The app reports as it goes; a run shows only its results
     const saved_stderr: i32 = @intCast(linux.dup(2));
     defer {
@@ -244,7 +251,9 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         _ = linux.dup2(@intCast(quiet), 2);
         _ = linux.close(@intCast(quiet));
     }
+    const t0 = realMs();
     if (kindle.library) try library_screen.runLibrary(&a) else _ = try reader.readBook(&a, &entry);
+    const ms = realMs() - t0;
 
     var state_buf: [320]u8 = undefined;
     var note_buf: [8]u8 = undefined;
@@ -258,6 +267,7 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         finished[i] = s.finished;
     }
     return .{
+        .ms = ms,
         .opened = opened,
         .finished = finished,
         .saved = state.load(state_path),
@@ -438,7 +448,8 @@ fn realMs() u64 {
     return @as(u64, @intCast(ts.sec)) * 1000 + @as(u64, @intCast(ts.nsec)) / 1_000_000;
 }
 
-pub fn main() !void {
+/// Runs every scenario, printing a line for each. The number that failed.
+fn runScenarios() u32 {
     var failed: u32 = 0;
     for (scenarios) |s| {
         const t0 = realMs();
@@ -450,5 +461,59 @@ pub fn main() !void {
         }
     }
     std.debug.print("{d} of {d} scenarios passed\n", .{ scenarios.len - failed, scenarios.len });
-    if (failed > 0) std.process.exit(1);
+    return failed;
+}
+
+pub fn main() !void {
+    if (runScenarios() > 0) std.process.exit(1);
+}
+
+/// `noface selftest`, on the reader's Kindle: the scenarios, then this Kindle's own
+/// fonts, dictionaries and a few of its books, opened in memory with nothing saved
+/// where the reader's things are. True when everything passed.
+pub fn selftest() bool {
+    var ok = runScenarios() == 0;
+    std.debug.print("\nthis Kindle\n", .{});
+
+    const fonts_db = @import("kindle/fonts.zig");
+    const file = @import("linux/file.zig");
+    for (settings_model.builtin_families, 0..) |name, i| {
+        const usable = if (file.map(fonts_db.path(i, false, false))) |data| Font.usable(data) else |_| false;
+        std.debug.print("{s}  font {s}\n", .{ if (usable) "ok  " else "FAIL", name });
+        ok = ok and usable;
+    }
+    for ([_][]const u8{ "dict-en", "dict-pt" }) |name| {
+        var buf: [96]u8 = undefined;
+        const path = std.fmt.bufPrintSentinel(&buf, "/mnt/us/noface-data/{s}", .{name}, 0) catch continue;
+        const data = file.map(path) catch {
+            std.debug.print("--    {s} not installed\n", .{name});
+            continue;
+        };
+        const readable = dictionary.Dictionary.open(data) != null;
+        std.debug.print("{s}  {s}\n", .{ if (readable) "ok  " else "FAIL", name });
+        ok = ok and readable;
+    }
+    const helper = file.exists("/mnt/us/noface/jxr2pgm");
+    std.debug.print("{s}  picture helper (jxr2pgm)\n", .{if (helper) "ok  " else "FAIL"});
+    ok = ok and helper;
+
+    // A few of the reader's books, each opened to its first page
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const dir = @import("linux/dir.zig");
+    for ([_][]const u8{ ".epub", ".kfx" }) |suffix| {
+        const found = dir.findFiles(arena.allocator(), "/mnt/us/documents", suffix) catch continue;
+        for (found[0..@min(found.len, 3)]) |path| {
+            const name = std.fs.path.stem(path);
+            const short = name[0..@min(name.len, 48)];
+            if (playOn(.{ .real_book = path }, &.{})) |r| {
+                std.debug.print("ok    opened {s} ({d} ms)\n", .{ short, r.ms });
+            } else |err| {
+                std.debug.print("FAIL  opened {s}: {s}\n", .{ short, @errorName(err) });
+                ok = false;
+            }
+        }
+    }
+    std.debug.print("\nselftest: {s}\n", .{if (ok) "everything passed" else "something failed (see FAIL above)"});
+    return ok;
 }
