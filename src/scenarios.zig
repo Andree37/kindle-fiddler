@@ -128,6 +128,17 @@ fn play(steps: []const Step) !Outcome {
     try a.applySettings();
 
     var entry = catalog.Entry{ .path = book_path, .title = "Scenario Book", .author = "noface tests", .percent = 0, .last = 0, .kind = "EPUB" };
+    // The app reports as it goes; a run shows only its results
+    const saved_stderr: i32 = @intCast(linux.dup(2));
+    defer {
+        _ = linux.dup2(saved_stderr, 2);
+        _ = linux.close(saved_stderr);
+    }
+    const quiet = linux.open("/dev/null", .{ .ACCMODE = .WRONLY }, 0);
+    if (!os.failed(quiet)) {
+        _ = linux.dup2(@intCast(quiet), 2);
+        _ = linux.close(@intCast(quiet));
+    }
     _ = try reader.readBook(&a, &entry);
 
     var state_buf: [320]u8 = undefined;

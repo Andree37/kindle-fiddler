@@ -114,6 +114,7 @@ fn scenarioExe(b: *std.Build, target: std.Build.ResolvedTarget, name: []const u8
             .root_source_file = b.path("src/scenarios.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
+            .strip = true,
             .link_libc = true,
         }),
     });
