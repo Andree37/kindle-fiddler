@@ -18,6 +18,7 @@ const settings_model = @import("model/settings.zig");
 const state = @import("linux/state.zig");
 const os = @import("linux/os.zig");
 const reader = @import("screens/reader.zig");
+const dictionary = @import("model/dictionary.zig");
 const FakeKindle = @import("fake_kindle.zig").FakeKindle;
 const wifi_saver = @import("kindle/wifi_saver.zig");
 const linux = std.os.linux;
@@ -36,6 +37,8 @@ fn tap(x: i32, y: i32) Step {
 fn hold(x: i32, y: i32) Step {
     return .{ .act = .{ .hold = .{ .x = x, .y = y } } };
 }
+/// The finger leaving the glass, as it does after a hold.
+const lift: Step = .{ .act = .drag_end };
 fn swipe(direction: i32) Step {
     return .{ .act = .{ .swipe = direction } };
 }
@@ -56,10 +59,51 @@ const Outcome = struct {
     airplane_asked_on: bool, // noface asked for airplane mode at some point
     airplane_at_end: bool, // The Kindle's airplane mode when it was over
     wifi_note_left: bool, // noface's "I turned Wi-Fi off" note is still there
+    looked_up: bool, // The dictionary was opened for a word
+    highlights: usize, // Highlights and bookmarks saved for the book
+    bookmarks: usize,
 };
 
 /// How the pretend Kindle starts.
-const Kindle = struct { airplane: bool = false, bluetooth: bool = false };
+const Kindle = struct { airplane: bool = false, bluetooth: bool = false, dictionary: bool = false };
+
+/// Every word in the scenario book, for a small English dictionary of them.
+const book_words = [_][]const u8{ "a", "bright", "chapter", "evening", "garden", "green", "house", "letter", "light", "long", "new", "old", "page", "quiet", "reader", "river", "road", "slow", "small", "turns", "window" };
+
+/// A dictionary file, in the format of model/dictionary.zig, with `book_words`.
+fn writeDictionary(alloc: std.mem.Allocator, path: [*:0]const u8) !void {
+    var body: std.ArrayList(u8) = .empty;
+    var offsets: std.ArrayList(u32) = .empty;
+    for (book_words) |w| { // Already sorted, and already folded
+        try offsets.append(alloc, @intCast(body.items.len));
+        try body.print(alloc, "{s}\x00{s}\x00noun\n1 the scenario book's word \"{s}\"\n", .{ w, w, w });
+    }
+    try offsets.append(alloc, @intCast(body.items.len));
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(alloc, dictionary.magic);
+    var word: [4]u8 = undefined;
+    std.mem.writeInt(u32, &word, book_words.len, .little);
+    try out.appendSlice(alloc, &word);
+    for (offsets.items) |o| {
+        std.mem.writeInt(u32, &word, o, .little);
+        try out.appendSlice(alloc, &word);
+    }
+    try out.appendSlice(alloc, body.items);
+    try writeFile(path, out.items);
+}
+
+/// How many lines of `kind` the book's notes file holds.
+fn countNotes(state_path: []const u8, kind: []const u8) usize {
+    var path_buf: [320]u8 = undefined;
+    const path = state.sibling(&path_buf, state_path, "notes") catch return 0;
+    var buf: [8192]u8 = undefined;
+    var n: usize = 0;
+    var lines = std.mem.tokenizeScalar(u8, state.readSmall(path, &buf), '\n');
+    while (lines.next()) |l| {
+        if (std.mem.startsWith(u8, l, kind)) n += 1;
+    }
+    return n;
+}
 
 var run_counter: u32 = 0;
 
@@ -83,6 +127,10 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     var book_path_buf: [128]u8 = undefined;
     const book_path = try std.fmt.bufPrintSentinel(&book_path_buf, "{s}/book.epub", .{dir}, 0);
     try writeFile(book_path, book_bytes);
+    if (kindle.dictionary) {
+        var dict_buf: [128]u8 = undefined;
+        try writeDictionary(alloc, try std.fmt.bufPrintSentinel(&dict_buf, "{s}/dict-en", .{dir}, 0));
+    }
 
     os.fake_us = 1_000_000_000;
     defer os.fake_us = null;
@@ -175,8 +223,12 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
 
     var state_buf: [320]u8 = undefined;
     var note_buf: [8]u8 = undefined;
+    const state_path = try a.statePath(&state_buf, book_path);
     return .{
-        .saved = state.load(try a.statePath(&state_buf, book_path)),
+        .saved = state.load(state_path),
+        .looked_up = a.dictionaries[0] != null or a.dictionaries[1] != null,
+        .highlights = countNotes(state_path, "highlight"),
+        .bookmarks = countNotes(state_path, "bookmark"),
         .updates = screen.updates,
         .airplane_asked_on = fake.wasSet("com.lab126.cmd wirelessEnable 0"),
         .airplane_at_end = std.mem.eql(u8, fake.get("com.lab126.cmd wirelessEnable"), "0"),
@@ -241,7 +293,7 @@ const scenarios = [_]Scenario{
             const plain = try play(&.{forward});
             const busy = try play(&.{
                 forward,
-                hold(600, 700), tap(636, 300), // A word's definition, closed above the sheet
+                hold(600, 700), lift, tap(636, 300), // A word's definition, closed above the sheet
                 top, tap(696, 118), page_middle, // The text settings, closed
                 top, tap(816, 118), tap(636, 120), // Contents, closed above it
                 top, tap(1176, 118), tap(636, 200), // The menu, closed above the card
@@ -284,6 +336,27 @@ const scenarios = [_]Scenario{
         fn run() !void {
             const r = try playOn(.{ .bluetooth = true }, &.{ wait(150_000), forward });
             try expect(!r.airplane_asked_on, "airplane mode could cut Bluetooth off");
+        }
+    }.run },
+    .{ .name = "holding a word looks it up, and its Highlight button highlights it", .run = struct {
+        fn run() !void {
+            const r = try playOn(.{ .dictionary = true }, &.{ hold(600, 700), lift, tap(122, 1596), page_middle });
+            try expect(r.looked_up, "the dictionary wasn't opened");
+            try expect(r.highlights == 1, "the word wasn't highlighted");
+        }
+    }.run },
+    .{ .name = "without a dictionary, holding a word still offers a highlight", .run = struct {
+        fn run() !void {
+            const r = try play(&.{ hold(600, 700), lift, tap(122, 1596), page_middle });
+            try expect(r.highlights == 1, "the word wasn't highlighted");
+        }
+    }.run },
+    .{ .name = "the toolbar's bookmark marks the page, and again unmarks it", .run = struct {
+        fn run() !void {
+            const once = try play(&.{ top, tap(936, 118), page_middle });
+            try expect(once.bookmarks == 1, "the page wasn't bookmarked");
+            const twice = try play(&.{ top, tap(936, 118), tap(936, 118), page_middle });
+            try expect(twice.bookmarks == 0, "the bookmark stayed");
         }
     }.run },
 };
