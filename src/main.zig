@@ -19,9 +19,14 @@ const input_mod = @import("kindle/input.zig");
 const app = @import("app.zig");
 const library_screen = @import("screens/library.zig");
 const wifi_saver = @import("kindle/wifi_saver.zig");
+const doctor = @import("kindle/doctor.zig");
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
+    // `noface doctor`: what this Kindle has, and whether noface can run on it
+    if (argv.len == 2 and std.mem.eql(u8, std.mem.sliceTo(argv[1], 0), "doctor")) {
+        std.process.exit(if (doctor.report(1)) 0 else 1);
+    }
     if (argv.len != 7) return error.Usage;
     // Everything that lives as long as the app: screen buffers, fonts, picture cache.
     var app_budget = memory.Budget{ .name = "app", .child = std.heap.smp_allocator, .limit = 96 << 20 };
@@ -36,7 +41,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const book_bold = try file.map(argv[3]);
     const ui_regular = try file.map(argv[4]);
     const ui_bold = try file.map(argv[5]);
-    var screen = try hwtcon.Screen.open();
+    // A display noface can't drive: say why in the log, and hand back to the Kindle
+    var screen = hwtcon.Screen.open() catch |err| {
+        std.debug.print("noface can't start: {s}\n", .{@errorName(err)});
+        _ = doctor.report(2);
+        return err;
+    };
     var fallback_body = try Font.init(alloc, regular, 46, 1.35);
     var note_font = try Font.init(alloc, regular, 36, 1.3);
     var footer = try Font.init(alloc, ui_regular, 28, 1.2); // Under the page: interface text

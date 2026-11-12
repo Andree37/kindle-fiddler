@@ -17,6 +17,7 @@ jobs:
         with:
           version: 0.17.1
       - run: zig build test
+      - run: zig build scenarios
       - name: Package
         run: tools/package.sh "${GITHUB_REF_NAME#v}"
       - name: Publish

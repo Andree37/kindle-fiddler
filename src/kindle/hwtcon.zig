@@ -4,6 +4,7 @@
 const std = @import("std");
 const check = @import("../base/check.zig");
 const linux = std.os.linux;
+const state = @import("../linux/state.zig");
 
 pub const Waveform = enum(u32) {
     du = 1,
@@ -73,6 +74,10 @@ pub const Screen = struct {
     }
 
     pub fn open() !Screen {
+        // Only MediaTek's driver understands the updates sent below
+        var name_buf: [64]u8 = undefined;
+        const name = std.mem.trim(u8, state.readSmall("/sys/class/graphics/fb0/name", &name_buf), " \n");
+        if (!std.mem.startsWith(u8, name, "hwtcon")) return error.UnsupportedDisplay;
         const rc = linux.open("/dev/fb0", .{ .ACCMODE = .RDWR, .CLOEXEC = true }, 0);
         if (failed(rc)) return error.OpenFailed;
         const fd: i32 = @intCast(rc);

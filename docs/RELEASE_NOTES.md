@@ -20,3 +20,10 @@ first time it runs).
 Copy the new **noface** folder over the old one; replacing it is fine. Everything noface
 keeps (settings, reading positions, stats, dictionaries) lives in **noface-data**,
 which updates never touch.
+
+## If something's wrong
+
+Over SSH, `/mnt/us/noface/noface doctor` reports what noface finds on the Kindle and
+whether it can run there, and `/mnt/us/noface/selftest` runs noface's own checks in
+memory, without touching the screen or your library. Paste both into a
+[device report](../../issues/new?template=device-report.md).

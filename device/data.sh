@@ -15,7 +15,7 @@ if [ ! -d "$DATA" ]; then
         [ -e "$f" ] || continue
         case "${f##*/}" in
             # The app itself, and its install log
-            noface | noface.new | jxr2pgm | *.sh | noface-autostart.conf | LICENSE.md | \
+            noface | noface.new | jxr2pgm | selftest | *.sh | noface-autostart.conf | LICENSE.md | \
             THIRD_PARTY_NOTICES.md | VERSION | kpm | launch.log) ;;
             *) mv "$f" "$DATA.moving/" ;;
         esac

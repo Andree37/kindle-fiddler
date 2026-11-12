@@ -3,6 +3,7 @@ const std = @import("std");
 const state = @import("../linux/state.zig");
 const linux = std.os.linux;
 const os = @import("../linux/os.zig");
+const devices = @import("devices.zig");
 const lipc = @import("lipc.zig");
 const touch_zones = @import("touch.zig");
 
@@ -29,6 +30,7 @@ pub fn powerPressed(events: []const InputEvent) bool {
     return false;
 }
 
+// The Paperwhite 12th gen's, used when nothing else is found
 const touch_device = "/dev/input/event1";
 const power_device = "/dev/input/event0";
 pub const eviocgrab: u32 = 0x40044590;
@@ -428,8 +430,16 @@ pub fn turnDirection(x: i32, width: i32) i32 {
 
 /// Opens touch and power, and takes the touchscreen from the stock UI.
 pub fn open(width: u32, height: u32) !Input {
-    const touch = try openInput(touch_device);
-    const power = try openInput(power_device);
+    // Found by what they report, as Kindles number them differently; this model's
+    // numbers if nothing answers
+    const found = devices.findInputs();
+    var touch_buf: [24]u8 = undefined;
+    var power_buf: [24]u8 = undefined;
+    const touch_path = if (found.touch) |n| std.fmt.bufPrintSentinel(&touch_buf, "/dev/input/event{d}", .{n}, 0) catch touch_device else touch_device;
+    const power_path = if (found.power) |n| std.fmt.bufPrintSentinel(&power_buf, "/dev/input/event{d}", .{n}, 0) catch power_device else power_device;
+    std.debug.print("input: touch {s}, power {s}\n", .{ touch_path, power_path });
+    const touch = try openInput(touch_path);
+    const power = try openInput(power_path);
     if (failed(linux.ioctl(touch, eviocgrab, 1))) return error.GrabFailed;
     // The kernel only reports coordinates that change, so start from the current ones.
     var in = Input{

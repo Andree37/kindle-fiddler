@@ -4,19 +4,16 @@ const std = @import("std");
 const battery = @import("../model/battery.zig");
 const state = @import("../linux/state.zig");
 const os = @import("../linux/os.zig");
+const devices = @import("devices.zig");
 const linux = std.os.linux;
 
-const capacity_path = "/sys/class/power_supply/bd71827_bat/capacity";
-const plugged_path = "/sys/class/power_supply/bd71827_ac/online";
 /// Past this the log is cut to its newest half: weeks of changes either way.
 const max_bytes = 48 * 1024;
 
 /// The battery now, or null off a Kindle.
 pub fn now() ?battery.Sample {
-    var buf: [16]u8 = undefined;
-    const level = std.fmt.parseInt(u32, std.mem.trim(u8, state.readSmall(capacity_path, &buf), " \n"), 10) catch return null;
-    const plugged = std.mem.startsWith(u8, state.readSmall(plugged_path, &buf), "1");
-    return .{ .time = os.unixTime(), .level = level, .plugged = plugged };
+    const p = devices.power() orelse return null;
+    return .{ .time = os.unixTime(), .level = p.level, .plugged = p.plugged };
 }
 
 /// Adds the battery to the log at `path` if it changed since `last`, which it updates.

@@ -29,6 +29,8 @@ test {
     _ = @import("model/stats.zig");
     _ = @import("model/search.zig");
     _ = @import("model/battery.zig");
+    _ = @import("kindle/devices.zig");
+    _ = @import("kindle/doctor.zig");
     _ = @import("screens/battery.zig");
     _ = @import("screens/reader/picture.zig");
     _ = @import("ui/keyboard.zig");
