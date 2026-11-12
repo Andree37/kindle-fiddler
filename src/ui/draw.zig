@@ -24,6 +24,17 @@ pub fn clipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f3
 
 /// A white box with a thin black outline.
 /// An outlined box with rounded corners, the shape every button and bubble shares.
+/// Where the line starting `s` ends to fit `avail`: after the last whole word that
+/// fits, or mid-word when even the first doesn't.
+pub fn lineEnd(font: *Font, s: []const u8, avail: f32) !usize {
+    if (try font.measure(s) <= avail) return s.len;
+    const cut = try font.fit(s, avail);
+    if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
+        if (space > 0) return space;
+    }
+    return @max(cut, 1);
+}
+
 pub fn box(page: Page, x: u32, y: u32, w: u32, h: u32) void {
     const corner: f32 = @floatFromInt(@min(24, h / 2));
     page.roundRect(x, y, w, h, corner, style.black);

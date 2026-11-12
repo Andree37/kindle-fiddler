@@ -1,4 +1,4 @@
-//! The lock screen: the book's cover while the Kindle sleeps.
+//! The lock screen: one of the book's highlights while the Kindle sleeps, or its cover.
 const std = @import("std");
 const catalog = @import("../model/catalog.zig");
 const os = @import("../linux/os.zig");
@@ -7,17 +7,23 @@ const file = @import("../linux/file.zig");
 const kfx = @import("../kindle/kfx.zig");
 const nowUs = os.nowUs;
 const app = @import("../app.zig");
+const quote_ui = @import("../ui/quote.zig");
 
 pub const lock_redraw_us = 1500 * 1000;
 
 pub const lock_redraws = 2;
 
-/// Shows the book's cover while the Kindle sleeps, then puts the screen back.
-pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry) !void {
+/// Shows `quote` (a highlight's words) while the Kindle sleeps, or else the book's
+/// cover, then puts the screen back.
+pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, quote: ?[]const u8) !void {
     @memcpy(a.lock_saved, a.screen.pixels);
     const target = a.lock_cover;
     var drawn = false;
-    if (entry) |e| {
+    if (quote) |q| if (entry) |e| {
+        quote_ui.render(a.ui, a.body, a.page(target), q, e.title, e.author) catch {};
+        drawn = true;
+    };
+    if (!drawn) if (entry) |e| {
         if (e.isLocal()) {
             if (file.map(e.path)) |data| {
                 defer file.unmap(data);
@@ -30,13 +36,13 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry) !void {
                 drawn = cover.fillScreen(a.alloc, data, target, a.screen.width, a.screen.height, a.screen.stride);
             } else |_| {}
         }
-    }
+    };
     if (!drawn) {
         @memset(target, 0xff);
         if (entry) |e| try a.ui.hero.draw(a.page(target), 120, 800, e.title);
     }
     try a.present(target, .gc16, .full);
-    std.debug.print("locked, cover drawn: {}\n", .{drawn});
+    std.debug.print("locked, {s}\n", .{if (quote != null) "showing a highlight" else if (drawn) "showing the cover" else "showing the title"});
 
     // Stock paints its own lock screen just after this, so draw over it again.
     const tick = a.input.tick_us;

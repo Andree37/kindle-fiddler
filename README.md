@@ -26,6 +26,8 @@ Things the stock Kindle doesn't do:
   how you actually read.
 - **Series from your own files.** Books in a series are grouped and kept in order,
   and finishing one offers the next.
+- **Your highlights on the lock screen.** Put the Kindle to sleep mid-book and it
+  shows one of the passages you highlighted in it, a different one each time.
 
 ## And everything you'd expect
 

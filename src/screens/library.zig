@@ -478,7 +478,7 @@ pub fn runLibrary(a: *app.App) !void {
                 },
                 .drag, .drag_end, .unlock => continue,
                 .lock => {
-                    try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null);
+                    try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null, null);
                     a.noteBattery(); // What sleeping (or charging) did
                     // Redrawn on waking, where only what changed (the clock, "Last read")
                     // repaints: these may be days old. No continue: on to the redraw below.

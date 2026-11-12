@@ -231,7 +231,14 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             },
             .lock => {
                 session.pauseClock(); // Asleep isn't reading
-                try lock.lockScreen(a, entry);
+                // One of this book's highlights, a different one each time, if it has any
+                var quote_arena = std.heap.ArenaAllocator.init(a.alloc);
+                defer quote_arena.deinit();
+                const quote: ?[]const u8 = blk: {
+                    const span = highlights.pick(session.highlights.items, os.nowUs() / std.time.us_per_s) orelse break :blk null;
+                    break :blk highlights.quote(quote_arena.allocator(), session.paragraphs, span, 600) catch null;
+                };
+                try lock.lockScreen(a, entry, quote);
                 a.noteBattery(); // What sleeping cost
                 if (view == .page) try a.updateClock();
             },

@@ -67,6 +67,49 @@ pub fn excerpt(s: []const u8, max: usize) []const u8 {
     return trimmed[0..end];
 }
 
+/// One of the book's highlights long enough to read as a quote (a few words, not a
+/// single one looked up), a different one as `seed` changes: its whole span.
+pub fn pick(list: []const Highlight, seed: u64) ?Span {
+    const min_bytes = 20;
+    var ids: [64][]const u8 = undefined;
+    var spans: [64]Span = undefined;
+    var n: usize = 0;
+    for (list) |h| {
+        const seen = for (ids[0..n]) |id| {
+            if (std.mem.eql(u8, id, h.id)) break true;
+        } else false;
+        if (seen or n == ids.len) continue;
+        const span = extent(list, h.id) orelse continue;
+        if (span.first_para == span.last_para and span.last_byte -| span.first_byte < min_bytes) continue;
+        ids[n] = h.id;
+        spans[n] = span;
+        n += 1;
+    }
+    return if (n == 0) null else spans[@intCast(seed % n)];
+}
+
+/// A highlight's words, its paragraphs joined by spaces, at most `max` bytes: a
+/// longer one is cut at a word and ends in an ellipsis.
+pub fn quote(alloc: std.mem.Allocator, paragraphs: []const book_model.Paragraph, span: Span, max: usize) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var para = span.first_para;
+    while (para <= span.last_para and para < paragraphs.len) : (para += 1) {
+        const text = paragraphs[para].text;
+        const from = if (para == span.first_para) @min(span.first_byte, text.len) else 0;
+        const to = if (para == span.last_para) @min(span.last_byte, text.len) else text.len;
+        if (from >= to) continue;
+        if (out.items.len > 0) try out.append(alloc, ' ');
+        try out.appendSlice(alloc, std.mem.trim(u8, text[from..to], " "));
+        if (out.items.len > max) break;
+    }
+    if (out.items.len <= max) return out.items;
+    const cut = excerpt(out.items, max);
+    var short: std.ArrayList(u8) = .empty;
+    try short.appendSlice(alloc, std.mem.trimEnd(u8, cut, " ,;:"));
+    try short.appendSlice(alloc, "\u{2026}");
+    return short.items;
+}
+
 /// Finds the paragraph and byte for one of Amazon's short positions.
 pub fn locate(paragraphs: []const book_model.Paragraph, short: u32) ?struct { para: u32, byte: u32 } {
     var found: ?usize = null;
@@ -272,4 +315,31 @@ test "excerpts end at a word and never split a character" {
     try std.testing.expectEqualStrings("one two", excerpt("one two three", 10));
     try std.testing.expectEqualStrings("caf", excerpt("caf\u{e9}", 4)); // The accent is two bytes
     try std.testing.expectEqualStrings("lead", excerpt("  lead", 20));
+}
+
+test "a highlight's words make a quote, cut short when long" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const paras = [_]book_model.Paragraph{
+        .{ .text = "It was the best of times, it was the worst of times,", .style = 0 },
+        .{ .text = "it was the age of wisdom.", .style = 0 },
+    };
+    const both = Span{ .first_para = 0, .first_byte = 7, .last_para = 1, .last_byte = 25 };
+    try std.testing.expectEqualStrings("the best of times, it was the worst of times, it was the age of wisdom.", try quote(alloc, &paras, both, 500));
+    try std.testing.expectEqualStrings("the best of times\u{2026}", try quote(alloc, &paras, both, 20));
+    const past_end = Span{ .first_para = 1, .first_byte = 0, .last_para = 9, .last_byte = 99 };
+    try std.testing.expectEqualStrings("it was the age of wisdom.", try quote(alloc, &paras, past_end, 500));
+}
+
+test "picking a highlight skips single words, and goes through each once" {
+    const word = book_model.Mark{ .para = 0, .start = 0, .end = 4 };
+    const long = book_model.Mark{ .para = 1, .start = 0, .end = 40 };
+    const split = book_model.Mark{ .para = 2, .start = 30, .end = 34 };
+    const split_end = book_model.Mark{ .para = 3, .start = 0, .end = 3 };
+    const list = [_]Highlight{ .{ .mark = word, .id = "w" }, .{ .mark = long, .id = "a" }, .{ .mark = split, .id = "b" }, .{ .mark = split_end, .id = "b" } };
+    try std.testing.expectEqual(@as(u32, 1), pick(&list, 0).?.first_para);
+    try std.testing.expectEqual(@as(u32, 3), pick(&list, 1).?.last_para); // Across paragraphs: long enough
+    try std.testing.expectEqual(@as(u32, 1), pick(&list, 2).?.first_para);
+    try std.testing.expect(pick(list[0..1], 5) == null);
 }
