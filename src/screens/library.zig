@@ -297,9 +297,9 @@ fn moment(a: *const app.App) library.Moment {
 
 /// Shows a library page, and while the screen refreshes, gets the covers of the
 /// pages either side ready, so turning to them is quick.
-fn showPage(a: *app.App, lib: *Library, buf: []const u8, mode: hwtcon.UpdateMode, index: usize, count: usize) !void {
+fn showPage(a: *app.App, lib: *Library, buf: []const u8, refresh: hwtcon.Refresh, index: usize, count: usize) !void {
     @memcpy(a.screen.pixels, buf);
-    const marker = try a.screen.update(.gc16, mode);
+    const marker = try a.screen.show(refresh);
     const alloc = lib.arena.allocator();
     library.prepareCovers(alloc, lib.entries, lib.visible[0..count], index + 1);
     if (index > 0) library.prepareCovers(alloc, lib.entries, lib.visible[0..count], index - 1);
@@ -348,7 +348,7 @@ pub fn runLibrary(a: *app.App) !void {
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
-        try showPage(a, &lib, buf, .full, index, count);
+        try showPage(a, &lib, buf, .flash, index, count);
         logPage(&lib, index, count);
         // Drawn with the last status at once; read again now, and redrawn (only what
         // changed, without a flash) if the battery, Wi-Fi or clock moved on
@@ -357,7 +357,7 @@ pub fn runLibrary(a: *app.App) !void {
         if (!status.same(&a.quick)) {
             a.quick = status;
             try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
-            try a.present(buf, .gc16, .partial);
+            try a.present(buf, .screen);
         }
         message = "";
 
@@ -370,7 +370,7 @@ pub fn runLibrary(a: *app.App) !void {
                     .none => continue,
                     .search => switch (typeSearch(a, &lib, &query)) {
                         .cancel => {
-                            try a.present(buf, .gc16, .partial);
+                            try a.present(buf, .screen);
                             continue;
                         },
                         .search => {
@@ -386,7 +386,7 @@ pub fn runLibrary(a: *app.App) !void {
                     },
                     .stats => {
                         try stats_screen.run(a, lib.entries);
-                        try a.present(buf, .gc16, .partial);
+                        try a.present(buf, .screen);
                         continue;
                     },
                     .clear_search => {
@@ -446,7 +446,7 @@ pub fn runLibrary(a: *app.App) !void {
                         if (!fresh_status.same(&a.quick)) {
                             a.quick = fresh_status;
                             try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), "", &a.quick, moment(a));
-                            try a.present(buf, .gc16, .partial);
+                            try a.present(buf, .screen);
                         }
                     }
                     if (nowUs() >= watch_until) {
@@ -556,7 +556,7 @@ pub fn runLibrary(a: *app.App) !void {
                 continue;
             }
             try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), notice, &a.quick, moment(a));
-            try showPage(a, &lib, buf, .partial, index, count);
+            try showPage(a, &lib, buf, .screen, index, count);
             logPage(&lib, index, count);
         }
     }

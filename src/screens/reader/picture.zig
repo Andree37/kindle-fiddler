@@ -107,7 +107,7 @@ fn drawView(a: *app.App, v: View, settled: bool) !u32 {
     }
     @memcpy(a.screen.pixels, a.overlay);
     std.debug.print("picture drawn in {d} ms\n", .{(os.nowUs() - t0) / 1000});
-    return a.screen.update(if (settled) .gc16 else .du, .partial);
+    return a.screen.show(if (settled) .screen else .quick);
 }
 
 fn render(a: *app.App, v: View) !void {
@@ -201,7 +201,7 @@ pub fn show(a: *app.App, img: book_model.Image) !void {
     const picture = decode(arena.allocator(), img) orelse {
         try app.showNotice(a, "This picture can't be shown larger.");
         // The notice was drawn over the page: put the page back
-        try a.present(saved, app.page_waveform, .partial);
+        try a.present(saved, .page);
         return;
     };
     std.debug.print("picture: {d}x{d}\n", .{ picture.width, picture.height });
@@ -262,7 +262,7 @@ pub fn show(a: *app.App, img: book_model.Image) !void {
             else => {},
         }
     }
-    try a.present(saved, .gc16, .full);
+    try a.present(saved, .flash);
 }
 
 test "taps on and near the close button close" {

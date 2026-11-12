@@ -48,7 +48,7 @@ pub fn showPage(a: *app.App, s: *sess.Session, active: ?[]const u8) !?usize {
             delete_top = try drawDeleteBubble(a, band);
         }
     }
-    try a.screen.waitComplete(try a.screen.update(app.page_waveform, .partial));
+    try a.screen.waitComplete(try a.screen.show(.page));
     return delete_top;
 }
 
@@ -117,7 +117,7 @@ fn paintSelection(a: *app.App, list: []const book_model.Word, first: usize, last
     const stride = a.screen.stride;
     @memcpy(a.screen.pixels[top * stride .. bottom * stride], a.lock_cover[top * stride .. bottom * stride]);
     selection.draw(a.page(a.screen.pixels), chosen);
-    _ = try a.screen.updateRegion(0, top, a.screen.width, bottom - top, app.drag_waveform, .partial);
+    _ = try a.screen.showRegion(0, top, a.screen.width, bottom - top, .quick);
     return now;
 }
 

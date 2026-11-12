@@ -261,9 +261,9 @@ pub const Session = struct {
         a.turns += 1;
         const clean = force_clean or (a.settings.refresh and a.turns % 20 == 0);
         const marker = if (clean)
-            try a.screen.update(.gc16, .full)
+            try a.screen.show(.flash)
         else
-            try a.screen.update(app.page_waveform, .partial);
+            try a.screen.show(.page);
         const queued = nowUs();
         try a.screen.waitComplete(marker);
         const done = nowUs();

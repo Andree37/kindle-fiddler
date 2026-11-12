@@ -80,7 +80,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     @memcpy(saved_screen, screen.pixels);
     defer {
         @memcpy(screen.pixels, saved_screen);
-        if (screen.update(.gc16, .full)) |m| {
+        if (screen.show(.flash)) |m| {
             screen.waitComplete(m) catch {};
         } else |_| {}
     }

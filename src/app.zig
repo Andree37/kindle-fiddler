@@ -30,11 +30,6 @@ const battery_log = @import("kindle/battery_log.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
 
-pub const page_waveform: hwtcon.Waveform = .reagl;
-
-/// Frames that follow a finger. DU is a little slower than A2 but doesn't leave a
-/// ghost of where things were.
-pub const drag_waveform: hwtcon.Waveform = .du;
 
 pub const clock_top = 16;
 
@@ -216,7 +211,7 @@ pub const App = struct {
         target.fillRect(r.x, r.y + r.h - t, r.w, t, 0x00);
         target.fillRect(r.x, r.y, t, r.h, 0x00);
         target.fillRect(r.x + r.w - t, r.y, t, r.h, 0x00);
-        const marker = a.screen.updateRegion(r.x, r.y, r.w, r.h, .du, .partial) catch return;
+        const marker = a.screen.showRegion(r.x, r.y, r.w, r.h, .quick) catch return;
         a.screen.waitComplete(marker) catch {};
     }
 
@@ -242,12 +237,12 @@ pub const App = struct {
         if (!a.settings.clock) return;
         a.stampClock();
         const left = (a.screen.width - clock_width) / 2;
-        try a.screen.waitComplete(try a.screen.updateRegion(left, clock_top, clock_width, clock_height, .gl16, .partial));
+        try a.screen.waitComplete(try a.screen.showRegion(left, clock_top, clock_width, clock_height, .clock));
     }
 
     /// Refreshes part of the screen with the page waveform, and waits for it.
     pub fn showRect(a: *App, left: u32, top: u32, width: u32, height: u32) !void {
-        try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, page_waveform, .partial));
+        try a.screen.waitComplete(try a.screen.showRegion(left, top, width, height, .page));
     }
 
     /// Refreshes a full-width band of the screen, and waits for it.
@@ -273,9 +268,9 @@ pub const App = struct {
         return state.pathFor(buf, a.state_dir, book_path);
     }
 
-    pub fn present(a: *App, buf: []const u8, wf: hwtcon.Waveform, mode: hwtcon.UpdateMode) !void {
+    pub fn present(a: *App, buf: []const u8, refresh: hwtcon.Refresh) !void {
         @memcpy(a.screen.pixels, buf);
-        try a.screen.waitComplete(try a.screen.update(wf, mode));
+        try a.screen.waitComplete(try a.screen.show(refresh));
     }
 };
 
@@ -343,7 +338,7 @@ pub fn cleanBand(a: *App, top: u32, height: u32) !void {
 }
 
 pub fn cleanRect(a: *App, left: u32, top: u32, width: u32, height: u32) !void {
-    try a.screen.waitComplete(try a.screen.updateRegion(left, top, width, height, .reagl, .partial));
+    try a.screen.waitComplete(try a.screen.showRegion(left, top, width, height, .clean));
 }
 
 /// Follows the dragged finger until it lifts. `follow.moved(x, y)` redraws for a

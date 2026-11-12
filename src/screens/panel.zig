@@ -68,7 +68,7 @@ pub fn dragRow(a: *app.App, row: menu.Row, first_x: i32) !void {
             const span = menu.knobSpan(f.knob.*, knob);
             f.knob.* = knob;
             f.path.* = .{ @min(f.path[0], knob), @max(f.path[1], knob) };
-            const marker = try f.a.screen.updateRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, app.drag_waveform, .partial);
+            const marker = try f.a.screen.showRegion(span.left, menu.bandTop(f.row), span.width, menu.band_height, .quick);
             if (level != rowValue(f.a, f.row)) setRowValue(f.a, f.row, level);
             return marker;
         }
@@ -104,7 +104,7 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
             }
             const box = menu.shortcutBox(choice).?;
             try menu.drawShortcut(a.ui, a.page(a.screen.pixels), choice, &a.quick);
-            const marker = try a.screen.updateRegion(box.left, box.top, box.width, box.height, app.page_waveform, .partial);
+            const marker = try a.screen.showRegion(box.left, box.top, box.width, box.height, .page);
             switch (choice) {
                 .airplane => {
                     // The reader's choice now: noface neither undoes nor redoes it

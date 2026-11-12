@@ -17,6 +17,28 @@ pub const Waveform = enum(u32) {
 
 pub const UpdateMode = enum(u32) { partial = 0, full = 1 };
 
+/// What a screen asks the panel for. Which waveform does it is the panel's business:
+/// this table is MediaTek's, on the Paperwhite 12; another panel maps them its way.
+pub const Refresh = enum {
+    page, // A new page of text: sharp, quick, no flash
+    screen, // A whole new screen in all its grays, like the library or a cover
+    flash, // The same, with the flash that clears any ghost of what was there
+    quick, // Following a finger: fast, and only black and white settle cleanly
+    clock, // Small text such as the clock, without a flash
+    clean, // Settling an area after a drag, its smooth edges back
+
+    pub fn onThisPanel(r: Refresh) struct { waveform: Waveform, mode: UpdateMode } {
+        return switch (r) {
+            .page, .clean => .{ .waveform = .reagl, .mode = .partial },
+            .screen => .{ .waveform = .gc16, .mode = .partial },
+            .flash => .{ .waveform = .gc16, .mode = .full },
+            // DU is a little slower than A2 but leaves no ghost of where things were
+            .quick => .{ .waveform = .du, .mode = .partial },
+            .clock => .{ .waveform = .gl16, .mode = .partial },
+        };
+    }
+};
+
 const Rect = extern struct { top: u32, left: u32, width: u32, height: u32 };
 
 const AltBuffer = extern struct {
@@ -110,7 +132,19 @@ pub const Screen = struct {
         };
     }
 
-    /// Queue a whole-screen update and return its marker.
+    /// Queue a whole-screen refresh of the kind asked for, and return its marker.
+    pub fn show(s: *Screen, r: Refresh) !u32 {
+        return s.showRegion(0, 0, s.width, s.height, r);
+    }
+
+    /// Queue a refresh of part of the screen, and return its marker.
+    pub fn showRegion(s: *Screen, left: u32, top: u32, width: u32, height: u32, r: Refresh) !u32 {
+        const how = r.onThisPanel();
+        return s.updateRegion(left, top, width, height, how.waveform, how.mode);
+    }
+
+    /// Queue a whole-screen update with a waveform named, and return its marker. For
+    /// tools that measure the waveforms themselves; screens ask with `show`.
     pub fn update(s: *Screen, waveform: Waveform, mode: UpdateMode) !u32 {
         return s.updateRegion(0, 0, s.width, s.height, waveform, mode);
     }

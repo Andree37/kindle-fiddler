@@ -42,7 +42,7 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) W
         a.lock_cover_key = key;
         std.debug.print("locked, cover drawn: {}\n", .{drawn});
     } else std.debug.print("locked, cover kept\n", .{});
-    a.present(target, .gc16, .full) catch |err| std.debug.print("lock screen not shown: {s}\n", .{@errorName(err)});
+    a.present(target, .flash) catch |err| std.debug.print("lock screen not shown: {s}\n", .{@errorName(err)});
 
     // Stock paints its own lock screen just after this, so draw over it again.
     const tick = a.input.tick_us;
@@ -60,7 +60,7 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) W
                 // Only when stock painted over it, and only the pixels it changed.
                 if (!std.mem.eql(u8, a.screen.pixels, target)) {
                     std.debug.print("lock cover repainted\n", .{});
-                    a.present(target, .gc16, .partial) catch {};
+                    a.present(target, .screen) catch {};
                 }
                 if (redraws == lock_redraws) a.input.tick_us = 0;
             },
@@ -74,7 +74,7 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) W
         }
     }
     a.input.last_input = nowUs();
-    if (options.restore) a.present(a.lock_saved, .gc16, .full) catch |err| std.debug.print("screen not put back: {s}\n", .{@errorName(err)});
+    if (options.restore) a.present(a.lock_saved, .flash) catch |err| std.debug.print("screen not put back: {s}\n", .{@errorName(err)});
     return .woke;
 }
 
