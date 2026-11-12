@@ -7,7 +7,7 @@ Wi-Fi, purchases and highlights carry on as before.
 noface is free for personal, noncommercial use (see [License](#license)). It is an
 independent project, not made, endorsed or supported by Amazon.
 
-<p align="center"><img src="docs/tour.gif" width="420" alt="A tour of noface: the library, a book's cover and an illustrated chapter, a page of text, a dictionary lookup, a highlight, the light panel, text settings, a picture shown full screen and zoomed, and the library sorted by series"></p>
+<p align="center"><img src="docs/tour.gif" width="420" alt="A tour of noface: the library, a book's cover and an illustrated chapter, a page of text, a dictionary lookup, a picture shown full screen and zoomed, the light panel, text settings, searching as you type, the next book offered on finishing one of a series, the library sorted by series, and reading stats"></p>
 
 Page turns take about 250 ms, from touch to finished screen.
 
