@@ -22,8 +22,6 @@ your Amazon library, sync, highlights and Wi‑Fi.
 | Battery | A percentage | **Also how long your charge will last** |
 | Series in your own files | Not recognised | **Grouped, in order, next book offered when you finish** |
 
-<p align="center"><img src="docs/features.png" width="760" alt="Six noface screens: the home screen with only your books, the next book in a series offered on finishing one, search as you type, a picture zoomed full screen, the library sorted by series, and reading stats"></p>
-
 ## Why you'll like it
 
 - **Instant pages.** Tap or swipe, and the next page is already there.
