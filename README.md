@@ -15,16 +15,16 @@ your Amazon library, sync, highlights and Wi‑Fi.
 
 Things the stock Kindle doesn't do:
 
-- **⚡ Pages in ~60 ms.** About five times faster than the stock reader, measured on
+- **Pages in ~60 ms.** About five times faster than the stock reader, measured on
   the same Kindle.
-- **📚 Just your books.** A home screen with your library and nothing else: no store
+- **Just your books.** A home screen with your library and nothing else: no store
   shelves, deals or subscription banners.
-- **📖 EPUBs that just open.** Copy them over USB and read them; no Send to Kindle.
-- **🔋 Wi‑Fi off while you read.** It switches itself off a couple of minutes into a
+- **EPUBs that just open.** Copy them over USB and read them; no Send to Kindle.
+- **Wi‑Fi off while you read.** It switches itself off a couple of minutes into a
   book and back on when you're done, so the battery lasts longer.
-- **⏳ How long your charge will last.** Tap the battery for an estimate in days, from
+- **How long your charge will last.** Tap the battery for an estimate in days, from
   how you actually read.
-- **🔗 Series from your own files.** Books in a series are grouped and kept in order,
+- **Series from your own files.** Books in a series are grouped and kept in order,
   and finishing one offers the next.
 
 ## And everything you'd expect
