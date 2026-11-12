@@ -14,6 +14,12 @@ pub fn use(b: *memory.Budget) void {
     budget = b;
 }
 
+/// Back to the built-in budget: for a caller whose budget is about to go away (a
+/// test's, or a scenario's), so nothing is left pointing at it.
+pub fn useDefault() void {
+    budget = &default_budget;
+}
+
 fn sizeOf(block: [*]u8) usize {
     return std.mem.readInt(usize, block[0..@sizeOf(usize)], .little);
 }

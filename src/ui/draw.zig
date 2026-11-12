@@ -136,6 +136,7 @@ test "a line keeps a word that fits just before the space that overflows" {
     defer arena.deinit(); // Fonts are kept for the app's life, so nothing frees them
     var budget = memory.Budget{ .name = "test", .child = arena.allocator(), .limit = 16 << 20 };
     c_memory.use(&budget);
+    defer c_memory.useDefault();
     var font = try Font.init(arena.allocator(), @embedFile("../testdata/fonts/Go-Regular.ttf"), 40, 1.2);
     const s = "abc def ghi";
     // Exactly as wide as "abc def": the space after it is what overflows

@@ -75,6 +75,11 @@ fn play(steps: []const Step) !Outcome {
     var script = input_mod.Script{ .steps = steps };
     var input = input_mod.Input{ .touch = -1, .power = -1, .width = width, .height = height, .x_max = width, .y_max = height, .script = &script };
 
+    // Before any font: stb allocates through it. Let go of on return, as it lives here
+    var stb_budget = memory.Budget{ .name = "stb", .child = std.heap.smp_allocator, .limit = 128 << 20 };
+    c_memory.use(&stb_budget);
+    defer c_memory.useDefault();
+
     var body = try Font.init(alloc, go_regular, 46, 1.35);
     var note_font = try Font.init(alloc, go_regular, 36, 1.3);
     var footer = try Font.init(alloc, go_regular, 28, 1.2);
@@ -92,9 +97,6 @@ fn play(steps: []const Step) !Outcome {
     const speed_path = try std.fmt.bufPrintSentinel(&paths[1], "{s}/speed", .{dir}, 0);
     const journal_path = try std.fmt.bufPrintSentinel(&paths[2], "{s}/journal", .{dir}, 0);
     const battery_path = try std.fmt.bufPrintSentinel(&paths[3], "{s}/battery", .{dir}, 0);
-    var stb_budget = memory.Budget{ .name = "stb", .child = std.heap.smp_allocator, .limit = 128 << 20 };
-    c_memory.use(&stb_budget);
-
     var a = app.App{
         .alloc = alloc,
         .screen = &screen,
