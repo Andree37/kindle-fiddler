@@ -10,8 +10,8 @@
 //! on the way out, and noface on its way in.
 const std = @import("std");
 const lipc = @import("lipc.zig");
-const state = @import("../linux/state.zig");
-const linux = std.os.linux;
+const state = @import("../sys/state.zig");
+const linux = @import("../sys/calls.zig");
 
 /// How long into a book before the radio goes off: a quick look in doesn't toggle it.
 pub const after_us: u64 = 2 * 60 * 1000 * 1000;

@@ -189,7 +189,7 @@ pub fn drawRow(fonts: Fonts, page: Page, r: Row, value: usize, mono: bool) !void
 }
 
 fn drawTabs(fonts: Fonts, page: Page, tab: Tab) !void {
-    const cell: u32 = page.width / tab_labels.len;
+    const cell: u32 = page.width / @as(u32, tab_labels.len);
     for (tab_labels, 0..) |label, i| {
         const left: u32 = @as(u32, @intCast(i)) * cell;
         const active = i == @intFromEnum(tab);

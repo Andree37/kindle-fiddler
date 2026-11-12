@@ -1,6 +1,6 @@
 //! Running other programs, with a deadline so a stuck one can't freeze the reader.
 const std = @import("std");
-const linux = std.os.linux;
+const linux = @import("calls.zig");
 const os = @import("os.zig");
 const failed = os.failed;
 

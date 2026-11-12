@@ -3,8 +3,8 @@
 //! sideloaded fonts from). Noface's families map onto these by index.
 const std = @import("std");
 const settings = @import("../model/settings.zig");
-const file = @import("../linux/file.zig");
-const linux = std.os.linux;
+const file = @import("../sys/file.zig");
+const linux = @import("../sys/calls.zig");
 
 const font_dir = "/usr/java/lib/fonts/";
 pub const own_dir = "/mnt/us/fonts";
@@ -134,26 +134,19 @@ pub fn findOwn(alloc: std.mem.Allocator, usable_font: *const fn ([]const u8) boo
 
 /// The names of the files in `dir`.
 fn listDir(alloc: std.mem.Allocator, dir: [*:0]const u8, out: [][]const u8) [][]const u8 {
-    const rc = linux.open(dir, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, 0);
-    if (rc > std.math.maxInt(usize) - 4096) return out[0..0];
-    const fd: i32 = @intCast(rc);
-    defer _ = linux.close(fd);
-    var buf: [4096]u8 align(8) = undefined;
-    var n: usize = 0;
-    while (true) {
-        const got = linux.getdents64(fd, &buf, buf.len);
-        if (got == 0 or got > std.math.maxInt(usize) - 4096) break;
-        var at: usize = 0;
-        while (at < got) {
-            const reclen = std.mem.readInt(u16, buf[at + 16 ..][0..2], .little);
-            const name = std.mem.sliceTo(buf[at + 19 .. at + reclen], 0);
-            at += reclen;
-            if (n == out.len) continue;
-            out[n] = alloc.dupe(u8, name) catch continue;
-            n += 1;
+    const Into = struct {
+        alloc: std.mem.Allocator,
+        out: [][]const u8,
+        n: usize = 0,
+        fn add(into: *@This(), name: []const u8, is_dir: bool) void {
+            if (is_dir or into.n == into.out.len) return;
+            into.out[into.n] = into.alloc.dupe(u8, name) catch return;
+            into.n += 1;
         }
-    }
-    return out[0..n];
+    };
+    var into = Into{ .alloc = alloc, .out = out };
+    linux.eachEntry(dir, &into, Into.add);
+    return out[0..into.n];
 }
 
 test "a font file's name says its family and style" {

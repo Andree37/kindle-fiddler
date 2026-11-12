@@ -1,8 +1,8 @@
 //! Touch and power input: raw events in, taps, holds, drags and power changes out.
 const std = @import("std");
-const state = @import("../linux/state.zig");
-const linux = std.os.linux;
-const os = @import("../linux/os.zig");
+const state = @import("../sys/state.zig");
+const linux = @import("../sys/calls.zig");
+const os = @import("../sys/os.zig");
 const devices = @import("devices.zig");
 const lipc = @import("lipc.zig");
 const touch_zones = @import("touch.zig");

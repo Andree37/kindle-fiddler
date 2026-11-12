@@ -1,6 +1,6 @@
 //! Read-only memory mapping of a file, using raw Linux syscalls.
 const std = @import("std");
-const linux = std.os.linux;
+const linux = @import("calls.zig");
 
 pub fn map(path: [*:0]const u8) ![]const u8 {
     const fd = linux.open(path, .{ .ACCMODE = .RDONLY }, 0);

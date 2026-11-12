@@ -1,6 +1,6 @@
 //! Small helpers over raw Linux syscalls, shared across the app.
 const std = @import("std");
-const linux = std.os.linux;
+const linux = @import("calls.zig");
 
 /// Raw syscalls return errors as values in the top 4096 of the range.
 pub fn failed(rc: usize) bool {

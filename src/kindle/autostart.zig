@@ -4,8 +4,8 @@
 //! only runs noface's autostart.sh, which does nothing while the setting is off, so
 //! switching it off leaves the file in place, idle.
 const std = @import("std");
-const process = @import("../linux/process.zig");
-const state = @import("../linux/state.zig");
+const process = @import("../sys/process.zig");
+const state = @import("../sys/state.zig");
 
 const shipped = "/mnt/us/noface/noface-autostart.conf";
 const installed_path = "/etc/upstart/noface-autostart.conf";

@@ -3,7 +3,7 @@
 //! was set, and starts nothing. With it the self-test can run on the reader's own
 //! Kindle and change nothing on it, and a test can check what noface asked for.
 const std = @import("std");
-const process = @import("linux/process.zig");
+const process = @import("sys/process.zig");
 
 const Prop = struct { key: []const u8, value: []const u8 };
 

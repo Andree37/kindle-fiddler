@@ -8,7 +8,7 @@ const hyphen = @import("../../layout/hyphen.zig");
 const lipc = @import("../../kindle/lipc.zig");
 const wifi_saver = @import("../../kindle/wifi_saver.zig");
 const dict_download = @import("../../kindle/dict_download.zig");
-const os = @import("../../linux/os.zig");
+const os = @import("../../sys/os.zig");
 
 /// The download for a book's language.
 pub fn languageOf(lang: hyphen.Lang) dict_download.Language {

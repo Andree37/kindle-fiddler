@@ -23,10 +23,10 @@ test {
     _ = @import("kindle/safe.zig");
     _ = @import("kindle/lipc.zig");
     _ = @import("model/quick.zig");
-    _ = @import("linux/clock.zig");
+    _ = @import("sys/clock.zig");
     _ = @import("screens/lock.zig");
     _ = @import("fake_kindle.zig");
-    _ = @import("linux/process.zig");
+    _ = @import("sys/process.zig");
     _ = @import("app.zig");
     _ = @import("model/stats.zig");
     _ = @import("model/search.zig");
@@ -48,7 +48,7 @@ test {
     _ = @import("ui/draw.zig");
     _ = @import("model/catalog.zig");
     _ = @import("kindle/input.zig");
-    _ = @import("linux/os.zig");
+    _ = @import("sys/os.zig");
     _ = @import("ui/aa.zig");
     _ = @import("kindle/annotations.zig");
     _ = @import("layout/page_cache.zig");
@@ -63,7 +63,7 @@ test {
     _ = @import("ui/selection.zig");
     _ = @import("ui/sheet.zig");
     _ = @import("ui/slider.zig");
-    _ = @import("linux/state.zig");
+    _ = @import("sys/state.zig");
     _ = @import("layout/text.zig");
     _ = @import("ui/toolbar.zig");
     _ = @import("kindle/touch.zig");

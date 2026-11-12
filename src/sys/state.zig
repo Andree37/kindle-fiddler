@@ -1,6 +1,6 @@
 //! Per-book reading state, kept in small text files beside the reader.
 const std = @import("std");
-const linux = std.os.linux;
+const linux = @import("calls.zig");
 
 pub const State = struct {
     para: usize = 0,

@@ -2,7 +2,7 @@
 //! back into the library model.
 const std = @import("std");
 const library = @import("../model/catalog.zig");
-const process = @import("../linux/process.zig");
+const process = @import("../sys/process.zig");
 
 const read_state_finished = 2; // Kindle's own "finished" mark
 

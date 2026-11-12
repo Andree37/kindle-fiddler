@@ -6,8 +6,8 @@
 //! at compile time, so an update that changes layout can never serve stale pages.
 const std = @import("std");
 const book_model = @import("../../model/book.zig");
-const file = @import("../../linux/file.zig");
-const state = @import("../../linux/state.zig");
+const file = @import("../../sys/file.zig");
+const state = @import("../../sys/state.zig");
 const check = @import("../../base/check.zig");
 const app = @import("../../app.zig");
 

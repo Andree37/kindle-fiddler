@@ -1,6 +1,6 @@
 //! Amazon's store actions on a book: download, remove from the device, mark as read.
 const std = @import("std");
-const process = @import("../linux/process.zig");
+const process = @import("../sys/process.zig");
 const safe = @import("safe.zig");
 
 fn readNowAction(prop: []const u8, comptime fields: []const u8, args: anytype) void {

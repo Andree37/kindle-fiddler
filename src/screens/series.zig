@@ -11,7 +11,7 @@ const search_sheet = @import("../ui/search_sheet.zig");
 const draw = @import("../ui/draw.zig");
 const icons = @import("../ui/icons.zig");
 const style = @import("../ui/style.zig");
-const state = @import("../linux/state.zig");
+const state = @import("../sys/state.zig");
 const app = @import("../app.zig");
 
 const numbers = 30; // Places offered in a series: 1 to 30

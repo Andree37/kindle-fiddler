@@ -11,7 +11,7 @@ const touch_zones = @import("../../kindle/touch.zig");
 const draw = @import("../../ui/draw.zig");
 const style = @import("../../ui/style.zig");
 const app = @import("../../app.zig");
-const os = @import("../../linux/os.zig");
+const os = @import("../../sys/os.zig");
 
 /// Bigger than this and it isn't worth the memory: a page-sized scan is ~5M.
 const max_pixels = 24 * 1000 * 1000;

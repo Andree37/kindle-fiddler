@@ -1,10 +1,10 @@
 //! The Kindle's annotation database: reading a book's records and queuing changes for sync.
 const std = @import("std");
-const linux = std.os.linux;
-const os = @import("../linux/os.zig");
+const linux = @import("../sys/calls.zig");
+const os = @import("../sys/os.zig");
 const failed = os.failed;
 const annotations = @import("annotations.zig");
-const process = @import("../linux/process.zig");
+const process = @import("../sys/process.zig");
 const safe = @import("safe.zig");
 
 /// While this file exists, annotation writes are skipped. Used by device tests.

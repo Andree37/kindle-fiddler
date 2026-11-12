@@ -82,18 +82,22 @@ pub fn build(b: *std.Build) void {
         tools_step.dependOn(&b.addInstallArtifact(tool, .{}).step);
     }
 
-    // Scenario tests: the real app played by script on a screen in memory. Linux only,
-    // as the app talks to Linux directly. `zig build scenarios` builds the Kindle copy
-    // (zig-out/bin/noface-scenarios, the on-device self-test) and, on a Linux host,
-    // builds and runs one there too.
+    // Scenario tests: the real app played by script on a screen in memory.
+    // `zig build scenarios` builds the Kindle copy (zig-out/bin/noface-scenarios) and,
+    // on a Linux or Mac computer, builds and runs one there too.
     const scenarios_step = b.step("scenarios", "Build the scenario tests, and run them on a Linux host");
     const kindle_scenarios = scenarioExe(b, target, "noface-scenarios");
     scenarios_step.dependOn(&b.addInstallArtifact(kindle_scenarios, .{}).step);
-    if (b.graph.host.result.os.tag == .linux and b.graph.host.result.cpu.arch == .x86_64) {
-        // As 32-bit x86, which a 64-bit Linux runs as is: the app is written for the
-        // Kindle's 32-bit ARM (its sizes and system calls), and this matches it
+    const host_os = b.graph.host.result;
+    if (host_os.os.tag == .linux and host_os.cpu.arch == .x86_64) {
+        // As 32-bit x86, which a 64-bit Linux runs as is: on Linux noface makes Linux's
+        // own system calls, written for the Kindle's 32-bit ARM, and this matches it
         const x86 = b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl });
         const host_scenarios = scenarioExe(b, x86, "noface-scenarios-host");
+        scenarios_step.dependOn(&b.addRunArtifact(host_scenarios).step);
+    } else if (host_os.os.tag == .macos) {
+        // On a Mac, natively: noface's system calls go through the C library there
+        const host_scenarios = scenarioExe(b, b.graph.host, "noface-scenarios-host");
         scenarios_step.dependOn(&b.addRunArtifact(host_scenarios).step);
     }
 

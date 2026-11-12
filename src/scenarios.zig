@@ -15,8 +15,8 @@ const c_memory = @import("gfx/c_memory.zig");
 const memory = @import("base/memory.zig");
 const catalog = @import("model/catalog.zig");
 const settings_model = @import("model/settings.zig");
-const state = @import("linux/state.zig");
-const os = @import("linux/os.zig");
+const state = @import("sys/state.zig");
+const os = @import("sys/os.zig");
 const reader = @import("screens/reader.zig");
 const library_screen = @import("screens/library.zig");
 const library_ui = @import("ui/library.zig");
@@ -31,7 +31,7 @@ const above_sheet = tap(636, 300);
 const dictionary = @import("model/dictionary.zig");
 const FakeKindle = @import("fake_kindle.zig").FakeKindle;
 const wifi_saver = @import("kindle/wifi_saver.zig");
-const linux = std.os.linux;
+const linux = @import("sys/calls.zig");
 
 const go_regular = @embedFile("testdata/fonts/Go-Regular.ttf");
 const go_bold = @embedFile("testdata/fonts/Go-Bold.ttf");
@@ -373,7 +373,7 @@ fn writeFile(path: [*:0]const u8, data: []const u8) !void {
 fn cleanUp(dir: [*:0]const u8) void {
     var out: [64]u8 = undefined;
     const argv = [_:null]?[*:0]const u8{ "/bin/rm", "-rf", dir };
-    _ = @import("linux/process.zig").run(&argv, &out);
+    _ = @import("sys/process.zig").run(&argv, &out);
 }
 
 fn samePlace(a: state.State, b: state.State) bool {
@@ -585,7 +585,7 @@ pub fn selftest() bool {
     std.debug.print("\nthis Kindle\n", .{});
 
     const fonts_db = @import("kindle/fonts.zig");
-    const file = @import("linux/file.zig");
+    const file = @import("sys/file.zig");
     for (settings_model.builtin_families, 0..) |name, i| {
         const usable = if (file.map(fonts_db.path(i, false, false))) |data| Font.usable(data) else |_| false;
         std.debug.print("{s}  font {s}\n", .{ if (usable) "ok  " else "FAIL", name });
@@ -609,7 +609,7 @@ pub fn selftest() bool {
     // A few of the reader's books, each opened to its first page
     var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
     defer arena.deinit();
-    const dir = @import("linux/dir.zig");
+    const dir = @import("sys/dir.zig");
     for ([_][]const u8{ ".epub", ".kfx" }) |suffix| {
         const found = dir.findFiles(arena.allocator(), "/mnt/us/documents", suffix) catch continue;
         for (found[0..@min(found.len, 3)]) |path| {

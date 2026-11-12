@@ -1,9 +1,9 @@
 //! Pictures in JPEG XR, decoded by the Kindle's own library through the jxr2pgm helper.
 const std = @import("std");
-const linux = std.os.linux;
-const os = @import("../linux/os.zig");
+const linux = @import("../sys/calls.zig");
+const os = @import("../sys/os.zig");
 const failed = os.failed;
-const process = @import("../linux/process.zig");
+const process = @import("../sys/process.zig");
 
 const jxr_helper = "/mnt/us/noface/jxr2pgm";
 

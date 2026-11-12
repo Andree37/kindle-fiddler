@@ -1,9 +1,9 @@
 //! Amazon's lipc services: light, warmth, wireless, Bluetooth, sync, settings and power events.
 //! Every call goes through the lipc command line tools.
 const std = @import("std");
-const linux = std.os.linux;
-const os = @import("../linux/os.zig");
-const process = @import("../linux/process.zig");
+const linux = @import("../sys/calls.zig");
+const os = @import("../sys/os.zig");
+const process = @import("../sys/process.zig");
 const quick_model = @import("../model/quick.zig");
 
 const lipc_get: [*:0]const u8 = "/usr/bin/lipc-get-prop";

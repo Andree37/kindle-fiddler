@@ -4,8 +4,8 @@
 const std = @import("std");
 const devices = @import("devices.zig");
 const lipc = @import("lipc.zig");
-const state = @import("../linux/state.zig");
-const linux = std.os.linux;
+const state = @import("../sys/state.zig");
+const linux = @import("../sys/calls.zig");
 
 /// The display drivers noface can drive: MediaTek's hwtcon, in every Kindle since 2021.
 pub fn supportedDriver(name: []const u8) bool {

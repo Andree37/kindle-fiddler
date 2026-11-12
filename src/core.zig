@@ -13,10 +13,10 @@ pub const fonts_db = @import("kindle/fonts.zig");
 pub const store = @import("kindle/store.zig");
 
 // Linux.
-pub const clock = @import("linux/clock.zig");
-pub const file = @import("linux/file.zig");
-pub const os = @import("linux/os.zig");
-pub const process = @import("linux/process.zig");
+pub const clock = @import("sys/clock.zig");
+pub const file = @import("sys/file.zig");
+pub const os = @import("sys/os.zig");
+pub const process = @import("sys/process.zig");
 
 // Ours.
 pub const book = @import("model/book.zig");

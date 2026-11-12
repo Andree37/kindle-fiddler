@@ -2,9 +2,9 @@
 //! partial file, unzip into a folder of its own, then the file moved into place, so a
 //! download cut short never leaves a broken dictionary where noface looks.
 const std = @import("std");
-const process = @import("../linux/process.zig");
-const file = @import("../linux/file.zig");
-const linux = std.os.linux;
+const process = @import("../sys/process.zig");
+const file = @import("../sys/file.zig");
+const linux = @import("../sys/calls.zig");
 
 /// Where the release keeps them; NOFACE_DICT_URL replaces it, to test against a
 /// computer on the USB link.

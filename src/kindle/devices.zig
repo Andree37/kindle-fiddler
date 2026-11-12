@@ -2,7 +2,7 @@
 //! panel, the power button, the battery and the charger, from what Linux says about
 //! each device. Kindles name and number these differently from model to model.
 const std = @import("std");
-const state = @import("../linux/state.zig");
+const state = @import("../sys/state.zig");
 
 /// Whether bit `bit` is set in a sysfs capability mask: hex words separated by spaces,
 /// the most significant first, each as wide as a kernel `long`.
@@ -104,28 +104,20 @@ pub fn power() ?Power {
 
 /// The names under /sys/class/power_supply.
 fn listSupplies(names: *[12][32]u8, lens: *[12]usize) usize {
-    const linux = std.os.linux;
-    const rc = linux.open("/sys/class/power_supply", .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, 0);
-    if (rc > std.math.maxInt(usize) - 4096) return 0;
-    const fd: i32 = @intCast(rc);
-    defer _ = linux.close(fd);
-    var buf: [2048]u8 align(8) = undefined;
-    var n: usize = 0;
-    while (true) {
-        const got = linux.getdents64(fd, &buf, buf.len);
-        if (got == 0 or got > std.math.maxInt(usize) - 4096) break;
-        var at: usize = 0;
-        while (at < got) {
-            const reclen = std.mem.readInt(u16, buf[at + 16 ..][0..2], .little);
-            const name = std.mem.sliceTo(buf[at + 19 .. at + reclen], 0);
-            at += reclen;
-            if (name.len == 0 or name[0] == '.' or name.len > 31 or n == names.len) continue;
-            @memcpy(names[n][0..name.len], name);
-            lens[n] = name.len;
-            n += 1;
+    const Into = struct {
+        names: *[12][32]u8,
+        lens: *[12]usize,
+        n: usize = 0,
+        fn add(into: *@This(), name: []const u8, _: bool) void {
+            if (name[0] == '.' or name.len > 31 or into.n == into.names.len) return;
+            @memcpy(into.names[into.n][0..name.len], name);
+            into.lens[into.n] = name.len;
+            into.n += 1;
         }
-    }
-    return n;
+    };
+    var into = Into{ .names = names, .lens = lens };
+    @import("../sys/calls.zig").eachEntry("/sys/class/power_supply", &into, Into.add);
+    return into.n;
 }
 
 test "capability masks read from the right word" {

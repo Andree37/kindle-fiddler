@@ -3,12 +3,13 @@
 //!
 //! Who may import whom, by top-level folder of src/:
 //!   base    Building blocks for everything: memory budgets, checks. Imports only base.
-//!   linux   Linux itself: files, processes, time. Imports only linux.
+//!   sys     The system: files, processes, time, and the calls behind them (Linux's
+//!           own on the Kindle, the C library's elsewhere). Imports only sys.
 //!   model   Our data: books, settings, library. Imports only model.
-//!   gfx     Pixels and fonts. Imports gfx and linux.
+//!   gfx     Pixels and fonts. Imports gfx and sys.
 //!   layout  Setting text into pages. Imports layout, model and gfx.
 //!   ui      Drawing screens and mapping taps. Imports ui, model, layout and gfx.
-//!   kindle  Everything that knows Amazon. Imports kindle, linux and model.
+//!   kindle  Everything that knows Amazon. Imports kindle, sys and model.
 //!   epub    The open EPUB format, read into our model. Imports epub and model.
 //!   screens, and files at the top of src/: may import anything.
 //! Every folder may import base.
@@ -18,12 +19,12 @@ const Rule = struct { folder: []const u8, allowed: []const []const u8 };
 
 const rules = [_]Rule{
     .{ .folder = "base", .allowed = &.{"base"} },
-    .{ .folder = "linux", .allowed = &.{"linux"} },
+    .{ .folder = "sys", .allowed = &.{"sys"} },
     .{ .folder = "model", .allowed = &.{"model"} },
-    .{ .folder = "gfx", .allowed = &.{ "gfx", "linux" } },
+    .{ .folder = "gfx", .allowed = &.{ "gfx", "sys" } },
     .{ .folder = "layout", .allowed = &.{ "layout", "model", "gfx" } },
     .{ .folder = "ui", .allowed = &.{ "ui", "model", "layout", "gfx" } },
-    .{ .folder = "kindle", .allowed = &.{ "kindle", "linux", "model" } },
+    .{ .folder = "kindle", .allowed = &.{ "kindle", "sys", "model" } },
     .{ .folder = "epub", .allowed = &.{ "epub", "model" } },
 };
 
@@ -101,6 +102,6 @@ test "imports are judged by folder" {
     try std.testing.expectEqual(@as(usize, 0), try check("model/a.zig", "const b = @import(\"b.zig\");", &out, alloc));
     try std.testing.expectEqual(@as(usize, 1), try check("model/a.zig", "const k = @import(\"../kindle/kfx.zig\");", &out, alloc));
     try std.testing.expectEqual(@as(usize, 0), try check("screens/a.zig", "const k = @import(\"../kindle/kfx.zig\");", &out, alloc));
-    try std.testing.expectEqual(@as(usize, 1), try check("ui/a.zig", "const p = @import(\"../linux/os.zig\");", &out, alloc));
+    try std.testing.expectEqual(@as(usize, 1), try check("ui/a.zig", "const p = @import(\"../sys/os.zig\");", &out, alloc));
     try std.testing.expectEqual(@as(usize, 0), try check("ui/a.zig", "const std = @import(\"std\");", &out, alloc));
 }

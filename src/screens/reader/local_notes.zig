@@ -3,8 +3,8 @@
 //! "<highlight|bookmark> <id> <start> <end>", with character positions like Amazon's.
 const std = @import("std");
 const annotations = @import("../../kindle/annotations.zig");
-const file = @import("../../linux/file.zig");
-const state = @import("../../linux/state.zig");
+const file = @import("../../sys/file.zig");
+const state = @import("../../sys/state.zig");
 
 fn kindName(kind: annotations.Kind) []const u8 {
     return switch (kind) {

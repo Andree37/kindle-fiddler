@@ -3,8 +3,8 @@
 //! hwtcon_v2 headers in the Linux kernel source Amazon publishes for this Kindle.
 const std = @import("std");
 const check = @import("../base/check.zig");
-const linux = std.os.linux;
-const state = @import("../linux/state.zig");
+const linux = @import("../sys/calls.zig");
+const state = @import("../sys/state.zig");
 
 pub const Waveform = enum(u32) {
     du = 1,
@@ -139,4 +139,4 @@ pub const Screen = struct {
     }
 };
 
-const failed = @import("../linux/os.zig").failed;
+const failed = @import("../sys/os.zig").failed;

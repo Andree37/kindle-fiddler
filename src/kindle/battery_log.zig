@@ -2,10 +2,10 @@
 //! sysfs, so it costs a file read, not a program. The log keeps its newest part only.
 const std = @import("std");
 const battery = @import("../model/battery.zig");
-const state = @import("../linux/state.zig");
-const os = @import("../linux/os.zig");
+const state = @import("../sys/state.zig");
+const os = @import("../sys/os.zig");
 const devices = @import("devices.zig");
-const linux = std.os.linux;
+const linux = @import("../sys/calls.zig");
 
 /// Past this the log is cut to its newest half: weeks of changes either way.
 const max_bytes = 48 * 1024;
@@ -65,7 +65,7 @@ pub fn load(path: [*:0]const u8, out: []battery.Sample) []battery.Sample {
 /// battery log and the reading journal in `data_dir`, written to `fd`.
 pub fn report(fd: i32, data_dir: []const u8) void {
     const journal = @import("../model/journal.zig");
-    const clock = @import("../linux/clock.zig");
+    const clock = @import("../sys/clock.zig");
     const out = struct {
         fn line(f: i32, comptime fmt: []const u8, args: anytype) void {
             var buf: [256]u8 = undefined;
