@@ -82,6 +82,18 @@ pub fn build(b: *std.Build) void {
         tools_step.dependOn(&b.addInstallArtifact(tool, .{}).step);
     }
 
+    // Scenario tests: the real app played by script on a screen in memory. Linux only,
+    // as the app talks to Linux directly. `zig build scenarios` builds the Kindle copy
+    // (zig-out/bin/noface-scenarios, the on-device self-test) and, on a Linux host,
+    // builds and runs one there too.
+    const scenarios_step = b.step("scenarios", "Build the scenario tests, and run them on a Linux host");
+    const kindle_scenarios = scenarioExe(b, target, "noface-scenarios");
+    scenarios_step.dependOn(&b.addInstallArtifact(kindle_scenarios, .{}).step);
+    if (b.graph.host.result.os.tag == .linux) {
+        const host_scenarios = scenarioExe(b, b.graph.host, "noface-scenarios-host");
+        scenarios_step.dependOn(&b.addRunArtifact(host_scenarios).step);
+    }
+
     const test_step = b.step("test", "Run unit tests on the host");
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -90,6 +102,20 @@ pub fn build(b: *std.Build) void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(tests).step);
+}
+
+fn scenarioExe(b: *std.Build, target: std.Build.ResolvedTarget, name: []const u8) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/scenarios.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+            .link_libc = true,
+        }),
+    });
+    addFontAndImageCode(b, exe.root_module);
+    return exe;
 }
 
 fn addFontAndImageCode(b: *std.Build, module: *std.Build.Module) void {

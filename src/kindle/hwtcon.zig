@@ -63,6 +63,14 @@ pub const Screen = struct {
     height: u32,
     stride: u32,
     next_marker: u32 = 0x7000,
+    updates: u32 = 0, // Updates sent: a scenario test checks what was redrawn
+
+    /// A screen in memory only, for scenario tests: updates are counted, not shown.
+    pub fn fake(alloc: std.mem.Allocator, width: u32, height: u32) !Screen {
+        const map = try alloc.alignedAlloc(u8, .fromByteUnits(4096), @as(usize, width) * height);
+        @memset(map, 0xff);
+        return .{ .fd = -1, .map = map, .pixels = map, .width = width, .height = height, .stride = width };
+    }
 
     pub fn open() !Screen {
         const rc = linux.open("/dev/fb0", .{ .ACCMODE = .RDWR, .CLOEXEC = true }, 0);
@@ -113,11 +121,14 @@ pub const Screen = struct {
             .update_mode = @intFromEnum(mode),
             .marker = marker,
         };
+        s.updates += 1;
+        if (s.fd < 0) return marker; // In memory: nothing to send
         if (failed(linux.ioctl(s.fd, send_update, @intFromPtr(&data)))) return error.SendUpdate;
         return marker;
     }
 
     pub fn waitComplete(s: *Screen, marker: u32) !void {
+        if (s.fd < 0) return;
         var data = MarkerData{ .marker = marker };
         if (failed(linux.ioctl(s.fd, wait_complete, @intFromPtr(&data)))) return error.WaitComplete;
     }

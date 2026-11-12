@@ -94,6 +94,47 @@ pub const Action = union(enum) {
     stop,
 };
 
+/// What a scenario test does, in order: an action as the reader's finger or the power
+/// button would give it, or a wait on the virtual clock (os.fake_us).
+pub const Step = union(enum) { act: Action, wait_ms: u64 };
+
+/// A scenario being played back. Waits deliver the ticks the app asked for, at the
+/// times they'd come; once the steps run out the app is told to stop.
+pub const Script = struct {
+    steps: []const Step,
+    at: usize = 0,
+    waiting_us: u64 = 0, // What's left of the current wait
+
+    fn next(sc: *Script, in: *Input) Action {
+        while (true) {
+            if (sc.waiting_us > 0) {
+                const now = nowUs();
+                const tick_at = if (in.tick_us != 0) in.last_tick + in.tick_us else std.math.maxInt(u64);
+                if (tick_at <= now + sc.waiting_us) {
+                    const step = tick_at -| now;
+                    os.fake_us = now + step;
+                    sc.waiting_us -= step;
+                    in.last_tick = nowUs();
+                    return .tick;
+                }
+                os.fake_us = now + sc.waiting_us;
+                sc.waiting_us = 0;
+            }
+            if (sc.at >= sc.steps.len) return .stop;
+            const step = sc.steps[sc.at];
+            sc.at += 1;
+            switch (step) {
+                .act => |a| {
+                    os.fake_us = nowUs() + 1000; // A touch takes a moment
+                    in.last_input = nowUs();
+                    return a;
+                },
+                .wait_ms => |ms| sc.waiting_us = ms * 1000,
+            }
+        }
+    }
+};
+
 /// Turns raw touch events into taps.
 /// The panel reports two slots. Every new finger counts, so a resting thumb
 /// can't block taps from another finger.
@@ -135,6 +176,7 @@ pub const Input = struct {
     locked: bool = false, // Nothing to check on a timer, so sleep until an event
     watcher_retry_us: u64 = 0, // When to restart a power-event watcher that died
     told_powerd_us: u64 = 0, // When powerd last heard the reader is active
+    script: ?*Script = null, // Set in scenario tests: actions to play instead of the panel
 
     /// Starts listening for lock and unlock from powerd.
     fn startUsbWatcher(in: *Input) void {
@@ -216,6 +258,7 @@ pub const Input = struct {
                 in.stashed = null;
                 return action;
             }
+            if (in.script) |sc| return sc.next(in);
             if (in.waiting()) |action| return action;
             if (in.deferred and !in.top_moved) {
                 if (in.top_slot) |slot| {

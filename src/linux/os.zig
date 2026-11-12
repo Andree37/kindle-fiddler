@@ -7,8 +7,13 @@ pub fn failed(rc: usize) bool {
     return rc > std.math.maxInt(usize) - 4096;
 }
 
+/// Set, the clock tests run on: scenario tests move it forward themselves, so a wait
+/// of minutes (the Wi-Fi pause, a hold, a double tap) takes no time at all.
+pub var fake_us: ?u64 = null;
+
 /// Microseconds on the monotonic clock, which stops while the Kindle sleeps.
 pub fn nowUs() u64 {
+    if (fake_us) |t| return t;
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.MONOTONIC, &ts);
     return @as(u64, @intCast(ts.sec)) * 1_000_000 + @as(u64, @intCast(ts.nsec)) / 1000;
@@ -22,6 +27,10 @@ pub fn unixTime() u64 {
 }
 
 pub fn sleepMs(ms: u64) void {
+    if (fake_us) |*t| {
+        t.* += ms * 1000;
+        return;
+    }
     const wait = linux.timespec{ .sec = @intCast(ms / 1000), .nsec = @intCast((ms % 1000) * 1_000_000) };
     _ = linux.nanosleep(&wait, null);
 }
