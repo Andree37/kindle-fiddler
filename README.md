@@ -4,6 +4,9 @@ A fast reader for a jailbroken Kindle Paperwhite 12th gen, written in Zig. It re
 the Kindle's home screen and reader while leaving Amazon's services running: sync,
 Wi-Fi, purchases and highlights carry on as before.
 
+noface is free for personal, noncommercial use (see [License](#license)). It is an
+independent project, not made, endorsed or supported by Amazon.
+
 Page turns take about 250 ms, from touch to finished screen.
 
 ## What it does
@@ -18,7 +21,10 @@ Page turns take about 250 ms, from touch to finished screen.
 - EPUBs copied over USB show up next to Kindle books.
 
 **Reading**
-- KFX books from Amazon and EPUBs, with pictures, footnotes and the table of contents.
+- KFX books and EPUBs without DRM, with pictures, footnotes and the table of contents.
+  noface never removes or works around DRM. A protected book, as most bought from
+  Amazon are, says it can't be opened here; read it in the Kindle's own reader (the
+  Kindle button in the drag-down panel).
 - Tap or swipe to turn pages. Tap the top of the page for the toolbar; drag down from
   the top for light, warmth, airplane mode, Bluetooth and sync.
 - Hyphenation for English and Portuguese, so justified lines fill the width.
@@ -32,6 +38,16 @@ Page turns take about 250 ms, from touch to finished screen.
 **Stats**
 - Time read today and over the last seven days, your streak, books finished this year
   and your reading speed. A daily journal is kept from the first day noface runs.
+
+## Before you install
+
+- noface runs only on a **jailbroken** Kindle. Jailbreaking is your own choice, made
+  under your own agreement with Amazon: it may go against Amazon's terms of use and
+  void the warranty. noface doesn't jailbreak anything.
+- It is tested on one Kindle, a Paperwhite 12th gen. On anything else, assume it won't
+  work yet.
+- It comes as is, with no warranty: see the license. Keep your own backups of anything
+  you care about.
 
 ## Installing
 
@@ -85,6 +101,26 @@ Code is split by who owns it. `zig build check` fails if a file imports across t
 
 `zig build` builds the app, `zig build tools` the tools, `zig build test` runs unit tests,
 `zig build check` checks ownership boundaries.
+
+## License
+
+noface is under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). In short, and
+the license itself is what counts:
+
+- You may use it, change it and share it, for **noncommercial** purposes: personal use,
+  hobby projects, study, research, and use by charities, schools and public bodies.
+- You may not sell it, or use it in or for a commercial product or service.
+- Anything you share must keep the license and its `Required Notice:` line.
+- It comes with no warranty, and the author isn't liable for anything that happens
+  from using it.
+
+Contributions are welcome. By sending one, you agree it's licensed under the same terms.
+The parts noface includes from others stay under their own licenses: see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The dictionaries are a separate
+download under CC BY-SA 4.0.
+
+"Kindle" is a trademark of Amazon.com, Inc. or its affiliates, used here only to say
+which device noface runs on.
 
 ## Credits
 

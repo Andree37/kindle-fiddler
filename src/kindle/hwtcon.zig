@@ -1,5 +1,6 @@
 //! Direct access to the Kindle Paperwhite 12th gen e-ink driver (MediaTek hwtcon_v2).
-//! Struct layout and ioctl numbers follow FBInk's eink/mtk-kindle.h.
+//! Struct layout and ioctl numbers are the driver's userspace interface, from the
+//! hwtcon_v2 headers in the Linux kernel source Amazon publishes for this Kindle.
 const std = @import("std");
 const check = @import("../base/check.zig");
 const linux = std.os.linux;
