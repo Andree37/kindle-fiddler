@@ -107,8 +107,8 @@ fn byName(_: void, x: []const u8, y: []const u8) bool {
     return std.ascii.lessThanIgnoreCase(x, y);
 }
 
-/// Sets `e`'s series by hand. True when it changed; what was on screen is the
-/// caller's to redraw either way.
+/// Sets `e`'s series by hand, and then, in the series picked, any other books'. True
+/// when anything changed; what was on screen is the caller's to redraw either way.
 pub fn choose(a: *app.App, entries: []const catalog.Entry, e: *const catalog.Entry) !bool {
     var arena = std.heap.ArenaAllocator.init(a.alloc);
     defer arena.deinit();
@@ -130,33 +130,92 @@ pub fn choose(a: *app.App, entries: []const catalog.Entry, e: *const catalog.Ent
     for (names.items) |n| try rows.append(alloc, .{ .label = n, .page = 0, .note = if (catalog.sameSeries(n, e.series)) "Now" else "" });
 
     const picked = try pick(a, "Series", e.title, rows.items) orelse return false;
-    var name: []const u8 = "";
-    var index: f32 = 0;
-    if (picked == 0) {
-        name = try typeName(a, alloc) orelse return false;
-    } else if (picked >= 2) {
-        name = names.items[picked - 2];
+    if (picked == 1) {
+        try save(a, alloc, e.path, "", 0);
+        return true;
     }
-    if (name.len > 0) {
-        // Its number, with the books already at each place shown beside it
-        var number_rows: [numbers]goto_ui.Row = undefined;
-        for (&number_rows, 1..) |*r, n| {
-            var taken: []const u8 = "";
-            for (entries) |o| {
-                if (catalog.sameSeries(o.series, name) and o.series_index == @as(f32, @floatFromInt(n)) and !std.mem.eql(u8, o.path, e.path)) taken = o.title;
-            }
-            r.* = .{ .label = try std.fmt.allocPrint(alloc, "#{d}  {s}", .{ n, taken }), .page = 0, .note = "" };
-        }
-        const heading = try std.fmt.allocPrint(alloc, "Number in {s}", .{name});
-        const n = try pick(a, heading, e.title, &number_rows) orelse return false;
-        index = @floatFromInt(n + 1);
-    }
+    const name = if (picked == 0) try typeName(a, alloc) orelse return false else names.items[picked - 2];
+    return try manage(a, alloc, entries, name, e);
+}
 
+/// Where each book stands while a series is being put together: what the library
+/// said, changed by what's been set here.
+const Place = struct { series: []const u8, index: f32 };
+
+/// The books of series `name`, by number, then the rest of the books on the Kindle
+/// (`first` at the top of them): tapping one of the rest adds it as the next number,
+/// tapping one in the series changes its number or takes it out. Each change is
+/// saved as it's made. True when anything changed.
+fn manage(a: *app.App, alloc: std.mem.Allocator, entries: []const catalog.Entry, name: []const u8, first: *const catalog.Entry) !bool {
+    const places = try alloc.alloc(Place, entries.len);
+    for (entries, places) |e, *p| p.* = .{ .series = e.series, .index = e.series_index };
+    var changed = false;
+    var order: std.ArrayList(usize) = .empty;
+    var rows: std.ArrayList(goto_ui.Row) = .empty;
+    while (true) {
+        // In the series, by number; then the rest, the book this started from first
+        order.clearRetainingCapacity();
+        rows.clearRetainingCapacity();
+        for (entries, 0..) |e, i| {
+            if (e.isLocal() and catalog.sameSeries(places[i].series, name)) try order.append(alloc, i);
+        }
+        std.mem.sort(usize, order.items, places, struct {
+            fn less(ps: []const Place, x: usize, y: usize) bool {
+                return ps[x].index < ps[y].index;
+            }
+        }.less);
+        const in_series = order.items.len;
+        for (entries, 0..) |e, i| {
+            if (std.mem.eql(u8, e.path, first.path) and !catalog.sameSeries(places[i].series, name)) try order.append(alloc, i);
+        }
+        for (entries, 0..) |e, i| {
+            if (!e.isLocal() or catalog.sameSeries(places[i].series, name) or std.mem.eql(u8, e.path, first.path)) continue;
+            try order.append(alloc, i);
+        }
+        var next: f32 = 1;
+        for (order.items[0..in_series]) |i| {
+            next = @max(next, @floor(places[i].index) + 1);
+            try rows.append(alloc, .{ .label = try std.fmt.allocPrint(alloc, "#{d}  {s}", .{ places[i].index, entries[i].title }), .page = 0, .note = "" });
+        }
+        for (order.items[in_series..]) |i| try rows.append(alloc, .{ .label = entries[i].title, .page = 0, .note = "Add" });
+
+        const about = "Tap a book to add it, or to change its number";
+        const tapped = try pick(a, name, about, rows.items) orelse return changed;
+        const i = order.items[tapped];
+        if (tapped >= in_series) {
+            places[i] = .{ .series = name, .index = next };
+        } else {
+            places[i] = try numberFor(a, alloc, entries, places, i, name) orelse continue;
+        }
+        try save(a, alloc, entries[i].path, places[i].series, places[i].index);
+        changed = true;
+    }
+}
+
+/// A new number in `name` for book `i`, with the books already at each place
+/// beside them, or out of the series. Null if left as it was.
+fn numberFor(a: *app.App, alloc: std.mem.Allocator, entries: []const catalog.Entry, places: []const Place, i: usize, name: []const u8) !?Place {
+    var rows: [numbers + 1]goto_ui.Row = undefined;
+    rows[0] = .{ .label = "Take out of this series", .page = 0, .note = "" };
+    for (rows[1..], 1..) |*r, n| {
+        var taken: []const u8 = "";
+        for (entries, places, 0..) |o, p, j| {
+            if (j != i and catalog.sameSeries(p.series, name) and p.index == @as(f32, @floatFromInt(n))) taken = o.title;
+        }
+        r.* = .{ .label = try std.fmt.allocPrint(alloc, "#{d}  {s}", .{ n, taken }), .page = 0, .note = "" };
+    }
+    const heading = try std.fmt.allocPrint(alloc, "Number in {s}", .{name});
+    const n = try pick(a, heading, entries[i].title, &rows) orelse return null;
+    if (n == 0) return .{ .series = "", .index = 0 };
+    return .{ .series = name, .index = @floatFromInt(n) };
+}
+
+/// Saves one book's series in the overrides file.
+fn save(a: *app.App, alloc: std.mem.Allocator, book: []const u8, name: []const u8, index: f32) !void {
     var path_buf: [320]u8 = undefined;
     const p = try path(&path_buf, a.state_dir);
     var buf: [64 * 1024]u8 = undefined;
     const list = try overrides.parse(alloc, state.readSmall(p, &buf));
-    state.writeSmall(p, try overrides.format(alloc, list, e.path, name, index));
+    state.writeSmall(p, try overrides.format(alloc, list, book, name, index));
     std.debug.print("series set: {s} #{d}\n", .{ if (name.len > 0) name else "(none)", index });
-    return true;
 }
