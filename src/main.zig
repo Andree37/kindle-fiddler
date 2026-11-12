@@ -92,6 +92,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .speed_path = speed_path,
         .journal_path = journal_path,
         .battery_path = battery_path,
+        // A different folder for EPUBs, for a demo or test run beside the real library
+        .documents = if (init.environ.getPosix("NOFACE_DOCUMENTS")) |d| d else "/mnt/us/documents",
         .journal = app.loadJournal(journal_path),
         .app_budget = &app_budget,
         .stb_budget = &stb_budget,

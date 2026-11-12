@@ -69,6 +69,7 @@ pub const App = struct {
     speed_path: [*:0]const u8,
     journal_path: [*:0]const u8,
     battery_path: [*:0]const u8,
+    documents: []const u8 = "/mnt/us/documents", // Where EPUBs copied over USB are found
     battery_last: ?battery_model.Sample = null, // Last level noted, so only changes are logged
     downloads_until: u64 = 0, // A download may still be running until then (nowUs)
     wifi_hands_off: bool = false, // The reader took charge of airplane mode in this book

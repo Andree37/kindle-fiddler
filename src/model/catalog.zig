@@ -177,7 +177,13 @@ fn byTitle(a: Entry, b: Entry) bool {
 pub const SeriesPlace = struct { name: []const u8, index: f32 };
 
 pub fn seriesFromFileName(path: []const u8) ?SeriesPlace {
-    const base = path[(std.mem.lastIndexOfScalar(u8, path, '/') orelse return null) + 1 ..];
+    const name_ext = path[(std.mem.lastIndexOfScalar(u8, path, '/') orelse return null) + 1 ..];
+    // Without its extension, so a series named last ("... -- Saga #1.epub") reads as 1
+    const dot = std.mem.lastIndexOfScalar(u8, name_ext, '.') orelse name_ext.len;
+    const ext_has_letters = for (name_ext[@min(dot + 1, name_ext.len)..]) |c| {
+        if (std.ascii.isAlphabetic(c)) break true;
+    } else false;
+    const base = if (ext_has_letters) name_ext[0..dot] else name_ext;
     var parts = std.mem.splitSequence(u8, base, " -- ");
     const first = parts.next() orelse return null;
     _ = parts.next();
@@ -401,6 +407,11 @@ test "series come from file names" {
     try std.testing.expectEqualStrings("\u{4e09}\u{4f53}", seriesFromFileName("/d/X -- Y -- \u{4e09}\u{4f53} #2 -- Z.kfx").?.name);
     try std.testing.expectEqualStrings("1632", seriesFromFileName("/d/X -- Y -- 1632 #2 -- Z.kfx").?.name);
     try std.testing.expectEqual(@as(f32, 2500), seriesFromFileName("/d/X -- Y -- Perry Rhodan #2500 -- Z.kfx").?.index);
+    // The series named last, right before the extension
+    const last = seriesFromFileName("/d/A Study in Scarlet -- Arthur Conan Doyle -- Sherlock Holmes #1.epub").?;
+    try std.testing.expectEqualStrings("Sherlock Holmes", last.name);
+    try std.testing.expectEqual(@as(f32, 1), last.index);
+    try std.testing.expectEqual(@as(f32, 1.5), seriesFromFileName("/d/X -- Y -- Saga #1.5.epub").?.index);
     try std.testing.expectEqualStrings("Real Saga", seriesFromFileName("/d/[Book 2] Odyssey -- Homer -- Real Saga #5, 2003 -- Z.kfx").?.name);
     try std.testing.expect(seriesFromFileName("/d/X -- Y -- MIT Electrical Engineering and -- Z.kfx") == null);
 }

@@ -59,13 +59,12 @@ pub const Library = struct {
     }
 };
 
-const documents = "/mnt/us/documents";
 
 /// EPUBs copied over the cable. The Kindle's catalog doesn't list them, so noface finds
 /// them itself, reading title and author from each book, and its cover once into a file
 /// beside the book's state.
 fn addEpubs(a: *app.App, alloc: std.mem.Allocator, catalog_entries: []catalog.Entry) ![]catalog.Entry {
-    const paths = dir.findFiles(alloc, documents, ".epub") catch return catalog_entries;
+    const paths = dir.findFiles(alloc, a.documents, ".epub") catch return catalog_entries;
     if (paths.len == 0) return catalog_entries;
     var out: std.ArrayList(catalog.Entry) = .empty;
     try out.appendSlice(alloc, catalog_entries);
@@ -95,8 +94,9 @@ fn addEpubs(a: *app.App, alloc: std.mem.Allocator, catalog_entries: []catalog.En
             .seconds_read = saved.seconds,
             .thumbnail = if (have_cover or about.cover != null) try alloc.dupeSentinel(u8, cover_path, 0) else "",
             .kind = "EPUB",
-            .series = about.series,
-            .series_index = about.series_index,
+            // The book's own metadata first, else its file name, as for Kindle books
+            .series = if (about.series.len > 0) about.series else if (catalog.seriesFromFileName(path)) |f| f.name else "",
+            .series_index = if (about.series.len > 0) about.series_index else if (catalog.seriesFromFileName(path)) |f| f.index else 0,
         });
     }
     return out.items;
