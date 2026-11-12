@@ -63,6 +63,7 @@ pub fn read(previous: quick_model.Quick) quick_model.Quick {
         &.{ lipc_get, bt_service, "BTstate" },
         &.{ lipc_get, "com.lab126.powerd", "battLevel" },
         &.{ "/bin/date", "+%H:%M - %d %b %Y" },
+        &.{ lipc_get, "com.lab126.powerd", "usbState" },
     };
     var bufs: [argvs.len][40]u8 = undefined;
     var outs: [argvs.len][]u8 = undefined;
@@ -93,6 +94,9 @@ pub fn read(previous: quick_model.Quick) quick_model.Quick {
     if (out.int(5)) |v| q.airplane = v == 0;
     if (out.int(6)) |v| q.bluetooth = v != 0; // 0 off, 1 on, 2 connected
     if (out.int(7)) |v| q.battery = v;
+    // Plugged in, whether or not it's charging: a computer's port can be too weak to
+    // charge, and a full battery stops; the stock Kindle shows the bolt either way
+    if (out.int(9)) |v| q.plugged = v != 0;
     const clock = out.text(8);
     if (clock.len > 0) {
         @memcpy(q.clock[0..clock.len], clock);

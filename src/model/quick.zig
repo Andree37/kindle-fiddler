@@ -15,6 +15,7 @@ pub const Quick = struct {
     bluetooth: bool = false,
     syncing: bool = false,
     battery: u32 = 0,
+    plugged: bool = false, // On a charger or a computer: the status bar shows a bolt
     wifi_on: bool = false,
     wifi_bars: u32 = 0, // 0 to 3
     clock: [40]u8 = undefined,
@@ -29,7 +30,7 @@ pub const Quick = struct {
     pub fn same(a: *const Quick, b: *const Quick) bool {
         return a.brightness == b.brightness and a.warmth == b.warmth and a.schedule == b.schedule and
             a.airplane == b.airplane and a.bluetooth == b.bluetooth and a.syncing == b.syncing and
-            a.battery == b.battery and a.wifi_on == b.wifi_on and a.wifi_bars == b.wifi_bars and
+            a.battery == b.battery and a.plugged == b.plugged and a.wifi_on == b.wifi_on and a.wifi_bars == b.wifi_bars and
             std.mem.eql(u8, a.clockText(), b.clockText());
     }
 };

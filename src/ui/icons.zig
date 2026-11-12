@@ -214,7 +214,23 @@ pub fn statusCluster(page: Page, font: *Font, right: f32, cy: f32, baseline: i32
     const pct = std.fmt.bufPrint(&label, "{d}%", .{quick.battery}) catch "";
     const pct_x = battery_x - gap - try font.measure(pct);
     try font.draw(page, pct_x, baseline, pct);
-    if (quick.wifi_on) wifi(page, pct_x - gap - 22, cy, 0.42, quick.wifi_bars);
+    var left = pct_x;
+    if (quick.plugged) {
+        const size: f32 = if (large) 30 else 24;
+        left -= size * 0.5 + 6;
+        bolt(page, left, cy, size);
+        left -= size * 0.5;
+    }
+    if (quick.wifi_on) wifi(page, left - gap - 22, cy, 0.42, quick.wifi_bars);
+}
+
+/// A lightning bolt `size` tall, centred on (`cx`, `cy`): plugged in.
+pub fn bolt(page: Page, cx: f32, cy: f32, size: f32) void {
+    const s = size / 26;
+    const shape = [_][2]f32{ .{ 3, -13 }, .{ -7, 2 }, .{ -1, 2 }, .{ -3, 13 }, .{ 7, -2 }, .{ 1, -2 } };
+    var points: [shape.len][2]f32 = undefined;
+    for (shape, &points) |p, *q| q.* = .{ cx + p[0] * s, cy + p[1] * s };
+    page.fillPoly(&points);
 }
 
 /// Badge for a book that isn't on the device.

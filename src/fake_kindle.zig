@@ -28,6 +28,7 @@ pub const FakeKindle = struct {
             .{ "com.lab126.powerd currentAmberLevel", "0" },
             .{ "com.lab126.powerd amberSchedEnable", "0" },
             .{ "com.lab126.powerd battLevel", "80" },
+            .{ "com.lab126.powerd usbState", "0" },
             .{ "com.lab126.powerd state", "active" },
             .{ "com.lab126.cmd wirelessEnable", "1" },
             .{ "com.lab126.btfd BTstate", "0" },
