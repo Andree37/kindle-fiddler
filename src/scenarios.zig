@@ -40,6 +40,8 @@ fn swipe(direction: i32) Step {
 fn wait(ms: u64) Step {
     return .{ .wait_ms = ms };
 }
+const lock_it: Step = .{ .act = .lock };
+const wake: Step = .{ .act = .unlock };
 const forward = tap(1000, 900);
 const back = tap(150, 900);
 const top = tap(636, 60);
@@ -210,6 +212,14 @@ const scenarios = [_]Scenario{
             });
             try expect(samePlace(plain.saved, busy.saved), "the place moved");
             try expect(busy.updates > plain.updates, "nothing was drawn");
+        }
+    }.run },
+    .{ .name = "locking and waking mid-book keeps the place and the screen", .run = struct {
+        fn run() !void {
+            const plain = try play(&.{ forward, forward });
+            const locked = try play(&.{ forward, lock_it, wait(3_000), wake, forward });
+            try expect(samePlace(plain.saved, locked.saved), "the place moved");
+            try expect(locked.updates > plain.updates, "the lock screen wasn't drawn");
         }
     }.run },
 };

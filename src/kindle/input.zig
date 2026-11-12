@@ -180,6 +180,30 @@ pub const Input = struct {
     told_powerd_us: u64 = 0, // When powerd last heard the reader is active
     script: ?*Script = null, // Set in scenario tests: actions to play instead of the panel
 
+    /// Whether powerd's or USB's watcher has something to say, without waiting.
+    fn newsWaiting(in: *Input) bool {
+        var fds = [_]linux.pollfd{
+            .{ .fd = in.power_events, .events = linux.POLL.IN, .revents = 0 },
+            .{ .fd = in.usb_events, .events = linux.POLL.IN, .revents = 0 },
+        };
+        const n = linux.poll(&fds, fds.len, 0);
+        return !failed(n) and n > 0;
+    }
+
+    /// Tells the watchdog in device/noface.sh that noface is alive, now.
+    fn beat(in: *Input) void {
+        in.heartbeat_us = nowUs();
+        var stamp: [24]u8 = undefined;
+        state.writeSmall(heartbeat_path, std.fmt.bufPrint(&stamp, "{d}\n", .{os.unixTime()}) catch "0\n");
+    }
+
+    /// Waking up: the monotonic clock stood still while the Kindle slept, so the last
+    /// beat may be hours old by the wall clock the watchdog uses. Beat before it looks.
+    fn unlocked(in: *Input) Action {
+        in.beat();
+        return .unlock;
+    }
+
     /// Starts listening for lock and unlock from powerd.
     fn startUsbWatcher(in: *Input) void {
         const child = lipc.watchUsbEvents() orelse return;
@@ -271,7 +295,9 @@ pub const Input = struct {
                     }
                 }
             }
-            if (in.tick_us != 0 and nowUs() - in.last_tick >= in.tick_us) {
+            // A tick waits for powerd and USB news already in: with short ticks (a
+            // book laid out in idle moments) they'd otherwise go unread for seconds
+            if (in.tick_us != 0 and nowUs() - in.last_tick >= in.tick_us and !in.newsWaiting()) {
                 in.last_tick = nowUs();
                 return .tick;
             }
@@ -285,11 +311,7 @@ pub const Input = struct {
                 .{ .fd = key_fd, .events = linux.POLL.IN, .revents = 0 },
             };
             // Tells the watchdog in device/noface.sh that noface is still running its loop.
-            if (nowUs() > in.heartbeat_us + heartbeat_every_us) {
-                in.heartbeat_us = nowUs();
-                var stamp: [24]u8 = undefined;
-                state.writeSmall(heartbeat_path, std.fmt.bufPrint(&stamp, "{d}\n", .{os.unixTime()}) catch "0\n");
-            }
+            if (nowUs() > in.heartbeat_us + heartbeat_every_us) in.beat();
 
             // Touches are grabbed, so powerd can't see them and would lock the Kindle
             // 10 minutes into reading. Tell it, while there's nothing else to do anyway.
@@ -310,14 +332,14 @@ pub const Input = struct {
             // while locked without a watcher, when a press is the only way to unlock.
             var drained: [16]InputEvent = undefined;
             const keys = linux.read(in.power, @ptrCast(&drained), @sizeOf(@TypeOf(drained)));
-            if (in.locked and in.power_events < 0 and !failed(keys) and powerPressed(drained[0 .. keys / @sizeOf(InputEvent)])) return .unlock;
+            if (in.locked and in.power_events < 0 and !failed(keys) and powerPressed(drained[0 .. keys / @sizeOf(InputEvent)])) return in.unlocked();
 
             if (in.power_events < 0 and nowUs() >= in.watcher_retry_us) {
                 in.watcher_retry_us = nowUs() + watcher_retry_ms * 1000;
                 in.startWatcher();
                 std.debug.print("power watcher restarted: {}\n", .{in.power_events >= 0});
                 // A wake-up while no one listened is gone for good, so ask instead.
-                if (in.locked and lipc.inScreenSaver() == false) return .unlock;
+                if (in.locked and lipc.inScreenSaver() == false) return in.unlocked();
             }
 
             if (in.usb_events >= 0) {
@@ -349,7 +371,7 @@ pub const Input = struct {
                     }
                 } else if (!failed(got)) {
                     if (touch_zones.lastPowerEvent(line[0..got])) |event| {
-                        return if (event == .lock) .lock else .unlock;
+                        return if (event == .lock) .lock else in.unlocked();
                     }
                 }
             }

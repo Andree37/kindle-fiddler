@@ -14,12 +14,13 @@ pub const hero_height = 357;
 
 /// Box filter: each output pixel averages the source pixels it covers.
 pub fn scale(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: usize) void {
+    // In 64 bits: a picture can be millions of pixels along one side
     for (0..dh) |y| {
-        const y0 = y * sh / dh;
-        const y1 = @max((y + 1) * sh / dh, y0 + 1);
+        const y0: usize = @intCast(@as(u64, y) * sh / dh);
+        const y1 = @max(@as(usize, @intCast(@as(u64, y + 1) * sh / dh)), y0 + 1);
         for (0..dw) |x| {
-            const x0 = x * sw / dw;
-            const x1 = @max((x + 1) * sw / dw, x0 + 1);
+            const x0: usize = @intCast(@as(u64, x) * sw / dw);
+            const x1 = @max(@as(usize, @intCast(@as(u64, x + 1) * sw / dw)), x0 + 1);
             var sum: u32 = 0;
             for (y0..y1) |sy| {
                 for (x0..x1) |sx| sum += src[sy * sw + sx];
@@ -70,8 +71,10 @@ pub fn dither(alloc: std.mem.Allocator, pixels: []u8, w: usize) !void {
 
 /// The largest size with a picture's shape that fits inside a `dw` x `dh` box.
 pub fn fitted(sw: usize, sh: usize, dw: usize, dh: usize) struct { w: usize, h: usize } {
-    if (sw * dh > sh * dw) return .{ .w = dw, .h = @max(1, sh * dw / sw) };
-    return .{ .w = @max(1, sw * dh / sh), .h = dh };
+    const w: u64 = sw;
+    const h: u64 = sh;
+    if (w * dh > h * dw) return .{ .w = dw, .h = @intCast(@max(1, h * dw / w)) };
+    return .{ .w = @intCast(@max(1, w * dh / h)), .h = dh };
 }
 
 /// Decodes a cover and shows all of it, as large as fits, centred on black.
@@ -365,4 +368,16 @@ test "shrunk views keep thin lines" {
     // The line is averaged into its column, not skipped
     for (0..4) |y| try std.testing.expect(buf[y * 4 + 1] < 0xc0);
     try std.testing.expectEqual(@as(u8, 0xff), buf[0]);
+}
+
+test "pictures millions of pixels long fit without overflowing" {
+    const tall = fitted(1, 3_000_000, 1272, 1696);
+    try std.testing.expectEqual(@as(usize, 1696), tall.h);
+    try std.testing.expectEqual(@as(usize, 1), tall.w);
+    const wide = fitted(3_000_000, 1, 1272, 1696);
+    try std.testing.expectEqual(@as(usize, 1272), wide.w);
+    var src: [3000]u8 = @splat(200);
+    var dst: [1]u8 = undefined;
+    scale(&src, 1, 3000, &dst, 1, 1);
+    try std.testing.expectEqual(@as(u8, 200), dst[0]);
 }

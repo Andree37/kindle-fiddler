@@ -24,6 +24,7 @@ test {
     _ = @import("kindle/lipc.zig");
     _ = @import("model/quick.zig");
     _ = @import("linux/clock.zig");
+    _ = @import("screens/lock.zig");
     _ = @import("linux/process.zig");
     _ = @import("app.zig");
     _ = @import("model/stats.zig");

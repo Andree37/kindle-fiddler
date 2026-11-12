@@ -9,7 +9,6 @@ const os = @import("../linux/os.zig");
 const file = @import("../linux/file.zig");
 const highlights = @import("../model/highlights.zig");
 const kfx = @import("../kindle/kfx.zig");
-const library = @import("../ui/library.zig");
 const menu = @import("../ui/menu.zig");
 const selection = @import("../ui/selection.zig");
 const state = @import("../linux/state.zig");
@@ -66,6 +65,9 @@ fn needsAllPages(action: input_mod.Action, view: View, s: *const sess.Session) b
             else => true,
         },
         .swipe => |direction| direction < 0 and s.current == 0,
+        // Locking, waking and leaving don't count pages, and must not wait for them;
+        // nor does holding a word, which looks it up on the page on screen
+        .lock, .unlock, .power, .computer, .stop, .hold => false,
         else => true,
     };
 }
@@ -183,8 +185,17 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     defer sess.saveProgress(entry, state_path, &session);
     defer a.input.deferred = false;
     defer a.input.edge_zones = true;
+    var last_place = session.current;
     while (true) {
         _ = scratch_arena.reset(.retain_capacity); // Nothing from the last action is still needed
+        // A jump (Go To, search, a chapter, the scrubber) is saved at once: turning
+        // page by page saves every few turns, but a jump may cross half the book
+        const moved = if (session.current > last_place) session.current - last_place else last_place - session.current;
+        if (moved > 1 and !session.layoutPending()) {
+            sess.saveProgress(entry, state_path, &session);
+            since_save = 0;
+        }
+        last_place = session.current;
         // The reading clock runs only while the page itself is in front of the reader.
         if (view == .page) session.resumeClock() else session.pauseClock();
         a.input.deferred = view == .page;
@@ -192,7 +203,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
         // A first open's layout goes on in idle moments, about 40 ms at a time
         a.input.tick_us = if (session.layoutPending()) 1000 else clock_check_us;
         const action = a.input.next();
-        if (session.layoutPending() and needsAllPages(action, view, &session)) try session.finishLayout();
+        if (session.layoutPending() and needsAllPages(action, view, &session)) {
+            try session.finishLayout();
+            if (view == .page) try session.showFooter(); // The page count it was missing
+        }
         switch (action) {
             .unlock => {},
             .hold => |h| {
@@ -231,9 +245,17 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
             },
             .lock => {
                 session.pauseClock(); // Asleep isn't reading
-                try lock.lockScreen(a, entry);
+                // Saved now: a lock is a natural stop, and anything after it may end noface
+                sess.saveProgress(entry, state_path, &session);
+                since_save = 0;
+                if (lock.lockScreen(a, entry, .{}) == .leaving) continue;
                 a.noteBattery(); // What sleeping cost
-                if (view == .page) try a.updateClock();
+                a.quick = lipc.read(a.quick); // Hours may have passed: the clock, battery and Wi-Fi
+                switch (view) {
+                    .page => try a.updateClock(),
+                    .toolbar, .sheet => try controls.drawToolbar(a, &session, entry.title, view == .sheet, false),
+                    else => {},
+                }
             },
             .tap => |t| switch (view) {
                 .highlight => {

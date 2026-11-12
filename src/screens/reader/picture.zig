@@ -228,7 +228,7 @@ pub fn show(a: *app.App, img: book_model.Image) !void {
                 if (touch_zones.isGrip(t.x, t.y, a.input.width, a.input.height)) continue;
                 a.input.beginDrag();
                 var follow = Follow{ .a = a, .v = &v, .x0 = t.x, .y0 = t.y, .start_cx = v.cx, .start_cy = v.cy };
-                try app.followDrag(a, null, &follow);
+                _ = try app.followDrag(a, null, &follow);
                 if (a.input.stashed != null) break;
                 if (follow.panned) {
                     if (v.step > 0) try render(a, v); // Its grays back

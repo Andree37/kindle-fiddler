@@ -10,19 +10,51 @@ pub fn centered(font: *Font, page: Page, center_x: f32, y: i32, s: []const u8) !
     try font.draw(page, center_x - try font.measure(s) / 2, y, s);
 }
 
+/// Text cut to `avail`, ending in "..." when it doesn't fit.
 pub fn clipped(font: *Font, page: Page, x: f32, y: i32, s: []const u8, avail: f32) !void {
     const w = try font.measure(s);
     if (w <= avail) return font.draw(page, x, y, s);
     const dots = "...";
-    const cut = try font.fit(s, avail - try font.measure(dots));
+    var cut = @min(try font.fit(s, avail - try font.measure(dots)), 256 - dots.len);
+    while (cut > 0 and cut < s.len and s[cut] & 0xc0 == 0x80) cut -= 1; // Never inside a character
     var buf: [256]u8 = undefined;
-    const part = std.mem.trimEnd(u8, s[0..@min(cut, buf.len - dots.len)], " ");
+    const part = std.mem.trimEnd(u8, s[0..cut], " ");
     @memcpy(buf[0..part.len], part);
     @memcpy(buf[part.len..][0..dots.len], dots);
     try font.draw(page, x, y, buf[0 .. part.len + dots.len]);
 }
 
-/// A white box with a thin black outline.
+/// Where the line starting `s` ends to fit `avail`: after the last whole word that
+/// fits (the word just before an overflowing space counts), or mid-word when even
+/// the first word doesn't fit.
+pub fn lineEnd(font: *Font, s: []const u8, avail: f32) !usize {
+    if (try font.measure(s) <= avail) return s.len;
+    const cut = try font.fit(s, avail);
+    if (cut < s.len and s[cut] == ' ' and cut > 0) return cut;
+    if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
+        if (space > 0) return space;
+    }
+    return @max(cut, 1);
+}
+
+/// Wraps text over at most `lines` lines `step` apart, clipping the last, and
+/// returns the lines used.
+pub fn wrapped(font: *Font, page: Page, x: f32, y: i32, step: i32, s: []const u8, avail: f32, lines: u32) !u32 {
+    var rest = s;
+    var line: u32 = 0;
+    while (rest.len > 0 and line < lines) : (line += 1) {
+        const row = y + @as(i32, @intCast(line)) * step;
+        if (line + 1 == lines) {
+            try clipped(font, page, x, row, rest, avail);
+            return line + 1;
+        }
+        const n = try lineEnd(font, rest, avail);
+        try font.draw(page, x, row, rest[0..n]);
+        rest = std.mem.trimStart(u8, rest[n..], " ");
+    }
+    return line;
+}
+
 /// An outlined box with rounded corners, the shape every button and bubble shares.
 pub fn box(page: Page, x: u32, y: u32, w: u32, h: u32) void {
     const corner: f32 = @floatFromInt(@min(24, h / 2));
@@ -95,4 +127,19 @@ test "pager arrows sit either side of the count" {
     try std.testing.expectEqual(Pager.Hit.next, p.hit(800, 150).?);
     try std.testing.expect(p.hit(600, 150) == null);
     try std.testing.expect(p.hit(400, 250) == null);
+}
+
+test "a line keeps a word that fits just before the space that overflows" {
+    const c_memory = @import("../gfx/c_memory.zig");
+    const memory = @import("../base/memory.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit(); // Fonts are kept for the app's life, so nothing frees them
+    var budget = memory.Budget{ .name = "test", .child = arena.allocator(), .limit = 16 << 20 };
+    c_memory.use(&budget);
+    var font = try Font.init(arena.allocator(), @embedFile("../testdata/fonts/Go-Regular.ttf"), 40, 1.2);
+    const s = "abc def ghi";
+    // Exactly as wide as "abc def": the space after it is what overflows
+    const avail = try font.measure("abc def");
+    try std.testing.expectEqualStrings("abc def", s[0..try lineEnd(&font, s, avail)]);
+    try std.testing.expectEqualStrings("abc", s[0..try lineEnd(&font, s, avail - 1)]);
 }

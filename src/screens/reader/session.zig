@@ -87,8 +87,11 @@ pub const Session = struct {
     }
 
     /// Finishes a first open's layout now, before anything that needs every page.
+    /// Finishing forgets the pages drawn so far, so the one on screen is drawn again
+    /// at once: what comes next hit-tests its words, links and highlights.
     pub fn finishLayout(s: *Session) !void {
         while (s.progress != null) _ = try s.layoutStep();
+        _ = try s.ensure(s.current, s.current);
     }
 
     /// Words from the start of the book to a position.

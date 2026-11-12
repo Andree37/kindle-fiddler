@@ -81,8 +81,9 @@ fn notesRows(alloc: std.mem.Allocator, s: *const sess.Session) ![]goto.Row {
         if (seen) continue;
         const span = highlights.extent(s.highlights.items, h.id) orelse continue;
         const para = s.paragraphs[span.first_para].text;
-        const end = if (span.last_para == span.first_para) span.last_byte else para.len;
-        const words = highlights.excerpt(para[span.first_byte..@min(end, para.len)], excerpt_bytes);
+        const end = @min(if (span.last_para == span.first_para) span.last_byte else para.len, para.len);
+        const start = @min(span.first_byte, end); // A damaged record can end before it starts
+        const words = highlights.excerpt(para[start..end], excerpt_bytes);
         try placed.append(alloc, .{ .para = span.first_para, .byte = span.first_byte, .row = .{ .label = words, .page = sess.pageContaining(s.pages, span.first_para, span.first_byte), .mark = .highlight } });
     }
     std.mem.sort(Placed, placed.items, {}, before);

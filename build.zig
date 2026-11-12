@@ -102,8 +102,10 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/tests.zig"),
             .target = b.graph.host,
+            .link_libc = true,
         }),
     });
+    addFontAndImageCode(b, tests.root_module); // So text measuring can be tested with a real font
     test_step.dependOn(&b.addRunArtifact(tests).step);
 }
 

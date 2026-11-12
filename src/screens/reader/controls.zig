@@ -51,7 +51,7 @@ pub fn dragScrub(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, 
     var target = toolbar.pageAt(first_x, s.pages.len);
     try toolbar.drawScrub(a.ui, a.page(a.screen.pixels), target, s.pages.len, true);
     const first = try a.screen.updateRegion(0, toolbar.scrub_top, a.screen.width, band, app.drag_waveform, .partial);
-    try app.followDrag(a, first, Follow{ .a = a, .pages = s.pages.len, .band = band, .target = &target });
+    _ = try app.followDrag(a, first, Follow{ .a = a, .pages = s.pages.len, .band = band, .target = &target });
     s.setPage(target);
     try drawToolbar(a, s, title, sheet, true);
     try app.cleanBand(a, toolbar.scrub_top, band);
@@ -84,7 +84,7 @@ pub fn dragSetting(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, titl
             return try f.a.screen.updateRegion(0, f.row.top, f.a.screen.width, aa.row_height, app.drag_waveform, .partial);
         }
     };
-    try app.followDrag(a, first, Follow{ .a = a, .row = row, .value = &value });
+    _ = try app.followDrag(a, first, Follow{ .a = a, .row = row, .value = &value });
     if (value != started) {
         rowSetting(a, row).* = value;
         try sess.relayout(a, alloc, s);

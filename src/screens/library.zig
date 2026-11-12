@@ -132,7 +132,10 @@ pub fn loadLibrary(a: *app.App) !Library {
     }
     const all = try addEpubs(a, alloc, entries);
     series_screen.apply(alloc, a.state_dir, all); // Series set by hand win
-    return .{ .arena = arena, .data = data, .entries = all, .visible = try alloc.alloc(usize, all.len) };
+    // Allocated before the arena is copied into the result: a block it adds after
+    // would be known only to this copy, and never freed
+    const visible = try alloc.alloc(usize, all.len);
+    return .{ .arena = arena, .data = data, .entries = all, .visible = visible };
 }
 
 /// Saves the book as unread, so the reload that follows doesn't bring back 100%.
@@ -447,8 +450,14 @@ pub fn runLibrary(a: *app.App) !void {
                         }
                     }
                     if (nowUs() >= watch_until) {
+                        if (watch_until == 0) {
+                            if (nowUs() >= status_until) a.input.tick_us = 0;
+                            continue;
+                        }
+                        // The watch is over: one last look, for a download that
+                        // finished since the last one
+                        watch_until = 0;
                         if (nowUs() >= status_until) a.input.tick_us = 0;
-                        continue;
                     }
                     catalog_db.exportLibrary();
                     var fresh = loadLibrary(a) catch continue;
@@ -478,10 +487,21 @@ pub fn runLibrary(a: *app.App) !void {
                 },
                 .drag, .drag_end, .unlock => continue,
                 .lock => {
-                    try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null);
+                    // Not put back on waking: it's all drawn again, fresh, below
+                    if (lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null, .{ .restore = false }) == .leaving) continue;
                     a.noteBattery(); // What sleeping (or charging) did
-                    // Redrawn on waking, where only what changed (the clock, "Last read")
-                    // repaints: these may be days old. No continue: on to the redraw below.
+                    a.quick = lipc.read(a.quick); // The clock and battery may be hours old
+                    // A download may have finished while the Kindle slept
+                    for (lib.entries) |e| {
+                        if (e.availability != .downloading) continue;
+                        catalog_db.exportLibrary();
+                        var fresh = loadLibrary(a) catch break;
+                        lib.deinit();
+                        lib = fresh;
+                        fresh = undefined;
+                        break;
+                    }
+                    break :browse;
                 },
                 .pull => {
                     if (try panel.libraryMenu(a, buf)) return;

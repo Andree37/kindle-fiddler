@@ -63,6 +63,7 @@ pub const App = struct {
     overlay: []u8,
     lock_saved: []u8,
     lock_cover: []u8,
+    lock_cover_key: u64 = 0, // Which book's lock screen lock_cover holds, so it isn't decoded again; 0 for none
     state_dir: []const u8,
     library_path: [*:0]const u8,
     settings_path: [*:0]const u8,
@@ -313,9 +314,11 @@ pub fn cleanRect(a: *App, left: u32, top: u32, width: u32, height: u32) !void {
 
 /// Follows the dragged finger until it lifts. `follow.moved(x, y)` redraws for a
 /// new position and returns the update to wait on, or null when nothing changed.
-/// Only one update runs at a time: overlapping ones smear on the panel.
-pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
+/// Only one update runs at a time: overlapping ones smear on the panel. False when
+/// the drag was cut short (the Kindle locking, say) rather than the finger lifting.
+pub fn followDrag(a: *App, first: ?u32, follow: anytype) !bool {
     var marker = first;
+    var lifted = true;
     while (true) {
         const action = a.input.next();
         switch (action) {
@@ -331,11 +334,13 @@ pub fn followDrag(a: *App, first: ?u32, follow: anytype) !void {
             .tap, .hold, .pull, .swipe, .tick, .unlock => {},
             .lock, .power, .computer, .stop => {
                 a.input.stashed = action;
+                lifted = false;
                 break;
             },
         }
     }
     if (marker) |m| try a.screen.waitComplete(m);
+    return lifted;
 }
 
 pub fn loadJournal(path: [*:0]const u8) journal_model.Journal {

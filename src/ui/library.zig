@@ -149,32 +149,6 @@ pub fn bookRect(index: usize, page: usize) Rect {
 
 
 /// Bytes of `s` that fit on one line, breaking at a space when possible.
-fn lineBreak(font: *Font, s: []const u8, avail: f32) !usize {
-    if (try font.measure(s) <= avail) return s.len;
-    const cut = try font.fit(s, avail);
-    if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
-        if (space > 0) return space;
-    }
-    return cut;
-}
-
-/// Wraps text over at most `lines`, clipping the last, and returns the lines used.
-fn drawWrapped(font: *Font, page: Page, x: f32, y: i32, step: i32, s: []const u8, avail: f32, lines: u32) !u32 {
-    var rest = s;
-    var line: u32 = 0;
-    while (rest.len > 0 and line < lines) : (line += 1) {
-        const row = y + @as(i32, @intCast(line)) * step;
-        if (line + 1 == lines) {
-            try draw.clipped(font, page, x, row, rest, avail);
-            return line + 1;
-        }
-        const n = try lineBreak(font, rest, avail);
-        try font.draw(page, x, row, rest[0..n]);
-        rest = std.mem.trimStart(u8, rest[n..], " ");
-    }
-    return line;
-}
-
 /// A thin gray track with a thick rounded black fill. Any progress at all shows as
 /// at least a dot.
 fn progressBar(page: Page, x: u32, y: u32, w: u32, percent: u32, thick: f32) void {
@@ -236,7 +210,7 @@ fn typeCover(fonts: Fonts, page: Page, x: u32, y: u32, w: u32, h: u32, e: *const
     const left: f32 = @floatFromInt(x + 28);
     const avail: f32 = @floatFromInt(w - 56);
     const top: i32 = @intCast(y + 72);
-    const used = try drawWrapped(fonts.cover, page, left, top, 44, e.title, avail, 5);
+    const used = try draw.wrapped(fonts.cover, page, left, top, 44, e.title, avail, 5);
     page.fillRect(x + 28, y + 72 + used * 44, 48, 3, 0x00);
     try draw.clipped(fonts.caption, page, left, @intCast(y + h - 34), e.author, avail);
 }
@@ -283,7 +257,7 @@ fn drawHero(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
     icons.dots(page, @floatFromInt(page.width - margin - 8), hero_top + 24);
     page.tint(left_px, hero_top + 8, @intFromFloat(avail - 40), 36, 0x60);
 
-    const used = try drawWrapped(fonts.hero, page, left, hero_top + 104, 66, e.title, avail, 3);
+    const used = try draw.wrapped(fonts.hero, page, left, hero_top + 104, 66, e.title, avail, 3);
     const author_y: i32 = hero_top + 104 + @as(i32, @intCast(used)) * 66 - 12;
     // The author, and the series when there is one: "Liu, Cixin  ·  Three-Body #2"
     var byline_buf: [256]u8 = undefined;
@@ -326,7 +300,7 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
         page.tint(x, y, cover.width, cover.height, 0xa0);
         icons.cloud(page, @floatFromInt(x + cover.width - 38), @floatFromInt(y + cover.height - 38));
         const label = if (e.availability == .downloading) "Downloading" else e.title;
-        _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, label, title_width, 1);
+        _ = try draw.wrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, label, title_width, 1);
         return;
     }
     if (e.inProgress()) {
@@ -335,7 +309,7 @@ fn drawCell(alloc: std.mem.Allocator, fonts: Fonts, page: Page, e: *catalog.Entr
     }
     if (e.isRead()) icons.check(page, @floatFromInt(x + cover.width - 32), @floatFromInt(y + 32));
     if (e.series.len > 0) try seriesBadge(fonts.caption, page, x, y, e.series_index);
-    _ = try drawWrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
+    _ = try draw.wrapped(fonts.caption, page, @floatFromInt(x), @intCast(bar_y + 34), 30, e.title, title_width, 1);
 }
 
 fn drawStatus(fonts: Fonts, page: Page, quick: *const quick_model.Quick) !void {
