@@ -18,6 +18,8 @@ const settings_model = @import("model/settings.zig");
 const state = @import("linux/state.zig");
 const os = @import("linux/os.zig");
 const reader = @import("screens/reader.zig");
+const FakeKindle = @import("fake_kindle.zig").FakeKindle;
+const wifi_saver = @import("kindle/wifi_saver.zig");
 const linux = std.os.linux;
 
 const go_regular = @embedFile("testdata/fonts/Go-Regular.ttf");
@@ -48,12 +50,26 @@ const top = tap(636, 60);
 const page_middle = tap(636, 1000);
 
 /// What a run left behind, for the checks.
-const Outcome = struct { saved: state.State, updates: u32 };
+const Outcome = struct {
+    saved: state.State,
+    updates: u32,
+    airplane_asked_on: bool, // noface asked for airplane mode at some point
+    airplane_at_end: bool, // The Kindle's airplane mode when it was over
+    wifi_note_left: bool, // noface's "I turned Wi-Fi off" note is still there
+};
+
+/// How the pretend Kindle starts.
+const Kindle = struct { airplane: bool = false, bluetooth: bool = false };
 
 var run_counter: u32 = 0;
 
-/// Opens the scenario book in a fresh app, plays `steps`, and returns what was saved.
 fn play(steps: []const Step) !Outcome {
+    return playOn(.{}, steps);
+}
+
+/// Opens the scenario book in a fresh app on a pretend Kindle, plays `steps`, and
+/// returns what was saved and what the Kindle was asked to do.
+fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     var budget = memory.Budget{ .name = "scenario", .child = std.heap.smp_allocator, .limit = 256 << 20 };
     var arena = std.heap.ArenaAllocator.init(budget.allocator());
     defer arena.deinit();
@@ -70,6 +86,18 @@ fn play(steps: []const Step) !Outcome {
 
     os.fake_us = 1_000_000_000;
     defer os.fake_us = null;
+
+    // Nothing reaches the real Kindle: its tools are answered by a pretend one, and
+    // the Wi-Fi saver's note goes in this folder
+    var fake = try FakeKindle.init(alloc);
+    if (kindle.airplane) try fake.put("com.lab126.cmd wirelessEnable", "0");
+    if (kindle.bluetooth) try fake.put("com.lab126.btfd BTstate", "1");
+    fake.install();
+    defer fake.release();
+    var marker_buf: [128]u8 = undefined;
+    const real_marker = wifi_saver.marker;
+    wifi_saver.marker = try std.fmt.bufPrintSentinel(&marker_buf, "{s}/wifi-paused", .{dir}, 0);
+    defer wifi_saver.marker = real_marker;
 
     var screen = try hwtcon.Screen.fake(alloc, width, height);
     var script = input_mod.Script{ .steps = steps };
@@ -146,7 +174,14 @@ fn play(steps: []const Step) !Outcome {
     _ = try reader.readBook(&a, &entry);
 
     var state_buf: [320]u8 = undefined;
-    return .{ .saved = state.load(try a.statePath(&state_buf, book_path)), .updates = screen.updates };
+    var note_buf: [8]u8 = undefined;
+    return .{
+        .saved = state.load(try a.statePath(&state_buf, book_path)),
+        .updates = screen.updates,
+        .airplane_asked_on = fake.wasSet("com.lab126.cmd wirelessEnable 0"),
+        .airplane_at_end = std.mem.eql(u8, fake.get("com.lab126.cmd wirelessEnable"), "0"),
+        .wifi_note_left = state.readSmall(wifi_saver.marker, &note_buf).len > 0,
+    };
 }
 
 fn writeFile(path: [*:0]const u8, data: []const u8) !void {
@@ -222,6 +257,33 @@ const scenarios = [_]Scenario{
             const locked = try play(&.{ forward, lock_it, wait(3_000), wake, forward });
             try expect(samePlace(plain.saved, locked.saved), "the place moved");
             try expect(locked.updates > plain.updates, "the lock screen wasn't drawn");
+        }
+    }.run },
+    .{ .name = "a couple of minutes into a book Wi-Fi goes off, and comes back on leaving", .run = struct {
+        fn run() !void {
+            const r = try play(&.{ wait(150_000), forward });
+            try expect(r.airplane_asked_on, "airplane mode wasn't turned on");
+            try expect(!r.airplane_at_end, "Wi-Fi wasn't put back");
+            try expect(!r.wifi_note_left, "the note was left behind");
+        }
+    }.run },
+    .{ .name = "a quick look into a book leaves Wi-Fi alone", .run = struct {
+        fn run() !void {
+            const r = try play(&.{ wait(60_000), forward });
+            try expect(!r.airplane_asked_on, "airplane mode was turned on");
+        }
+    }.run },
+    .{ .name = "airplane mode the reader turned on stays on", .run = struct {
+        fn run() !void {
+            const r = try playOn(.{ .airplane = true }, &.{ wait(150_000), forward });
+            try expect(r.airplane_at_end, "noface turned the reader's airplane mode off");
+            try expect(!r.wifi_note_left, "noface claimed the reader's airplane mode");
+        }
+    }.run },
+    .{ .name = "with Bluetooth on, Wi-Fi is left alone", .run = struct {
+        fn run() !void {
+            const r = try playOn(.{ .bluetooth = true }, &.{ wait(150_000), forward });
+            try expect(!r.airplane_asked_on, "airplane mode could cut Bluetooth off");
         }
     }.run },
 };

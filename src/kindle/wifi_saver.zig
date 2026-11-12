@@ -16,7 +16,8 @@ const linux = std.os.linux;
 /// How long into a book before the radio goes off: a quick look in doesn't toggle it.
 pub const after_us: u64 = 2 * 60 * 1000 * 1000;
 
-const marker: [*:0]const u8 = "/mnt/us/noface-data/wifi-paused";
+/// In the data folder; the scenario tests point it at their own.
+pub var marker: [*:0]const u8 = "/mnt/us/noface-data/wifi-paused";
 
 pub const Outcome = enum {
     paused, // Off now

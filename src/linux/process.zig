@@ -6,9 +6,29 @@ const failed = os.failed;
 
 pub const Child = struct { pid: i32, out: i32 };
 
+/// Set by the scenario tests: no program is started at all, and `answer` says what it
+/// would have printed (null for "didn't run"). The self-test runs on the reader's own
+/// Kindle, and must never change it: no airplane mode, no sync, no catalog export.
+pub const Fake = struct {
+    ctx: *anyopaque,
+    answer: *const fn (ctx: *anyopaque, argv: []const []const u8, out: []u8) ?usize,
+};
+pub var fake: ?Fake = null;
+
+fn answerFake(f: Fake, argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
+    var args: [12][]const u8 = undefined;
+    var n: usize = 0;
+    while (argv[n]) |a| : (n += 1) {
+        if (n == args.len) break;
+        args[n] = std.mem.sliceTo(a, 0);
+    }
+    return f.answer(f.ctx, args[0..n], out);
+}
+
 /// Starts a program with its output on a pipe, in a process group of its own so
 /// everything it starts can be killed together.
 pub fn spawn(argv: [*:null]const ?[*:0]const u8) ?Child {
+    if (fake != null) return null; // Watchers and helpers don't start under test
     var fds: [2]i32 = undefined;
     // Close-on-exec, so later children don't inherit this pipe. dup2 below clears it on
     // the child's own stdout.
@@ -43,6 +63,7 @@ pub fn run(argv: [*:null]const ?[*:0]const u8, out: []u8) ?usize {
 
 /// Like `run`, but must be done by `deadline` (microseconds on the monotonic clock).
 pub fn runUntil(argv: [*:null]const ?[*:0]const u8, out: []u8, deadline: u64) ?usize {
+    if (fake) |f| return answerFake(f, argv, out);
     if (os.nowUs() >= deadline) return null;
     const child = spawn(argv) orelse return null;
     var total: usize = 0;
@@ -72,6 +93,10 @@ pub fn runUntil(argv: [*:null]const ?[*:0]const u8, out: []u8, deadline: u64) ?u
 pub fn runAll(argvs: []const [*:null]const ?[*:0]const u8, outs: [][]u8, lens: []?usize, deadline: u64) void {
     const max = 16;
     std.debug.assert(argvs.len <= max and outs.len == argvs.len and lens.len == argvs.len);
+    if (fake) |f| {
+        for (argvs, outs, lens) |argv, out, *len| len.* = answerFake(f, argv, out);
+        return;
+    }
     var children: [max]?Child = @splat(null);
     var open: [max]bool = @splat(false);
     for (argvs, 0..) |argv, i| {
