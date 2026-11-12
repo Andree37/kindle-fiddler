@@ -63,6 +63,7 @@ const Outcome = struct {
     wifi_note_left: bool, // noface's "I turned Wi-Fi off" note is still there
     looked_up: bool, // The dictionary was opened for a word
     ms: u64, // How long the run took, by the wall clock
+    looks_right: bool, // The screen at the end matched its reference image, if one was asked for
     opened: [2]bool, // Whether the first two books were opened
     finished: [2]bool, // Whether they were marked finished
     highlights: usize, // Highlights and bookmarks saved for the book
@@ -84,10 +85,64 @@ const Kindle = struct {
     /// One of the reader's own books, opened where it is (never written to), with the
     /// Kindle's own fonts: the self-test's timing of real books.
     real_book: ?[:0]const u8 = null,
+    /// Compares the screen at the end with the reference image of this name.
+    snapshot: ?[]const u8 = null,
 };
 
+/// Built as noface-scenarios (GitHub's tests) rather than inside noface: only then are
+/// the reference images carried, so they don't weigh on the app.
+const with_snapshots = @import("root") == @This();
+
+/// Set (from NOFACE_WRITE_SNAPSHOTS) to write each snapshot's screen to this folder as
+/// <name>.pgm, to make new reference images, instead of comparing.
+var write_snapshots: ?[]const u8 = null;
+
+fn referenceImage(comptime name: []const u8) []const u8 {
+    return if (with_snapshots) @embedFile("testdata/snapshots/" ++ name ++ ".png") else "";
+}
+
+const references = .{
+    .{ "page", referenceImage("page") },
+    .{ "toolbar", referenceImage("toolbar") },
+    .{ "aa-font", referenceImage("aa-font") },
+    .{ "definition", referenceImage("definition") },
+    .{ "library", referenceImage("library") },
+};
+
+/// Whether `pixels` match the reference image `name`, allowing for anti-aliasing:
+/// pixels more than a few grays apart may be at most 0.3% of the screen.
+fn matchesReference(alloc: std.mem.Allocator, name: []const u8, pixels: []const u8) !bool {
+    if (write_snapshots) |dir| {
+        var path_buf: [256]u8 = undefined;
+        const path = try std.fmt.bufPrintSentinel(&path_buf, "{s}/{s}.pgm", .{ dir, name }, 0);
+        var head_buf: [32]u8 = undefined;
+        const head = try std.fmt.bufPrint(&head_buf, "P5\n{d} {d}\n255\n", .{ width, height });
+        const out = try alloc.alloc(u8, head.len + pixels.len);
+        @memcpy(out[0..head.len], head);
+        @memcpy(out[head.len..], pixels);
+        try writeFile(path, out);
+        return true;
+    }
+    if (!with_snapshots) return true; // The self-test doesn't carry them
+    const encoded = inline for (references) |r| {
+        if (std.mem.eql(u8, r[0], name)) break r[1];
+    } else return error.NoSuchSnapshot;
+    const image = @import("gfx/image.zig");
+    const want = image.decodeGray(alloc, encoded) orelse return error.BadSnapshot;
+    if (want.width != width or want.height != height) return false;
+    var off: usize = 0;
+    for (pixels, want.pixels) |got, w| {
+        if (@max(got, w) - @min(got, w) > 48) off += 1;
+    }
+    if (off * 1000 > pixels.len * 3) {
+        std.debug.print("    {d} pixels differ from the {s} reference\n", .{ off, name });
+        return false;
+    }
+    return true;
+}
+
 /// Every word in the scenario book, for a small English dictionary of them.
-const book_words = [_][]const u8{ "a", "bright", "chapter", "evening", "garden", "green", "house", "letter", "light", "long", "new", "old", "page", "quiet", "reader", "river", "road", "slow", "small", "turns", "window" };
+const book_words = [_][]const u8{ "a", "bright", "chapter", "evening", "garden", "green", "house", "letter", "light", "long", "morning", "new", "old", "page", "quiet", "reader", "river", "road", "slow", "small", "the", "turns", "window" };
 
 /// A dictionary file, in the format of model/dictionary.zig, with `book_words`.
 fn writeDictionary(alloc: std.mem.Allocator, path: [*:0]const u8) !void {
@@ -175,6 +230,19 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
 
     var screen = try hwtcon.Screen.fake(alloc, width, height);
     var script = input_mod.Script{ .steps = steps };
+    // The screen as the steps left it, before noface is told to stop and tidies up
+    const last_screen = try alloc.alloc(u8, width * height);
+    @memset(last_screen, 0xff);
+    const Keep = struct {
+        screen: *hwtcon.Screen,
+        into: []u8,
+        fn call(ctx: *anyopaque) void {
+            const k: *@This() = @ptrCast(@alignCast(ctx));
+            @memcpy(k.into, k.screen.pixels[0..k.into.len]);
+        }
+    };
+    var keep = Keep{ .screen = &screen, .into = last_screen };
+    script.at_end = .{ .ctx = &keep, .call = Keep.call };
     var input = input_mod.Input{ .touch = -1, .power = -1, .width = width, .height = height, .x_max = width, .y_max = height, .script = &script };
 
     // Before any font: stb allocates through it. Let go of on return, as it lives here
@@ -266,8 +334,10 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         opened[i] = s.opened > 1_700_000_000;
         finished[i] = s.finished;
     }
+    const looks_right = if (kindle.snapshot) |name| try matchesReference(alloc, name, last_screen) else true;
     return .{
         .ms = ms,
+        .looks_right = looks_right,
         .opened = opened,
         .finished = finished,
         .saved = state.load(state_path),
@@ -427,6 +497,22 @@ const scenarios = [_]Scenario{
             try expect(r.opened[1], "the next one didn't open");
         }
     }.run },
+    .{ .name = "the page, toolbar, text settings, a definition and the library look as they should", .run = struct {
+        fn run() !void {
+            const shots = .{
+                .{ "page", &[_]Step{forward} },
+                .{ "toolbar", &[_]Step{ forward, top } },
+                .{ "aa-font", &[_]Step{ forward, top, tap(696, 118), tap(477, 270) } },
+                .{ "definition", &[_]Step{ forward, hold(600, 700), lift } },
+            };
+            inline for (shots) |shot| {
+                const r = try playOn(.{ .dictionary = true, .snapshot = shot[0] }, shot[1]);
+                try expect(r.looks_right, shot[0] ++ " looks different");
+            }
+            const lib = try playOn(.{ .library = true, .snapshot = "library" }, &.{});
+            try expect(lib.looks_right, "library looks different");
+        }
+    }.run },
 };
 
 /// A tap in the middle of `r`.
@@ -464,7 +550,8 @@ fn runScenarios() u32 {
     return failed;
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
+    write_snapshots = init.environ.getPosix("NOFACE_WRITE_SNAPSHOTS");
     if (runScenarios() > 0) std.process.exit(1);
 }
 

@@ -21,6 +21,8 @@ pub fn nowUs() u64 {
 
 /// Seconds since 1970, for dates people see and that survive a restart.
 pub fn unixTime() u64 {
+    // On the test clock, a fixed day (14 Nov 2026) moving with it, so dates are the same every run
+    if (fake_us) |t| return 1_794_700_800 + t / 1_000_000;
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
     return @intCast(ts.sec);

@@ -106,6 +106,10 @@ pub const Script = struct {
     steps: []const Step,
     at: usize = 0,
     waiting_us: u64 = 0, // What's left of the current wait
+    /// Called once, when the steps run out and before noface is told to stop: the
+    /// screen as the script left it, for a test to keep.
+    at_end: ?struct { ctx: *anyopaque, call: *const fn (ctx: *anyopaque) void } = null,
+    ended: bool = false,
 
     fn next(sc: *Script, in: *Input) Action {
         while (true) {
@@ -122,7 +126,11 @@ pub const Script = struct {
                 os.fake_us = now + sc.waiting_us;
                 sc.waiting_us = 0;
             }
-            if (sc.at >= sc.steps.len) return .stop;
+            if (sc.at >= sc.steps.len) {
+                if (!sc.ended) if (sc.at_end) |e| e.call(e.ctx);
+                sc.ended = true;
+                return .stop;
+            }
             const step = sc.steps[sc.at];
             sc.at += 1;
             switch (step) {
