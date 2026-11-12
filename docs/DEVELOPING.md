@@ -69,3 +69,8 @@ public-domain book. The time is from the tap until the new page is in the screen
 memory; the e‑ink panel's own refresh follows and takes the same time in both. The
 book is Project Gutenberg's edition of *Pride and Prejudice*, with Hugh Thomson's 1894
 illustrations.
+
+`docs/features.png` shows screens recorded the same way, on a demo library of only
+public-domain books (Project Gutenberg editions of Austen, Doyle, Stoker, Wells and
+Carroll, with Hugh Thomson's and Arthur Rackham's illustrations), run with its own
+saved state so no real library appears.
