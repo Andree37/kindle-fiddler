@@ -46,6 +46,9 @@ pub fn run(a: *app.App, s: *const sess.Session, word: book_model.Word, lang: ?hy
     // Highlight sits along the bottom, where a resting thumb is otherwise ignored
     a.input.grips = false;
     defer a.input.grips = true;
+    const deferred = a.input.deferred; // Taps as they land, as on any sheet
+    a.input.deferred = false;
+    defer a.input.deferred = deferred;
     const choice: Choice = while (true) {
         const action = a.input.next();
         switch (action) {

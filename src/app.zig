@@ -293,6 +293,15 @@ pub fn chooseFromCardWith(a: *App, background: []const u8, title: []const u8, su
     @memcpy(a.screen.pixels, a.overlay);
     // The whole screen dims behind the sheet
     try a.showBand(0, a.screen.height);
+    // Its rows reach the bottom edge, where the reader otherwise ignores a resting thumb
+    const grips = a.input.grips;
+    a.input.grips = false;
+    defer a.input.grips = grips;
+    // Taps as they land: nothing here becomes a hold, and a tap kept for the lift
+    // could reach whatever replaces the card
+    const deferred = a.input.deferred;
+    a.input.deferred = false;
+    defer a.input.deferred = deferred;
     const chosen: ?usize = while (true) {
         const action = a.input.next();
         switch (action) {

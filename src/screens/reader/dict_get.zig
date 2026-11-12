@@ -94,6 +94,12 @@ fn showProgress(a: *app.App, background: []const u8, title: []const u8, subtitle
     try a.showBand(0, a.screen.height);
     const tick = a.input.tick_us;
     defer a.input.tick_us = tick;
+    const grips = a.input.grips; // Cancel sits on the bottom edge
+    a.input.grips = false;
+    defer a.input.grips = grips;
+    const deferred = a.input.deferred;
+    a.input.deferred = false;
+    defer a.input.deferred = deferred;
     a.input.tick_us = 1_000_000;
     a.input.last_tick = os.nowUs();
     while (true) {
