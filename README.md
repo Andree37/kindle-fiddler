@@ -7,6 +7,8 @@ Wi-Fi, purchases and highlights carry on as before.
 noface is free for personal, noncommercial use (see [License](#license)). It is an
 independent project, not made, endorsed or supported by Amazon.
 
+<p align="center"><img src="docs/tour.gif" width="420" alt="A tour of noface: the library, a book's cover and an illustrated chapter, a page of text, a dictionary lookup, a highlight, the light panel, text settings, a picture shown full screen and zoomed, and the library sorted by series"></p>
+
 Page turns take about 250 ms, from touch to finished screen.
 
 ## What it does
@@ -130,3 +132,7 @@ which device noface runs on.
   Rezende and others (BSD 3-clause). Their notices are in the `LICENSE-*` files there.
 - Definitions from [Wiktionary](https://www.wiktionary.org), CC BY-SA 4.0, by way of
   [kaikki.org](https://kaikki.org). The dictionary files aren't in this repository.
+- The tour above shows only public-domain books, in their Project Gutenberg editions:
+  Austen, Doyle, Stoker, Wells and Carroll, with Hugh Thomson's 1894 illustrations
+  for *Pride and Prejudice* and Arthur Rackham's 1907 ones for *Alice*. The definition
+  shown is Wiktionary's (CC BY-SA 4.0).
