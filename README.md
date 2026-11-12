@@ -30,8 +30,9 @@ Things the stock Kindle doesn't do:
 ## And everything you'd expect
 
 Definitions and highlights (synced with the Kindle apps for Amazon books), search as
-you type, four typefaces with size, spacing, margins and hyphenation, pictures full
-screen with zoom, and reading stats with your daily minutes and streak.
+you type, four typefaces (plus your own, dropped in the Kindle's `fonts` folder) with
+size, spacing, margins and hyphenation, pictures full screen with zoom, reading stats
+with your daily minutes and streak, and series you can fix by hand.
 
 ## Get it
 

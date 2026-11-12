@@ -3,8 +3,28 @@
 const std = @import("std");
 const check = @import("../base/check.zig");
 
-/// The typefaces offered, by name. kindle/fonts.zig has their files, in the same order.
-pub const families = [_][]const u8{ "Ember", "Bookerly", "Baskerville", "Serif" };
+/// The Kindle's typefaces, by name. kindle/fonts.zig has their files, in the same order.
+pub const builtin_families = [_][]const u8{ "Ember", "Bookerly", "Baskerville", "Serif" };
+/// The reader's own typefaces, from the Kindle's fonts folder, come after them.
+pub const max_own = 2;
+pub const max_families = builtin_families.len + max_own;
+
+var family_storage: [max_families][]const u8 = builtin_families ++ @as([max_own][]const u8, @splat(""));
+/// The typefaces offered: the Kindle's, then any of the reader's own found at start.
+pub var families: []const []const u8 = family_storage[0..builtin_families.len];
+
+/// Offers one of the reader's own typefaces. False when there's no room or the name is taken.
+pub fn addFamily(name: []const u8) bool {
+    if (families.len == max_families or name.len == 0 or familyNamed(name) != null) return false;
+    family_storage[families.len] = name;
+    families = family_storage[0 .. families.len + 1];
+    return true;
+}
+
+/// Back to the Kindle's typefaces only (for tests).
+pub fn resetFamilies() void {
+    families = family_storage[0..builtin_families.len];
+}
 
 pub const sizes = [_]f32{ 36, 40, 46, 52, 58, 66 };
 
@@ -36,7 +56,7 @@ pub const Settings = struct {
 
     /// Parsing clamps every value, so an index out of range is a bug of ours.
     fn checkSteps(s: Settings) void {
-        check.that(s.size < sizes.len and s.spacing < spacings.len and s.margin < margins.len and s.font < families.len, "settings are within their steps");
+        check.that(s.size < sizes.len and s.spacing < spacings.len and s.margin < margins.len and s.font < max_families, "settings are within their steps");
     }
 };
 
@@ -53,7 +73,8 @@ pub fn parse(content: []const u8) Settings {
         if (std.mem.eql(u8, name, "size")) s.size = step(value, sizes.len, s.size);
         if (std.mem.eql(u8, name, "spacing")) s.spacing = step(value, spacings.len, s.spacing);
         if (std.mem.eql(u8, name, "margins")) s.margin = step(value, margins.len, s.margin);
-        if (std.mem.eql(u8, name, "font")) s.font = familyNamed(value) orelse s.font;
+        // A name can have spaces ("Open Sans"): the rest of the line
+        if (std.mem.eql(u8, name, "font")) s.font = familyNamed(std.mem.trim(u8, line[value.ptr - line.ptr ..], " ")) orelse s.font;
         if (std.mem.eql(u8, name, "bold")) s.bold = isOn(value, s.bold);
         if (std.mem.eql(u8, name, "justify")) s.left_align = !isOn(value, !s.left_align);
         if (std.mem.eql(u8, name, "clock")) s.clock = isOn(value, s.clock);
@@ -166,4 +187,16 @@ test "defaults match the original reader" {
     const s = Settings{};
     try std.testing.expectEqual(@as(f32, 46), s.px());
     try std.testing.expectEqual(@as(i32, 62), s.lineHeight());
+}
+
+test "the reader's own typefaces are offered after the Kindle's, by name" {
+    defer resetFamilies();
+    try std.testing.expect(addFamily("Open Sans"));
+    try std.testing.expect(!addFamily("Bookerly")); // Taken
+    const s = parse("font Open Sans\n");
+    try std.testing.expectEqual(builtin_families.len, s.font);
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqual(s.font, parse(format(&buf, s)).font);
+    resetFamilies();
+    try std.testing.expectEqual(@as(usize, 0), parse("font Open Sans\n").font); // Removed since: the default
 }

@@ -7,6 +7,7 @@
 //! The power button locks, showing the current book's cover. Waking returns to the
 //! same place. The panel's Kindle button and Wi-Fi settings hand over to the stock UI.
 const std = @import("std");
+const fonts_db = @import("kindle/fonts.zig");
 const memory = @import("base/memory.zig");
 const c_memory = @import("gfx/c_memory.zig");
 const Font = @import("gfx/font.zig").Font;
@@ -82,6 +83,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const journal_path = try std.fmt.bufPrintSentinel(&journal_buf, "{s}/journal", .{state_dir}, 0);
     var battery_buf: [320]u8 = undefined;
     const battery_path = try std.fmt.bufPrintSentinel(&battery_buf, "{s}/battery", .{state_dir}, 0);
+    fonts_db.findOwn(alloc, Font.usable); // Before the settings: a chosen typeface of the reader's is found by name
     const ui = Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
 
     var shared = app.App{

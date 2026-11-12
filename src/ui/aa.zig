@@ -44,7 +44,15 @@ pub const row_height = 146;
 
 const family_top = content_top;
 const family_height = 88;
-const family_width = (screen_width - 2 * margin) / 2;
+
+/// Two columns for the Kindle's four typefaces; three once the reader's own join them.
+fn familyColumns() u32 {
+    return if (settings_model.families.len > 4) 3 else 2;
+}
+
+fn familyWidth() u32 {
+    return (screen_width - 2 * margin) / familyColumns();
+}
 const bold_top = content_top + 186;
 const toggle_height = 76;
 const align_top = content_top + 292;
@@ -101,9 +109,11 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
         .font => {
             // The first row reaches up to the tabs, so both rows take a full fingertip
             if (within(y, family_top - 12, 2 * family_height + 12)) {
-                const row: usize = @intCast(@divTrunc(@max(y - family_top, 0), family_height));
-                const col: usize = if (x < screen_width / 2) 0 else 1;
-                return .{ .family = row * 2 + col };
+                const row: usize = @intCast(@min(@divTrunc(@max(y - family_top, 0), family_height), 1));
+                const cols = familyColumns();
+                const col: usize = @min(@as(u32, @intCast(@max(x - margin, 0))) / familyWidth(), cols - 1);
+                const i = row * cols + col;
+                return if (i < settings_model.families.len) .{ .family = i } else .none;
             }
             if (onToggle(y, bold_top)) return .bold;
             if (within(y, size_row.top, row_height)) return .text_size;
@@ -210,8 +220,9 @@ fn drawThemes(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
 
 fn drawFont(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
     for (settings_model.families, 0..) |family, i| {
-        const row: u32 = @intCast(i / 2);
-        const left: u32 = margin + @as(u32, @intCast(i % 2)) * family_width;
+        const cols = familyColumns();
+        const row: u32 = @as(u32, @intCast(i)) / cols;
+        const left: u32 = margin + @as(u32, @intCast(i)) % cols * familyWidth();
         const y = family_top + row * family_height;
         try draw.choice(fonts, page, @floatFromInt(left), .left, @intCast(y + 56), family, i == chosen.font, y + 70);
     }
@@ -238,6 +249,14 @@ pub fn render(fonts: Fonts, page: Page, tab: Tab, chosen: settings_model.Setting
             try drawToggle(fonts, page, autostart_top, "Open noface when the Kindle starts", chosen.autostart);
         },
     }
+}
+
+test "with the reader's own typefaces, three to a row" {
+    defer settings_model.resetFamilies();
+    try std.testing.expect(settings_model.addFamily("Literata"));
+    try std.testing.expectEqual(Hit{ .family = 2 }, hit(.font, 1100, family_top + 20));
+    try std.testing.expectEqual(Hit{ .family = 4 }, hit(.font, 600, family_top + family_height + 20));
+    try std.testing.expectEqual(Hit.none, hit(.font, 1100, family_top + family_height + 20)); // No sixth
 }
 
 test "tabs split the top row evenly" {

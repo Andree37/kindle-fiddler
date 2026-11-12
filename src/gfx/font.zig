@@ -7,6 +7,7 @@ comptime {
 }
 
 extern fn ft_open(ttf: [*]const u8) ?*anyopaque;
+extern fn ft_close(f: *anyopaque) void;
 extern fn ft_scale(f: *anyopaque, px: f32) f32;
 extern fn ft_vmetrics(f: *anyopaque, asc: *c_int, desc: *c_int, gap: *c_int) void;
 extern fn ft_index(f: *anyopaque, cp: c_int) c_int;
@@ -35,6 +36,14 @@ pub const Font = struct {
     line_height: i32,
     glyphs: std.AutoHashMapUnmanaged(u32, Glyph) = .empty,
     alloc: std.mem.Allocator,
+
+    /// Whether `ttf` is a font that can set text: it opens, and has letters.
+    pub fn usable(ttf: []const u8) bool {
+        if (ttf.len < 64) return false;
+        const handle = ft_open(ttf.ptr) orelse return false;
+        defer ft_close(handle);
+        return ft_index(handle, 'a') != 0 and ft_index(handle, 'A') != 0;
+    }
 
     pub fn init(alloc: std.mem.Allocator, ttf: []const u8, px: f32, line_spacing: f32) !Font {
         const handle = ft_open(ttf.ptr) orelse return error.BadFont;

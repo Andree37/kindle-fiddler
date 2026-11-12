@@ -27,6 +27,10 @@ void *ft_open(const unsigned char *ttf) {
     }
     return f;
 }
+
+void ft_close(void *f) {
+    noface_free(f);
+}
 float ft_scale(void *f, float px) { return stbtt_ScaleForPixelHeight(f, px); }
 void ft_vmetrics(void *f, int *asc, int *desc, int *gap) { stbtt_GetFontVMetrics(f, asc, desc, gap); }
 int ft_index(void *f, int cp) { return stbtt_FindGlyphIndex(f, cp); }

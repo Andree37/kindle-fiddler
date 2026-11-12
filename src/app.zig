@@ -52,8 +52,8 @@ pub const App = struct {
     input: *Input,
     body: *Font,
     // Body fonts by family, face (bold, italic), reader size and book size, made on first use.
-    face_fonts: [settings_model.families.len][4][settings_model.sizes.len][book_model.size_scales.len]?Font = @splat(@splat(@splat(@splat(null)))),
-    face_files: [settings_model.families.len][4]?[]const u8 = @splat(@splat(null)),
+    face_fonts: [settings_model.max_families][4][settings_model.sizes.len][book_model.size_scales.len]?Font = @splat(@splat(@splat(@splat(null)))),
+    face_files: [settings_model.max_families][4]?[]const u8 = @splat(@splat(null)),
     tab: aa.Tab = .font,
     turns: u32 = 0,
     note_font: *Font,
