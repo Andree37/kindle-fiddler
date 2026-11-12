@@ -89,8 +89,11 @@ pub fn build(b: *std.Build) void {
     const scenarios_step = b.step("scenarios", "Build the scenario tests, and run them on a Linux host");
     const kindle_scenarios = scenarioExe(b, target, "noface-scenarios");
     scenarios_step.dependOn(&b.addInstallArtifact(kindle_scenarios, .{}).step);
-    if (b.graph.host.result.os.tag == .linux) {
-        const host_scenarios = scenarioExe(b, b.graph.host, "noface-scenarios-host");
+    if (b.graph.host.result.os.tag == .linux and b.graph.host.result.cpu.arch == .x86_64) {
+        // As 32-bit x86, which a 64-bit Linux runs as is: the app is written for the
+        // Kindle's 32-bit ARM (its sizes and system calls), and this matches it
+        const x86 = b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl });
+        const host_scenarios = scenarioExe(b, x86, "noface-scenarios-host");
         scenarios_step.dependOn(&b.addRunArtifact(host_scenarios).step);
     }
 
