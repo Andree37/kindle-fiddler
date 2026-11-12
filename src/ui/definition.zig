@@ -34,6 +34,15 @@ pub const Found = struct {
 };
 
 /// Bytes of `s` that fit in `avail`, ending at a space when it can.
+fn lineEnd(font: *Font, s: []const u8, avail: f32) !usize {
+    if (try font.measure(s) <= avail) return s.len;
+    const cut = try font.fit(s, avail);
+    if (std.mem.lastIndexOfScalar(u8, s[0..cut], ' ')) |space| {
+        if (space > 0) return space;
+    }
+    return @max(cut, 1);
+}
+
 const Writer = struct {
     fonts: Fonts,
     page: Page,
@@ -62,7 +71,7 @@ const Writer = struct {
         while (rest.len > 0) {
             if (!w.room()) return w.stop();
             if (first) try w.fonts.small.draw(w.page, style.margin, w.y, number);
-            const n = try draw.lineEnd(w.fonts.small, rest, avail);
+            const n = try lineEnd(w.fonts.small, rest, avail);
             try w.fonts.small.draw(w.page, left, w.y, rest[0..n]);
             rest = std.mem.trimStart(u8, rest[n..], " ");
             w.y += line_step;
