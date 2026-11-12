@@ -12,7 +12,11 @@ const text = @import("../layout/text.zig");
 
 const top = 228; // Under the toolbar
 const tabs_height = 92;
-pub const height = 760; // Where the sheet ends on screen
+/// Where the sheet ends on screen: lower on More, which has a row more.
+pub fn heightFor(tab: Tab) u32 {
+    return if (tab == .more) max_height else 760;
+}
+pub const max_height = 860;
 const margin = style.margin;
 const screen_width = style.screen_width;
 const content_top = top + tabs_height + 16;
@@ -34,6 +38,7 @@ pub const Hit = union(enum) {
     refresh,
     time_left,
     autostart,
+    lock_picture,
 };
 
 pub const Row = struct { hit: Hit, label: []const u8, top: u32, steps: usize };
@@ -60,6 +65,7 @@ const clock_top = content_top + 8;
 const refresh_top = content_top + 108;
 const time_left_top = content_top + 208;
 const autostart_top = content_top + 308;
+const lock_picture_top = content_top + 408;
 
 const theme_width = 340;
 const theme_gap = 34;
@@ -128,6 +134,7 @@ pub fn hit(tab: Tab, x: i32, y: i32) Hit {
             if (onToggle(y, refresh_top)) return .refresh;
             if (onToggle(y, time_left_top)) return .time_left;
             if (onToggle(y, autostart_top)) return .autostart;
+            if (onToggle(y, lock_picture_top)) return .lock_picture;
         },
     }
     return .none;
@@ -236,6 +243,7 @@ fn drawFont(fonts: Fonts, page: Page, chosen: settings_model.Settings) !void {
 }
 
 pub fn render(fonts: Fonts, page: Page, tab: Tab, chosen: settings_model.Settings) !void {
+    const height = heightFor(tab);
     page.fillRect(0, top, page.width, height - top, 0xff);
     page.fillRect(0, height - 4, page.width, 4, 0x00);
     try drawTabs(fonts, page, tab);
@@ -252,6 +260,7 @@ pub fn render(fonts: Fonts, page: Page, tab: Tab, chosen: settings_model.Setting
             try drawToggle(fonts, page, refresh_top, "Page refresh every 20 pages", chosen.refresh);
             try drawToggle(fonts, page, time_left_top, "Show time left", chosen.time_left);
             try drawToggle(fonts, page, autostart_top, "Open noface when the Kindle starts", chosen.autostart);
+            try drawToggle(fonts, page, lock_picture_top, "Your picture when locked", chosen.lock_picture);
         },
     }
 }
@@ -285,9 +294,9 @@ test "each tab maps its own controls" {
 }
 
 test "the sheet stays inside itself" {
-    try std.testing.expect(size_row.top + row_height <= height);
-    try std.testing.expect(align_top + toggle_height <= height);
-    try std.testing.expect(theme_top + theme_height <= height);
+    try std.testing.expect(size_row.top + row_height <= heightFor(.font));
+    try std.testing.expect(align_top + toggle_height <= heightFor(.layout));
+    try std.testing.expect(theme_top + theme_height <= heightFor(.themes));
 }
 
 test "switches and fonts take a fingertip of height" {
@@ -305,5 +314,6 @@ test "sliders say what they're set to" {
 }
 
 test "controls of other tabs don't answer" {
-    try std.testing.expectEqual(Hit.none, hit(.more, 600, autostart_top + toggle_height + 20));
+    try std.testing.expectEqual(Hit.lock_picture, hit(.more, 600, lock_picture_top + 20));
+    try std.testing.expect(lock_picture_top + toggle_height + 12 <= heightFor(.more));
 }

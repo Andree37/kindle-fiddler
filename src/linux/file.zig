@@ -18,3 +18,11 @@ pub fn map(path: [*:0]const u8) ![]const u8 {
 pub fn unmap(data: []const u8) void {
     _ = linux.munmap(data.ptr, data.len);
 }
+
+/// Whether `path` names something that can be read.
+pub fn exists(path: [*:0]const u8) bool {
+    const fd = linux.open(path, .{ .ACCMODE = .RDONLY }, 0);
+    if (fd > std.math.maxInt(usize) - 4096) return false;
+    _ = linux.close(@intCast(fd));
+    return true;
+}

@@ -31,7 +31,8 @@ const tools = [_]Tool{
     .{ .hit = .more, .x = 1176 },
 };
 
-pub fn hit(x: i32, y: i32, sheet: bool) Hit {
+/// `sheet` is the Aa tab open, if the sheet is.
+pub fn hit(x: i32, y: i32, sheet: ?aa.Tab) Hit {
     if (y < status_row) return .stay;
     if (y < top_height) {
         if (y >= tool_row + 12) return .stay;
@@ -41,7 +42,7 @@ pub fn hit(x: i32, y: i32, sheet: bool) Hit {
         }
         return .stay;
     }
-    if (sheet and y < aa.height) return .sheet;
+    if (sheet) |tab| if (y < aa.heightFor(tab)) return .sheet;
     if (y < bottom_top) return .close;
     if (y >= scrub_top) return .scrub;
     if (x < 220) return .chapter_prev;
@@ -120,24 +121,24 @@ pub fn render(fonts: Fonts, page: Page, title: []const u8, index: usize, total: 
 }
 
 test "toolbar buttons map to actions" {
-    try std.testing.expectEqual(Hit.home, hit(120, 118, false));
-    try std.testing.expectEqual(Hit.text, hit(696, 118, false));
-    try std.testing.expectEqual(Hit.goto, hit(816, 118, false));
-    try std.testing.expectEqual(Hit.bookmark, hit(936, 118, false));
-    try std.testing.expectEqual(Hit.search, hit(1056, 118, false));
-    try std.testing.expectEqual(Hit.more, hit(1176, 118, false));
-    try std.testing.expectEqual(Hit.stay, hit(500, 118, false));
-    try std.testing.expectEqual(Hit.close, hit(600, 800, false));
-    try std.testing.expectEqual(Hit.chapter_prev, hit(110, 1450, false));
-    try std.testing.expectEqual(Hit.chapter_next, hit(1162, 1450, false));
-    try std.testing.expectEqual(Hit.scrub, hit(600, 1610, false));
-    try std.testing.expectEqual(Hit.scrub, hit(100, 1650, false));
+    try std.testing.expectEqual(Hit.home, hit(120, 118, null));
+    try std.testing.expectEqual(Hit.text, hit(696, 118, null));
+    try std.testing.expectEqual(Hit.goto, hit(816, 118, null));
+    try std.testing.expectEqual(Hit.bookmark, hit(936, 118, null));
+    try std.testing.expectEqual(Hit.search, hit(1056, 118, null));
+    try std.testing.expectEqual(Hit.more, hit(1176, 118, null));
+    try std.testing.expectEqual(Hit.stay, hit(500, 118, null));
+    try std.testing.expectEqual(Hit.close, hit(600, 800, null));
+    try std.testing.expectEqual(Hit.chapter_prev, hit(110, 1450, null));
+    try std.testing.expectEqual(Hit.chapter_next, hit(1162, 1450, null));
+    try std.testing.expectEqual(Hit.scrub, hit(600, 1610, null));
+    try std.testing.expectEqual(Hit.scrub, hit(100, 1650, null));
 }
 
 test "text sheet takes taps only while open" {
-    try std.testing.expectEqual(Hit.close, hit(350, 320, false));
-    try std.testing.expectEqual(Hit.sheet, hit(350, 320, true));
-    try std.testing.expectEqual(Hit.close, hit(700, 800, true));
+    try std.testing.expectEqual(Hit.close, hit(350, 320, null));
+    try std.testing.expectEqual(Hit.sheet, hit(350, 320, .font));
+    try std.testing.expectEqual(Hit.close, hit(700, 800, .font));
 }
 
 test "scrubber maps position to page" {

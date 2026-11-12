@@ -28,9 +28,16 @@ pub const Options = struct { restore: bool = true };
 pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) Woke {
     @memcpy(a.lock_saved, a.screen.pixels);
     const target = a.lock_cover;
-    const key = if (entry) |e| keyFor(e) else 1;
+    // The reader's own picture, if they chose it and it's there; else the book's cover
+    var picture_buf: [320]u8 = undefined;
+    const own = if (a.settings.lock_picture) picturePath(a, &picture_buf) else null;
+    const own_data: ?[]const u8 = if (own) |p| file.map(p) catch null else null;
+    defer if (own_data) |d| file.unmap(d);
+    const key = if (own_data) |d| pictureKey(d) else if (entry) |e| keyFor(e) else 1;
     if (a.lock_cover_key != key) {
-        const drawn = if (entry) |e| drawCover(a, e, target) else false;
+        const drawn = if (own_data) |d|
+            cover.fillScreen(a.alloc, d, target, a.screen.width, a.screen.height, a.screen.stride) or (if (entry) |e| drawCover(a, e, target) else false)
+        else if (entry) |e| drawCover(a, e, target) else false;
         if (!drawn) drawTitle(a, entry, target);
         a.lock_cover_key = key;
         std.debug.print("locked, cover drawn: {}\n", .{drawn});
@@ -69,6 +76,29 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) W
     a.input.last_input = nowUs();
     if (options.restore) a.present(a.lock_saved, .gc16, .full) catch |err| std.debug.print("screen not put back: {s}\n", .{@errorName(err)});
     return .woke;
+}
+
+/// The reader's lock screen picture, in the data folder: lockscreen.jpg or .png.
+fn picturePath(a: *const app.App, buf: []u8) ?[:0]const u8 {
+    for ([_][]const u8{ "jpg", "jpeg", "png" }) |ext| {
+        const p = std.fmt.bufPrintSentinel(buf, "{s}/lockscreen.{s}", .{ a.state_dir, ext }, 0) catch continue;
+        if (file.exists(p)) return p;
+    }
+    return null;
+}
+
+/// Whether the reader has put a lock screen picture in the data folder.
+pub fn hasPicture(a: *const app.App) bool {
+    var buf: [320]u8 = undefined;
+    return picturePath(a, &buf) != null;
+}
+
+/// Tells pictures apart for the kept lock screen, so a replaced one is drawn again.
+fn pictureKey(data: []const u8) u64 {
+    var h = std.hash.Wyhash.init(1);
+    h.update(data[0..@min(data.len, 4096)]);
+    h.update(std.mem.asBytes(&data.len));
+    return h.final() | 2;
 }
 
 /// Tells books apart for the kept lock screen: never 0 (nothing kept) or 1 (no book).

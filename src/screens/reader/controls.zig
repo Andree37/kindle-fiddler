@@ -6,6 +6,7 @@ const aa = @import("../../ui/aa.zig");
 const toolbar = @import("../../ui/toolbar.zig");
 const app = @import("../../app.zig");
 const sess = @import("session.zig");
+const lock = @import("../lock.zig");
 
 /// Draws the toolbar over the current page.
 pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, whole_page: bool) !void {
@@ -19,7 +20,8 @@ pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool
         try a.showBand(0, a.screen.height);
         return;
     }
-    const top: u32 = if (sheet) aa.height else toolbar.top_height;
+    // The tallest sheet's reach: switching from More to a shorter tab uncovers the page
+    const top: u32 = if (sheet) aa.max_height else toolbar.top_height;
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, app.page_waveform, .partial);
     try a.showBand(toolbar.bottom_top, a.screen.height - toolbar.bottom_top);
     try a.screen.waitComplete(first);
@@ -27,7 +29,7 @@ pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool
 
 pub fn closeToolbar(a: *app.App, s: *sess.Session, sheet: bool) !void {
     @memcpy(a.screen.pixels, try s.ensure(s.current, s.current));
-    const top: u32 = if (sheet) aa.height else toolbar.top_height;
+    const top: u32 = if (sheet) aa.max_height else toolbar.top_height;
     const first = try a.screen.updateRegion(0, 0, a.screen.width, top, app.page_waveform, .partial);
     try a.showBand(toolbar.bottom_top, a.screen.height - toolbar.bottom_top);
     try a.screen.waitComplete(first);
@@ -138,6 +140,18 @@ pub fn tapSheet(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, title: 
                 }
             }
             a.settings.autostart = !a.settings.autostart;
+            app.saveSettings(a.settings_path, a.settings);
+            return drawToolbar(a, s, title, true, false);
+        },
+        .lock_picture => {
+            // Turning it on needs a picture to show
+            if (!a.settings.lock_picture and !lock.hasPicture(a)) {
+                const page = try s.ensure(s.current, s.current);
+                const rows = [_]card.Row{.{ .label = "OK" }};
+                _ = try app.chooseFromCard(a, page, "Add your picture first", "Name it lockscreen.jpg or lockscreen.png, and put it in the noface-data folder.", &rows);
+                return drawToolbar(a, s, title, true, false);
+            }
+            a.settings.lock_picture = !a.settings.lock_picture;
             app.saveSettings(a.settings_path, a.settings);
             return drawToolbar(a, s, title, true, false);
         },

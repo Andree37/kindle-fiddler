@@ -58,7 +58,7 @@ fn needsAllPages(action: input_mod.Action, view: View, s: *const sess.Session) b
         .tap => |t| switch (view) {
             .page => t.y < touch_zones.top_zone or (input_mod.turnDirection(t.x, s.app.input.width) < 0 and s.current == 0),
             // Text settings and closing don't count pages; the toolbar's other buttons do
-            .toolbar, .sheet => switch (toolbar.hit(t.x, t.y, view == .sheet)) {
+            .toolbar, .sheet => switch (toolbar.hit(t.x, t.y, if (view == .sheet) s.app.tab else null)) {
                 .sheet, .close, .stay, .text => false,
                 else => true,
             },
@@ -312,7 +312,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                 },
                 .toolbar, .sheet => {
                     const sheet = view == .sheet;
-                    switch (toolbar.hit(t.x, t.y, sheet)) {
+                    switch (toolbar.hit(t.x, t.y, if (sheet) a.tab else null)) {
                         .stay => {},
                         .more => switch (try more.run(a, &session, entry)) {
                             .stay => try controls.drawToolbar(a, &session, entry.title, sheet, true),
