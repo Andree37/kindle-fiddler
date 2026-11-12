@@ -28,7 +28,8 @@ pub const Tab = enum { contents, notes };
 pub const Mark = enum { none, bookmark, highlight };
 
 /// One row: a chapter, a bookmark or a highlight.
-pub const Row = struct { label: []const u8, page: usize, depth: u8 = 0, mark: Mark = .none };
+/// `note`, when given, shows on the right instead of the page number ("" for nothing).
+pub const Row = struct { label: []const u8, page: usize, depth: u8 = 0, mark: Mark = .none, note: ?[]const u8 = null };
 
 pub fn pageCount(count: usize) usize {
     return @max(1, (count + rows - 1) / rows);
@@ -108,7 +109,7 @@ pub fn renderList(fonts: Fonts, page: Page, list: []const Row, reading: ?usize, 
         try draw.clipped(font, page, left, baseline, r.label, right - page_label_width - left);
         if (here) page.fillRect(style.margin - 28, y + 22, 8, 56, style.black);
         var label: [16]u8 = undefined;
-        const number = std.fmt.bufPrint(&label, "{d}", .{r.page + 1}) catch "";
+        const number = r.note orelse std.fmt.bufPrint(&label, "{d}", .{r.page + 1}) catch "";
         try fonts.caption.draw(page, right - try fonts.caption.measure(number), baseline, number);
     }
     try pager.render(fonts, page, list_page, pageCount(list.len));

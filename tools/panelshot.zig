@@ -132,7 +132,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const visible = try alloc.alloc(usize, entries.len);
         const count = catalog.select(entries, .all, lead, "", visible);
         try library.render(alloc, fonts, page, entries, lead, visible[0..count], 0, .all, .recent, "", "", &quick, .{ .unix = core.os.unixTime(), .utc_offset = core.clock.utcOffset() });
-        var list: [3]sheet.Option = undefined;
+        var list: [4]sheet.Option = undefined;
         const confirming = argv.len > 2;
         const opts = sheet.options(&entries[visible[0]], confirming, &list);
         var row_buf: [3]core.card.Row = undefined;

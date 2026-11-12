@@ -7,7 +7,7 @@ const card = @import("card.zig");
 const cover = @import("../gfx/image.zig");
 const library = @import("library.zig");
 
-pub const Option = enum { download, remove, mark_read, mark_unread, confirm_remove, cancel };
+pub const Option = enum { download, remove, mark_read, mark_unread, series, confirm_remove, cancel };
 
 /// What a book offers. `confirming` swaps the list for the removal question.
 /// The card's rows for a list of options.
@@ -35,7 +35,7 @@ pub fn subtitle(buf: []u8, e: *const catalog.Entry, confirming: bool) []const u8
     return w.buffered();
 }
 
-pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Option {
+pub fn options(e: *const catalog.Entry, confirming: bool, out: *[4]Option) []Option {
     if (confirming) {
         out[0] = .confirm_remove;
         out[1] = .cancel;
@@ -57,6 +57,11 @@ pub fn options(e: *const catalog.Entry, confirming: bool, out: *[3]Option) []Opt
         out[n] = if (e.isRead()) .mark_unread else .mark_read;
         n += 1;
     }
+    // A series can be set for books on the Kindle, which have a file to key it by
+    if (e.availability == .local) {
+        out[n] = .series;
+        n += 1;
+    }
     // No Cancel: tapping above the sheet closes it. The removal question keeps one.
     return out[0..n];
 }
@@ -67,6 +72,7 @@ pub fn label(o: Option) []const u8 {
         .remove => "Remove download",
         .mark_read => "Mark as read",
         .mark_unread => "Mark as unread",
+        .series => "Series\u{2026}",
         .confirm_remove => "Remove from this Kindle",
         .cancel => "Cancel",
     };
@@ -77,19 +83,19 @@ fn entry(a: catalog.Availability, percent: u32) catalog.Entry {
 }
 
 test "options follow where the book is" {
-    var out: [3]Option = undefined;
+    var out: [4]Option = undefined;
     const local = entry(.local, 0);
-    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_read }, options(&local, false, &out));
+    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_read, .series }, options(&local, false, &out));
     const cloud = entry(.cloud, 0);
     try std.testing.expectEqualSlices(Option, &.{ .download, .mark_read }, options(&cloud, false, &out));
     const read = entry(.local, 100);
-    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_unread }, options(&read, false, &out));
+    try std.testing.expectEqualSlices(Option, &.{ .remove, .mark_unread, .series }, options(&read, false, &out));
     const busy = entry(.downloading, 0);
     try std.testing.expectEqualSlices(Option, &.{}, options(&busy, false, &out));
 }
 
 test "removal asks first" {
-    var out: [3]Option = undefined;
+    var out: [4]Option = undefined;
     const local = entry(.local, 0);
     try std.testing.expectEqualSlices(Option, &.{ .confirm_remove, .cancel }, options(&local, true, &out));
 }

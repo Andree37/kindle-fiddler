@@ -17,6 +17,7 @@ const nowUs = os.nowUs;
 const app = @import("../app.zig");
 const hwtcon = @import("../kindle/hwtcon.zig");
 const battery_screen = @import("battery.zig");
+const series_screen = @import("series.zig");
 const cover_image = @import("../gfx/image.zig");
 const panel = @import("panel.zig");
 const lock = @import("lock.zig");
@@ -91,6 +92,7 @@ fn addEpubs(a: *app.App, alloc: std.mem.Allocator, catalog_entries: []catalog.En
             .title = if (about.title.len > 0) about.title else std.fs.path.stem(path),
             .author = about.author,
             .percent = @min(saved.percent orelse 0, 100),
+            .finished = saved.finished,
             .last = saved.opened,
             .seconds_read = saved.seconds,
             .thumbnail = if (have_cover or about.cover != null) try alloc.dupeSentinel(u8, cover_path, 0) else "",
@@ -129,6 +131,7 @@ pub fn loadLibrary(a: *app.App) !Library {
         e.last = @max(e.last, saved.opened);
     }
     const all = try addEpubs(a, alloc, entries);
+    series_screen.apply(alloc, a.state_dir, all); // Series set by hand win
     return .{ .arena = arena, .data = data, .entries = all, .visible = try alloc.alloc(usize, all.len) };
 }
 
@@ -145,15 +148,17 @@ pub fn forgetFinished(a: *app.App, e: *const catalog.Entry) !void {
 }
 
 /// What a book's actions changed, which decides what the library does next.
-pub const Change = enum { none, downloading, other };
+/// What a book's sheet changed: `reload` re-reads the library (a series set by hand),
+/// `redraw` only repaints it (a screen of its own was shown and nothing changed).
+pub const Change = enum { none, downloading, other, reload, redraw };
 
 /// Shows a book's actions.
-pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change {
+pub fn bookSheet(a: *app.App, e: *catalog.Entry, entries: []const catalog.Entry, background: []const u8) !Change {
     std.debug.print("sheet: {s}\n", .{e.title});
     var confirming = false;
     while (true) {
-        var list_buf: [3]book_actions.Option = undefined;
-        var row_buf: [3]card.Row = undefined;
+        var list_buf: [4]book_actions.Option = undefined;
+        var row_buf: [4]card.Row = undefined;
         var subtitle_buf: [320]u8 = undefined;
         const list = book_actions.options(e, confirming, &list_buf);
         const subtitle = book_actions.subtitle(&subtitle_buf, e, confirming);
@@ -161,6 +166,7 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change
         switch (list[picked]) {
             .cancel => return .none,
             .remove => confirming = true,
+            .series => return if (try series_screen.choose(a, entries, e)) .reload else .redraw,
             .confirm_remove => {
                 store.removeDownload(e.key, e.kind);
                 std.debug.print("removed download: {s}\n", .{e.title});
@@ -175,6 +181,15 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change
                 const done = choice == .mark_read;
                 store.markRead(e.key, e.kind, done);
                 e.finished = done;
+                // The Kindle keeps this for its own books; an EPUB's is kept with its place
+                if (e.isEpub()) {
+                    var path_buf: [320]u8 = undefined;
+                    if (a.statePath(&path_buf, e.path)) |p| {
+                        var saved = state.load(p);
+                        saved.finished = done;
+                        state.save(p, saved);
+                    } else |_| {}
+                }
                 if (done) {
                     a.journal.finish(a.today());
                     app.saveJournal(a);
@@ -496,7 +511,15 @@ pub fn runLibrary(a: *app.App) !void {
                 break :browse;
             }
             if (acting) |entry| {
-                const change = try bookSheet(a, entry, buf);
+                const change = try bookSheet(a, entry, lib.entries, buf);
+                if (change == .redraw) break :browse;
+                if (change == .reload) {
+                    var fresh = loadLibrary(a) catch break :browse;
+                    lib.deinit();
+                    lib = fresh;
+                    fresh = undefined;
+                    break :browse;
+                }
                 if (change != .none) {
                     // Only a download needs watching; nothing else finishes later.
                     if (change == .downloading) {

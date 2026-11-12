@@ -8,6 +8,7 @@ pub const State = struct {
     percent: ?u32 = null,
     opened: u64 = 0,
     seconds: u64 = 0, // Time spent reading this book
+    finished: bool = false, // Marked read: kept here for EPUBs, which the Kindle's catalog doesn't know
 };
 
 const failed = @import("os.zig").failed;
@@ -50,6 +51,7 @@ pub fn parse(content: []const u8) State {
     s.percent = if (it.next()) |p| std.fmt.parseInt(u32, p, 10) catch null else null;
     s.opened = if (it.next()) |o| std.fmt.parseInt(u64, o, 10) catch 0 else 0;
     s.seconds = if (it.next()) |o| std.fmt.parseInt(u64, o, 10) catch 0 else 0;
+    s.finished = if (it.next()) |f| std.mem.eql(u8, f, "1") else false;
     return s;
 }
 
@@ -84,7 +86,7 @@ pub fn writeSmall(path: [*:0]const u8, data: []const u8) void {
 
 pub fn save(path: [*:0]const u8, s: State) void {
     var buf: [128]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, "{d} {d} {d} {d} {d}\n", .{ s.para, s.byte, s.percent orelse 0, s.opened, s.seconds }) catch return;
+    const line = std.fmt.bufPrint(&buf, "{d} {d} {d} {d} {d} {d}\n", .{ s.para, s.byte, s.percent orelse 0, s.opened, s.seconds, @intFromBool(s.finished) }) catch return;
     writeSmall(path, line);
 }
 
@@ -124,4 +126,10 @@ test "a book's other files sit beside its state file" {
     var buf: [128]u8 = undefined;
     try std.testing.expectEqualStrings("/d/notes-0bee89b07a248e27", try sibling(&buf, "/d/state-0bee89b07a248e27", "notes"));
     try std.testing.expectError(error.NotAStateFile, sibling(&buf, "/d/other", "notes"));
+}
+
+test "a book marked read stays read, and older files read as not" {
+    const s = parse("10 20 55 1793990000 600 1\n");
+    try std.testing.expect(s.finished);
+    try std.testing.expect(!parse("10 20 55 1793990000 600\n").finished);
 }
