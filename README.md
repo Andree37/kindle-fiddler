@@ -11,6 +11,19 @@ your Amazon library, sync, highlights and Wi‑Fi.
 <p align="center"><b>New page in ~60 ms with noface, ~330 ms with the stock reader.</b><br>
 <sub>Same Kindle, same book, measured on the device. <a href="docs/DEVELOPING.md#how-the-speed-comparison-was-measured">How</a>.</sub></p>
 
+## What's different from the stock Kindle
+
+| | Stock Kindle | noface |
+|---|---|---|
+| Turning a page | ~330 ms | **~60 ms** |
+| Home screen | Store shelves, deals and subscriptions | **Just your books** |
+| EPUBs copied over USB | Won't open; they have to go through Send to Kindle | **Open right away** |
+| Wi‑Fi while you read | Stays on | **Off while you read, back when you're done** |
+| Battery | A percentage | **Also how long your charge will last** |
+| Series in your own files | Not recognised | **Grouped, in order, next book offered when you finish** |
+
+<p align="center"><img src="docs/features.png" width="760" alt="Six noface screens: the home screen with only your books, the next book in a series offered on finishing one, search as you type, a picture zoomed full screen, the library sorted by series, and reading stats"></p>
+
 ## Why you'll like it
 
 - **Instant pages.** Tap or swipe, and the next page is already there.
