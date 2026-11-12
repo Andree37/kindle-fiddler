@@ -10,18 +10,23 @@ Needs [Zig](https://ziglang.org) 0.17.
 - `zig build check`: the ownership boundaries below.
 - `zig build tools`: development tools, also for the Kindle.
 
-## Installing a build by hand
+## Packaging and releases
 
-noface runs from `/mnt/us/noface/` and opens from the home search bar with
-`;kpm launch noface`.
+`tools/package.sh 1.2.3` builds `zig-out/noface-1.2.3.zip`, the same zip a release
+carries. Pushing a tag like `v1.2.3` has GitHub build and publish it
+(`.github/workflows/release.yml`), with `docs/RELEASE_NOTES.md` as its install steps.
+The dictionaries are built and published by hand from the Actions tab
+(`dictionaries.yml`).
 
-1. Copy `noface` and `jxr2pgm` from `zig-out/bin/` into `/mnt/us/noface/`.
-2. Copy the scripts in `device/` there too, and `device/kpm/` into KPM's app folder.
-3. To open noface when the Kindle starts, turn on Aa > More > "Open noface when the
-   Kindle starts", and copy `device/noface-autostart.conf` into `/etc/upstart/` (with
-   the root filesystem mounted read-write). Three failed starts in a row turn it off
-   again by themselves. The Kindle button in the drag-down panel always returns to the
-   stock home screen.
+On the Kindle, the app lives in `/mnt/us/noface/` and opens with `;kpm launch noface`
+(the launcher entry is `kmc/kpm/packages/noface/launch.sh`). What noface keeps lives
+in `/mnt/us/noface-data/`, so replacing the app folder never loses anything;
+`device/data.sh` moves an older install's data there on its first run.
+
+"Open noface when the Kindle starts" (Aa > More) installs
+`/etc/upstart/noface-autostart.conf` itself, after asking. Three failed starts in a row
+turn it off again by themselves, and the Kindle button in the drag-down panel always
+returns to the stock home screen.
 
 ## Dictionaries
 
@@ -35,7 +40,7 @@ python3 tools/build_dictionary.py kaikki.org-dictionary-English.jsonl.gz dict-en
 python3 tools/build_dictionary.py kaikki.org-dictionary-Portuguese.jsonl.gz dict-pt
 ```
 
-Then put `dict-en` (about 95 MB) and `dict-pt` (about 38 MB) in `/mnt/us/noface/`.
+Then put `dict-en` (about 95 MB) and `dict-pt` (about 38 MB) in `/mnt/us/noface-data/`.
 A book's language is worked out from its text.
 
 ## Layout

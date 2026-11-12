@@ -1,0 +1,6 @@
+This dictionary is built from Wiktionary (https://www.wiktionary.org), by way of the
+extracts at kaikki.org (https://kaikki.org), and is licensed under the Creative
+Commons Attribution-ShareAlike 4.0 International License
+(https://creativecommons.org/licenses/by-sa/4.0/). The definitions are the work of
+Wiktionary's contributors. It is not part of noface and not under noface's license;
+any copy of it must keep this license and credit.

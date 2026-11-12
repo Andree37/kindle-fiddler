@@ -1,0 +1,35 @@
+# Builds the dictionaries from Wiktionary (by way of kaikki.org) and publishes them
+# under the "dictionaries" release. Run by hand from the Actions tab when wanted.
+name: dictionaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          mkdir -p work && cd work
+          curl -sSfLO https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz
+          curl -sSfLO https://kaikki.org/dictionary/Portuguese/kaikki.org-dictionary-Portuguese.jsonl.gz
+          python3 ../tools/build_dictionary.py kaikki.org-dictionary-English.jsonl.gz dict-en
+          python3 ../tools/build_dictionary.py kaikki.org-dictionary-Portuguese.jsonl.gz dict-pt
+          # Just the file and its license: copied into noface-data on the Kindle, so the
+          # zip never holds a folder that could replace the one there
+          for d in dict-en dict-pt; do
+            cp ../docs/DICTIONARY_LICENSE.txt "$d-LICENSE.txt"
+            zip -q "$d.zip" "$d" "$d-LICENSE.txt"
+          done
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view dictionaries >/dev/null 2>&1 || \
+            gh release create dictionaries --title "Dictionaries" --notes "English and Portuguese definitions from Wiktionary (CC BY-SA 4.0), for noface. Unzip, then copy the dict file into the noface-data folder on the Kindle."
+          gh release upload dictionaries work/dict-en.zip work/dict-pt.zip --clobber

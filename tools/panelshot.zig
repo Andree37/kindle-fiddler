@@ -79,7 +79,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var quick = lipc.read(.{});
 
     if (std.mem.eql(u8, mode, "library")) {
-        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface-data/library.tsv"));
         catalog.sort(entries, .recent);
         const visible = try alloc.alloc(usize, entries.len);
         const filter: catalog.Filter = if (argv.len > 3) .read else .all;
@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // The library with a search showing: the filled search button and the results
     // header. `panelshot library-search [query]`, "the" by default.
     if (std.mem.eql(u8, mode, "library-search")) {
-        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface-data/library.tsv"));
         catalog.sort(entries, .recent);
         const visible = try alloc.alloc(usize, entries.len);
         const query = if (argv.len > 2) std.mem.sliceTo(argv[2], 0) else "the";
@@ -126,7 +126,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     if (std.mem.eql(u8, mode, "sheet")) {
-        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface/library.tsv"));
+        const entries = try catalog_db.parse(alloc, try file.map("/mnt/us/noface-data/library.tsv"));
         catalog.sort(entries, .recent);
         const lead = catalog.pickHero(entries);
         const visible = try alloc.alloc(usize, entries.len);

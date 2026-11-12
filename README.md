@@ -35,11 +35,18 @@ screen with zoom, and reading stats with your daily minutes and streak.
 
 ## Get it
 
-You'll need a **jailbroken Kindle Paperwhite (12th gen)** with KPM installed. That's
-the only Kindle it's tested on so far.
+You'll need a **jailbroken Kindle Paperwhite (12th gen)** with KMC and KPM. That's the
+only Kindle it's tested on so far.
 
-Installing is a few copies onto the Kindle: see [docs/DEVELOPING.md](docs/DEVELOPING.md).
-A one-download release is on its way.
+1. Download the latest **noface-*.zip** from [Releases](../../releases/latest) and
+   unzip it.
+2. Plug in the Kindle. Copy the **noface** folder to its drive, and the folder
+   **noface/kpm/noface** into **kmc/kpm/packages**.
+3. Eject, and type `;kpm launch noface` in the Kindle's search bar.
+
+Updating is the same copy: your settings, reading positions and stats live in a
+separate **noface-data** folder that updates never touch. Dictionaries are an optional
+download, explained in the release notes.
 
 ## Good to know
 

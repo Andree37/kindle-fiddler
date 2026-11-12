@@ -8,6 +8,6 @@
 echo "launch $(date)"
 killall jobman 2>/dev/null
 
-DIR=/mnt/us/noface
-/bin/sh "$DIR/export.sh"
-exec /bin/sh "$DIR/noface.sh"
+. /mnt/us/noface/data.sh
+/bin/sh "$APP/export.sh"
+exec /bin/sh "$APP/noface.sh"

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Exports the book list from the Kindle's catalog. noface reruns this to refresh.
-DIR=/mnt/us/noface
+. /mnt/us/noface/data.sh
+DIR=$DATA
 cp /var/local/cc.db /tmp/kf-cc.db
 sqlite3 -separator "$(printf '\t')" /tmp/kf-cc.db \
     "select coalesce(p_location, ''), p_titles_0_nominal,

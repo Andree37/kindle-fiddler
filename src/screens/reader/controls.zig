@@ -1,5 +1,7 @@
 //! The reading toolbar and its Aa sheet.
 const std = @import("std");
+const autostart = @import("../../kindle/autostart.zig");
+const card = @import("../../ui/card.zig");
 const aa = @import("../../ui/aa.zig");
 const toolbar = @import("../../ui/toolbar.zig");
 const app = @import("../../app.zig");
@@ -122,6 +124,17 @@ pub fn tapSheet(a: *app.App, alloc: std.mem.Allocator, s: *sess.Session, title: 
             return drawToolbar(a, s, title, true, false);
         },
         .autostart => {
+            // Turning it on needs the startup file in the system folder: ask first
+            if (!a.settings.autostart and !autostart.installed()) {
+                const page = try s.ensure(s.current, s.current);
+                const rows = [_]card.Row{.{ .label = "Turn on" }};
+                const agreed = try app.chooseFromCard(a, page, "Open noface when the Kindle starts", "This adds one small startup file to the Kindle's system.", &rows) != null;
+                if (!agreed) return drawToolbar(a, s, title, true, false);
+                if (!autostart.install()) {
+                    try drawToolbar(a, s, title, true, false);
+                    return app.showNotice(a, "Couldn't set up starting with the Kindle.");
+                }
+            }
             a.settings.autostart = !a.settings.autostart;
             app.saveSettings(a.settings_path, a.settings);
             return drawToolbar(a, s, title, true, false);

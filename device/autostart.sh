@@ -1,16 +1,17 @@
 #!/bin/sh
-# Starts noface when the Kindle boots. Installed as /mnt/us/emergency.sh, run by
-# /etc/upstart/noface-autostart.conf once the user drive is mounted (KMC's kmc.conf
-# also runs it, but too early to find it). Deleting either file undoes autostart.
+# Starts noface when the Kindle boots. Run by /etc/upstart/noface-autostart.conf once
+# the user drive is mounted; noface installs that file when "Open noface when the
+# Kindle starts" is switched on. Older installs ran this as /mnt/us/emergency.sh.
 #
 # It never holds up boot: it returns at once and starts noface in the background.
 # Safety:
 #   - Off unless the settings say "autostart on" (Aa > More in noface).
 #   - Crash guard: three boots in a row where noface didn't run for a minute turn
 #     autostart off by themselves (noface.sh clears the count after a good minute).
-DIR=/mnt/us/noface
-# Once per boot: the drive comes back after every USB unplug, and both KMC's hook and
-# ours may call this. /tmp is in RAM, so the mark is gone on the next boot.
+. /mnt/us/noface/data.sh
+DIR=$DATA
+# Once per boot: the drive comes back after every USB unplug, and an older install's
+# emergency.sh may call this too. /tmp is in RAM, so the mark is gone on the next boot.
 [ -e /tmp/noface-autostart-ran ] && exit 0
 touch /tmp/noface-autostart-ran
 # Airplane mode noface turned on for reading, left on by a hard restart mid-book:
@@ -31,5 +32,5 @@ echo $((count + 1)) > "$DIR/boot-attempts"
 # Give the Kindle's home a moment to finish drawing, then open noface over it. Straight
 # to start.sh rather than through KPM: KPM's waits are for the search keyboard,
 # which isn't there at boot.
-nohup sh -c 'sleep 20; setsid sh /mnt/us/noface/start.sh now >> /mnt/us/noface/launch.log 2>&1 < /dev/null' > /dev/null 2>&1 &
+nohup sh -c 'sleep 20; setsid sh /mnt/us/noface/start.sh now >> /mnt/us/noface-data/launch.log 2>&1 < /dev/null' > /dev/null 2>&1 &
 exit 0

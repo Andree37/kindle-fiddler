@@ -1,6 +1,7 @@
 #!/bin/sh
 # Pauses the stock UI, runs noface, and always puts the stock UI back.
-DIR=/mnt/us/noface
+. /mnt/us/noface/data.sh
+DIR=$DATA
 FONTS=/usr/java/lib/fonts
 restore() {
     killall -CONT awesome 2>/dev/null
@@ -34,7 +35,7 @@ if [ "$(wc -c < "$DIR/noface.log" 2>/dev/null || echo 0)" -gt 524288 ]; then
 fi
 
 # Background plus wait, so a signal reaches noface instead of waiting on it.
-"$DIR/noface" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$FONTS/Amazon-Ember-Regular.ttf" "$FONTS/Amazon-Ember-Bold.ttf" "$DIR" >> "$DIR/noface.log" 2>&1 &
+"$APP/noface" "$DIR/library.tsv" "$FONTS/Bookerly-Regular.ttf" "$FONTS/Bookerly-Bold.ttf" "$FONTS/Amazon-Ember-Regular.ttf" "$FONTS/Amazon-Ember-Bold.ttf" "$DIR" >> "$DIR/noface.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null' INT TERM HUP
 
