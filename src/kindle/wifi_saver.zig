@@ -18,23 +18,46 @@ pub const after_us: u64 = 2 * 60 * 1000 * 1000;
 
 const marker: [*:0]const u8 = "/mnt/us/noface/wifi-paused";
 
-/// Turns the radio off, if airplane mode and Bluetooth are both off. True when it did.
-pub fn pause() bool {
-    if (lipc.airplaneOn() orelse true) return false; // On already: the reader's choice
-    if (lipc.bluetoothOn() orelse true) return false;
+pub const Outcome = enum {
+    paused, // Off now
+    later, // Not now (a download, Bluetooth, or lipc not answering): try again
+    never, // Airplane mode is the reader's own, or noface couldn't note that it acted
+};
+
+/// Turns the radio off, if airplane mode and Bluetooth are both off and nothing is
+/// downloading. The note goes down first and must be there to read back: without
+/// it nothing would ever turn the radio on again.
+pub fn pause(downloading: bool) Outcome {
+    if (downloading) return .later;
+    if (lipc.airplaneOn() orelse return .later) return .never;
+    if (lipc.bluetoothOn() orelse return .later) return .later;
     state.writeSmall(marker, "1\n");
+    if (!marked()) return .never;
     lipc.setAirplane(true);
+    if (lipc.airplaneOn() != true) {
+        forget();
+        return .later;
+    }
     std.debug.print("wifi: off while reading\n", .{});
-    return true;
+    return .paused;
 }
 
-/// Turns the radio back on, if noface is the one that turned it off.
-pub fn restore() void {
+fn marked() bool {
     var buf: [8]u8 = undefined;
-    if (state.readSmall(marker, &buf).len == 0) return;
+    return state.readSmall(marker, &buf).len > 0;
+}
+
+/// Turns the radio back on, if noface is the one that turned it off. The note stays
+/// until airplane mode is seen off, so noface.sh or the next start can try again.
+pub fn restore() void {
+    if (!marked()) return;
     lipc.setAirplane(false);
-    forget();
-    std.debug.print("wifi: back on\n", .{});
+    if (lipc.airplaneOn() == false) {
+        forget();
+        std.debug.print("wifi: back on\n", .{});
+    } else {
+        std.debug.print("wifi: couldn't turn it back on yet\n", .{});
+    }
 }
 
 /// The reader switched airplane mode themselves: theirs now, not noface's to undo.

@@ -94,7 +94,7 @@ pub const Order = enum {
 };
 
 fn before(order: Order, a: Entry, b: Entry) bool {
-    // A series stays together, downloaded or not: the next book is often in the cloud
+    // A series stays together, downloaded or not
     if (order == .series) return bySeries(a, b);
     // Books on this Kindle always come first: cloud ones can't be opened yet.
     if (a.isLocal() != b.isLocal()) return a.isLocal();
@@ -152,21 +152,21 @@ fn byProgress(a: Entry, b: Entry) bool {
 /// What a book sorts under alphabetically: its series, so a series stays together,
 /// or else its title.
 fn titleKey(e: Entry) []const u8 {
-    return if (e.series.len > 0) e.series else e.title;
+    return if (e.series.len > 0) withoutThe(e.series) else e.title;
 }
 
-/// Books of one series in their order, or null when they aren't of the same one.
-fn seriesOrder(a: Entry, b: Entry) ?bool {
-    if (!sameSeries(a.series, b.series)) return null;
-    if (a.series_index != b.series_index) return a.series_index < b.series_index;
-    return null;
-}
-
+/// Alphabetical by series or title. Within one key: the books outside a series, then
+/// the series in its order, then by title. One key decides everything, so the order
+/// holds together however the books are sorted (a comparator that disagrees with
+/// itself can crash the sort).
 fn byTitle(a: Entry, b: Entry) bool {
-    if (seriesOrder(a, b)) |o| return o;
     const ka = titleKey(a);
     const kb = titleKey(b);
     if (!std.ascii.eqlIgnoreCase(ka, kb)) return std.ascii.lessThanIgnoreCase(ka, kb);
+    const in_a = a.series.len > 0;
+    const in_b = b.series.len > 0;
+    if (in_a != in_b) return in_b;
+    if (in_a and a.series_index != b.series_index) return a.series_index < b.series_index;
     return std.ascii.lessThanIgnoreCase(a.title, b.title);
 }
 
@@ -180,23 +180,23 @@ pub fn seriesFromFileName(path: []const u8) ?SeriesPlace {
     const base = path[(std.mem.lastIndexOfScalar(u8, path, '/') orelse return null) + 1 ..];
     var parts = std.mem.splitSequence(u8, base, " -- ");
     const first = parts.next() orelse return null;
-    if (bracketed(first)) |found| return found;
-    _ = parts.next() orelse return null;
-    const third = parts.next() orelse return null;
-    // "Name #2, 1980"
+    _ = parts.next();
+    const third = parts.next() orelse "";
+    // "Name #2, 1980": said outright, so taken as it is (any name, any number)
     if (std.mem.lastIndexOf(u8, third, " #")) |hash| {
         var number = third[hash + 2 ..];
         if (std.mem.indexOfScalar(u8, number, ',')) |comma| number = number[0..comma];
-        return named(third[0..hash], number);
+        if (named(third[0..hash], number, .stated)) |found| return found;
     }
-    // "Name, 3, 2016" or "Name, bk_ 3, ..."
+    if (bracketed(first)) |found| return found;
+    // "Name, 3, 2016" or "Name, bk_ 3, ...": a guess, so held to more
     var fields = std.mem.splitSequence(u8, third, ", ");
     const name = fields.next() orelse return null;
     var number = fields.next() orelse return null;
     for ([_][]const u8{ "bk_", "bk.", "book", "Book", "vol.", "Vol." }) |word| {
         if (std.mem.startsWith(u8, number, word)) number = number[word.len..];
     }
-    return named(name, number);
+    return named(name, number, .guessed);
 }
 
 /// "[Hitchhiker's Guide to the Galaxy 01] • The Hitchhiker's...": the series and number
@@ -206,16 +206,31 @@ fn bracketed(first: []const u8) ?SeriesPlace {
     const close = std.mem.indexOfScalar(u8, first, ']') orelse return null;
     const inside = first[1..close];
     const space = std.mem.lastIndexOfScalar(u8, inside, ' ') orelse return null;
-    return named(inside[0..space], inside[space + 1 ..]);
+    return named(inside[0..space], inside[space + 1 ..], .guessed);
 }
 
-fn named(name_part: []const u8, number_part: []const u8) ?SeriesPlace {
+const Sureness = enum { stated, guessed };
+
+/// Words a guessed series name can't be: an edition, a printing, a bare "Book".
+const not_series = [_][]const u8{ "edition", "reprint", "printing", "impression", "book", "part", "volume", "vol" };
+
+fn named(name_part: []const u8, number_part: []const u8, sureness: Sureness) ?SeriesPlace {
     const name = std.mem.trim(u8, name_part, " ");
     const index = std.fmt.parseFloat(f32, std.mem.trim(u8, number_part, " _")) catch return null;
-    // A name has letters (not a year), and a place in a series is a small number
-    var letters = false;
-    for (name) |c| letters = letters or std.ascii.isAlphabetic(c);
-    if (!letters or index < 0 or index > 200) return null;
+    if (name.len == 0 or std.math.isNan(index) or std.math.isInf(index) or index < 0) return null;
+    if (sureness == .guessed) {
+        // A name has letters, in any script (not a year), and a place in a series is
+        // a small number
+        var letters = false;
+        for (name) |c| letters = letters or std.ascii.isAlphabetic(c) or c >= 0x80;
+        if (!letters or index > 200) return null;
+        var words = std.mem.tokenizeScalar(u8, name, ' ');
+        while (words.next()) |w| {
+            for (not_series) |bad| {
+                if (std.ascii.eqlIgnoreCase(std.mem.trimEnd(u8, w, "."), bad)) return null;
+            }
+        }
+    }
     return .{ .name = name, .index = index };
 }
 
@@ -263,7 +278,8 @@ pub fn sort(entries: []Entry, order: Order) void {
             e.series_last = 0;
             if (e.series.len == 0) continue;
             for (entries) |o| {
-                if (sameSeries(o.series, e.series)) e.series_last = @max(e.series_last, o.last);
+                // Only books opened: a download's date isn't reading
+                if (sameSeries(o.series, e.series) and o.wasOpened()) e.series_last = @max(e.series_last, o.last);
             }
         }
     }
@@ -376,8 +392,16 @@ test "series come from file names" {
     try std.testing.expectEqualStrings("Hitchhiker's Guide to the Galaxy", br.name);
     try std.testing.expectEqual(@as(f32, 1), br.index);
     try std.testing.expect(sameSeries(br.name, s.name));
-    // A publisher's name with a year isn't a series
+    // A publisher's name with a year isn't a series, nor is an edition
     try std.testing.expect(seriesFromFileName("/d/X -- Y -- Penguin, 2010 -- Z.kfx") == null);
+    try std.testing.expect(seriesFromFileName("/d/X -- Y -- Kindle Edition, 1 -- Z.kfx") == null);
+    try std.testing.expect(seriesFromFileName("/d/X -- Y -- Revised edition, 2, 2009 -- Z.kfx") == null);
+    try std.testing.expect(seriesFromFileName("/d/X -- Y -- Saga, nan -- Z.kfx") == null);
+    // Said with "#", any name and number counts, and wins over brackets
+    try std.testing.expectEqualStrings("\u{4e09}\u{4f53}", seriesFromFileName("/d/X -- Y -- \u{4e09}\u{4f53} #2 -- Z.kfx").?.name);
+    try std.testing.expectEqualStrings("1632", seriesFromFileName("/d/X -- Y -- 1632 #2 -- Z.kfx").?.name);
+    try std.testing.expectEqual(@as(f32, 2500), seriesFromFileName("/d/X -- Y -- Perry Rhodan #2500 -- Z.kfx").?.index);
+    try std.testing.expectEqualStrings("Real Saga", seriesFromFileName("/d/[Book 2] Odyssey -- Homer -- Real Saga #5, 2003 -- Z.kfx").?.name);
     try std.testing.expect(seriesFromFileName("/d/X -- Y -- MIT Electrical Engineering and -- Z.kfx") == null);
 }
 
@@ -497,4 +521,28 @@ test "next in a series skips what's read" {
     };
     try std.testing.expectEqual(@as(usize, 1), nextInSeries(&entries, &entries[0]).?);
     try std.testing.expect(nextInSeries(&entries, &entries[1]) == null);
+}
+
+test "sorting by title holds together when one series is named with and without The" {
+    const rows = [_]Entry{
+        .{ .path = "/a", .title = "Hitchhiker", .author = "", .percent = 0, .last = 1, .series = "The Hitchhiker's Guide", .series_index = 1 },
+        .{ .path = "/b", .title = "Restaurant", .author = "", .percent = 0, .last = 1, .series = "Hitchhiker's Guide", .series_index = 2 },
+        .{ .path = "/c", .title = "Last Chance to See", .author = "", .percent = 0, .last = 1 },
+        .{ .path = "/d", .title = "Hitchhiker's Guide", .author = "", .percent = 0, .last = 1 },
+    };
+    // Every starting order gives the same result
+    const want = [_][]const u8{ "Hitchhiker's Guide", "Hitchhiker", "Restaurant", "Last Chance to See" };
+    var perm = [_]usize{ 0, 1, 2, 3 };
+    for (0..24) |_| {
+        var shuffled: [4]Entry = undefined;
+        for (perm, &shuffled) |p, *e| e.* = rows[p];
+        sort(&shuffled, .title);
+        for (want, shuffled) |w, e| try std.testing.expectEqualStrings(w, e.title);
+        std.mem.reverse(usize, perm[1..]);
+        std.mem.rotate(usize, &perm, 1);
+    }
+    for (0..rows.len) |i| for (0..rows.len) |j| {
+        // Never both before the other
+        try std.testing.expect(!(byTitle(rows[i], rows[j]) and byTitle(rows[j], rows[i])));
+    };
 }

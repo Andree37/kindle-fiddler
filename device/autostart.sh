@@ -13,6 +13,12 @@ DIR=/mnt/us/noface
 # ours may call this. /tmp is in RAM, so the mark is gone on the next boot.
 [ -e /tmp/noface-autostart-ran ] && exit 0
 touch /tmp/noface-autostart-ran
+# Airplane mode noface turned on for reading, left on by a hard restart mid-book:
+# undo it now, at boot, before the reader can make airplane mode their own choice.
+# In the background, as the connection manager may not be up yet.
+if [ -e "$DIR/wifi-paused" ]; then
+    nohup sh -c "sleep 30; lipc-set-prop com.lab126.cmd wirelessEnable 1 && [ \"\$(lipc-get-prop com.lab126.cmd wirelessEnable)\" = 1 ] && rm -f $DIR/wifi-paused" > /dev/null 2>&1 &
+fi
 grep -q '^autostart on' "$DIR/settings" 2>/dev/null || exit 0
 count=$(cat "$DIR/boot-attempts" 2>/dev/null || echo 0)
 if [ "$count" -ge 3 ]; then

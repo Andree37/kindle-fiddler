@@ -69,7 +69,9 @@ pub const App = struct {
     speed_path: [*:0]const u8,
     journal_path: [*:0]const u8,
     battery_path: [*:0]const u8,
-    battery_last: ?battery_model.Sample = null, // Last level noted, so only changes are
+    battery_last: ?battery_model.Sample = null, // Last level noted, so only changes are logged
+    downloads_until: u64 = 0, // A download may still be running until then (nowUs)
+    wifi_hands_off: bool = false, // The reader took charge of airplane mode in this book
     journal: journal_model.Journal = .{}, // What was read each day, for the stats screen
     speed: stats.Speed = .{}, // How fast this reader reads, across every book
     pictures: Pictures = .{}, // Pictures of the open book, ready to copy onto pages

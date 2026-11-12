@@ -68,11 +68,12 @@ pub fn show(a: *app.App) !void {
 test "the bubble says what it knows" {
     var buf: [160]u8 = undefined;
     const d = 86400;
+    const t = 1_790_000_000;
     const log = [_]battery.Sample{
-        .{ .time = 0, .level = 100, .plugged = false },
-        .{ .time = 2 * d, .level = 90, .plugged = false }, // 5% a day
+        .{ .time = t, .level = 100, .plugged = false },
+        .{ .time = t + 2 * d, .level = 90, .plugged = false }, // 5% a day
     };
-    const now = battery.Sample{ .time = 2 * d, .level = 90, .plugged = false };
+    const now = battery.Sample{ .time = t + 2 * d, .level = 90, .plugged = false };
     const said = lines(&buf, &log, now, 70 * 60);
     try std.testing.expectEqualStrings("About 3 weeks left", said.title); // 18 days
     try std.testing.expectEqualStrings("Reading about 1 h 10 min a day, as lately", said.detail);

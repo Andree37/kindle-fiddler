@@ -107,16 +107,27 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
             const marker = try a.screen.updateRegion(box.left, box.top, box.width, box.height, app.page_waveform, .partial);
             switch (choice) {
                 .airplane => {
+                    // The reader's choice now: noface neither undoes nor redoes it
                     wifi_saver.forget();
+                    a.wifi_hands_off = true;
                     lipc.setAirplane(a.quick.airplane);
                 },
                 .bluetooth => lipc.setBluetooth(a.quick.bluetooth),
                 else => {
-                    wifi_saver.restore(); // Paused while reading: syncing needs it
+                    // Paused while reading: syncing needs it, for the rest of the book
+                    wifi_saver.restore();
+                    a.wifi_hands_off = true;
                     lipc.syncNow();
                 },
             }
             try a.screen.waitComplete(marker);
+            if (choice == .sync and a.quick.airplane and lipc.airplaneOn() == false) {
+                // The airplane tile said on: show it off now
+                a.quick.airplane = false;
+                const plane = menu.shortcutBox(.airplane).?;
+                try menu.drawShortcut(a.ui, a.page(a.screen.pixels), .airplane, &a.quick);
+                try a.showRect(plane.left, plane.top, plane.width, plane.height);
+            }
         },
         .schedule => {
             a.quick.schedule = !a.quick.schedule;
@@ -130,6 +141,11 @@ pub fn panelControl(a: *app.App, background: []const u8, choice: menu.Hit, x: i3
 
 /// The quick panel over the library. Returns true to quit to the stock UI.
 pub fn libraryMenu(a: *app.App, background: []const u8) !bool {
+    // Touches as they land, as in the reader: a slider follows the finger from there,
+    // and a tap that only arrived on the lift would leave it waiting for a drag
+    const deferred = a.input.deferred;
+    a.input.deferred = false;
+    defer a.input.deferred = deferred;
     try drawFresh(a, background);
     while (true) {
         switch (a.input.next()) {

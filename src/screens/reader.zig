@@ -44,6 +44,9 @@ pub const save_every = 10;
 
 pub const clock_check_us = 10 * 1000 * 1000;
 
+/// Wi-Fi that couldn't go off yet (a download, Bluetooth) is tried again this often.
+const wifi_retry_us = 60 * 1000 * 1000;
+
 pub const Outcome = enum { library, quit };
 
 pub const View = enum { page, toolbar, sheet, panel, note, highlight };
@@ -166,8 +169,8 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
 
     var since_save: u32 = 0;
     // A while into the book, Wi-Fi goes off; leaving it, it comes back
-    const wifi_off_at = nowUs() + wifi_saver.after_us;
-    var wifi_tried = false;
+    var wifi_try_at: ?u64 = nowUs() + wifi_saver.after_us; // Null once settled
+    a.wifi_hands_off = false;
     var battery_minute: u64 = 0; // The battery is noted once a minute at most
     defer wifi_saver.restore();
     var view: View = .page;
@@ -391,10 +394,14 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     };
                     continue;
                 }
-                if (view == .page and !wifi_tried and nowUs() >= wifi_off_at) {
-                    wifi_tried = true;
-                    _ = wifi_saver.pause();
-                }
+                if (wifi_try_at) |at| if (view == .page and nowUs() >= at) {
+                    if (a.wifi_hands_off) {
+                        wifi_try_at = null;
+                    } else switch (wifi_saver.pause(nowUs() < a.downloads_until)) {
+                        .paused, .never => wifi_try_at = null,
+                        .later => wifi_try_at = nowUs() + wifi_retry_us,
+                    }
+                };
                 if (unixTime() / 60 != battery_minute) {
                     battery_minute = unixTime() / 60;
                     a.noteBattery();

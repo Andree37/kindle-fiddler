@@ -51,16 +51,15 @@ fn trim(path: [*:0]const u8) void {
 pub fn load(path: [*:0]const u8, out: []battery.Sample) []battery.Sample {
     var buf: [max_bytes + 4096]u8 = undefined;
     const all = state.readSmall(path, &buf);
+    // Kept in a ring, so a long log costs one pass, then put in order
     var n: usize = 0;
     var lines = std.mem.tokenizeScalar(u8, all, '\n');
     while (lines.next()) |line| {
         const s = battery.parseLine(line) orelse continue;
-        if (n == out.len) {
-            std.mem.copyForwards(battery.Sample, out[0 .. n - 1], out[1..n]);
-            n -= 1;
-        }
-        out[n] = s;
+        out[n % out.len] = s;
         n += 1;
     }
-    return out[0..n];
+    if (n <= out.len) return out[0..n];
+    std.mem.rotate(battery.Sample, out, n % out.len);
+    return out;
 }

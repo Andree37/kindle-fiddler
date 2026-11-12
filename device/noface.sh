@@ -14,9 +14,10 @@ restore() {
     done
     [ -n "$watchdog" ] && kill "$watchdog" 2>/dev/null
     # Wi-Fi noface turned off while reading, in case it couldn't turn it back on
+    # The note goes only once airplane mode is really off, so a later try can still act.
     if [ -e "$DIR/wifi-paused" ]; then
         lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
-        rm -f "$DIR/wifi-paused"
+        [ "$(lipc-get-prop com.lab126.cmd wirelessEnable 2>/dev/null)" = 1 ] && rm -f "$DIR/wifi-paused"
     fi
 }
 trap restore EXIT

@@ -27,6 +27,10 @@ const search = @import("../model/search.zig");
 
 pub const download_poll_us = 5 * 1000 * 1000;
 
+/// After leaving a book, how long and how often the status is read again, for Wi-Fi
+/// coming back from airplane mode.
+const status_watch_us = 40 * 1000 * 1000;
+const status_poll_us = 10 * 1000 * 1000;
 pub const download_watch_us = 3 * 60 * 1000 * 1000;
 
 pub fn loggedHit(x: i32, y: i32, index: usize, count: usize, searching: bool) library.Hit {
@@ -181,26 +185,22 @@ pub fn bookSheet(a: *app.App, e: *catalog.Entry, background: []const u8) !Change
     }
 }
 
-const UpNext = enum { none, read, download };
-
-/// After finishing a book of a series: the next one, to read now or download.
-fn upNext(a: *app.App, next: *const catalog.Entry, background: []const u8) !UpNext {
+/// After finishing a book of a series: the next one, to read now. Only books on the
+/// Kindle can offer it: a series is read from a book's file name, and books in the
+/// cloud have none yet.
+fn upNext(a: *app.App, next: *const catalog.Entry, background: []u8) !bool {
+    if (next.availability != .local) return false;
     var label_buf: [160]u8 = undefined;
     var subtitle_buf: [200]u8 = undefined;
     const subtitle = std.fmt.bufPrint(&subtitle_buf, "Up next in {s}", .{catalog.seriesLabel(&label_buf, next.*)}) catch "Up next";
-    const row: card.Row = switch (next.availability) {
-        .local => .{ .label = "Read it now" },
-        .cloud => .{ .label = "Download" },
-        .downloading => .{ .label = "Downloading\u{2026}", .quiet = true },
-    };
     std.debug.print("up next: {s}\n", .{next.title});
-    const picked = try app.chooseFromCard(a, background, next.title, subtitle, &.{row}) orelse return .none;
-    _ = picked;
-    return switch (next.availability) {
-        .local => .read,
-        .cloud => .download,
-        .downloading => .none,
-    };
+    // Straight from the reader: its resting-thumb zones would swallow the card's row,
+    // which sits along the bottom edge, so take the library's modes now
+    a.input.grips = false;
+    a.input.deferred = true;
+    // Over the page just left, not whatever the reader last kept in this buffer
+    @memcpy(background, a.screen.pixels);
+    return try app.chooseFromCard(a, background, next.title, subtitle, &.{.{ .label = "Read it now" }}) != null;
 }
 
 pub fn logPage(lib: *const Library, index: usize, count: usize) void {
@@ -299,6 +299,8 @@ pub fn runLibrary(a: *app.App) !void {
     // Set only for a download started here. Catalog flags can stay stuck, so
     // they must never drive this, and checking must never touch the screen.
     var watch_until: u64 = 0;
+    // After a book, Wi-Fi takes a while to come back: the status is read again until then
+    var status_until: u64 = 0;
     defer a.input.tick_us = 0;
 
     while (true) {
@@ -313,7 +315,11 @@ pub fn runLibrary(a: *app.App) !void {
         var hero = catalog.pickHero(lib.entries);
         var count = choose(&lib, filter, hero, query.words());
         index = @min(index, library.pageCount(count) - 1);
-        a.input.tick_us = if (nowUs() < watch_until) download_poll_us else 0;
+        a.input.tick_us = if (nowUs() < watch_until) download_poll_us else if (nowUs() < status_until) status_poll_us else 0;
+        // A book still coming down keeps Wi-Fi on, even once a book is open
+        for (lib.entries) |e| {
+            if (e.availability == .downloading) a.downloads_until = @max(a.downloads_until, nowUs() + download_watch_us);
+        }
         const r0 = nowUs();
         try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), message, &a.quick, moment(a));
         std.debug.print("library render {d} ms\n", .{(nowUs() - r0) / 1000});
@@ -410,8 +416,16 @@ pub fn runLibrary(a: *app.App) !void {
                     },
                 },
                 .tick => {
+                    if (nowUs() < status_until) {
+                        const fresh_status = lipc.read(a.quick);
+                        if (!fresh_status.same(&a.quick)) {
+                            a.quick = fresh_status;
+                            try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), "", &a.quick, moment(a));
+                            try a.present(buf, .gc16, .partial);
+                        }
+                    }
                     if (nowUs() >= watch_until) {
-                        a.input.tick_us = 0;
+                        if (nowUs() >= status_until) a.input.tick_us = 0;
                         continue;
                     }
                     catalog_db.exportLibrary();
@@ -443,6 +457,7 @@ pub fn runLibrary(a: *app.App) !void {
                 .drag, .drag_end, .unlock => continue,
                 .lock => {
                     try lock.lockScreen(a, if (hero) |h| &lib.entries[h] else null);
+                    a.noteBattery(); // What sleeping (or charging) did
                     // Redrawn on waking, where only what changed (the clock, "Last read")
                     // repaints: these may be days old. No continue: on to the redraw below.
                 },
@@ -465,22 +480,11 @@ pub fn runLibrary(a: *app.App) !void {
                     };
                     if (outcome == .quit) return;
                     a.slots[0].page = -1;
+                    status_until = nowUs() + status_watch_us;
                     if (was_read or !entry.isRead()) break;
                     const next = &lib.entries[catalog.nextInSeries(lib.entries, entry) orelse break];
-                    switch (try upNext(a, next, buf)) {
-                        .none => break,
-                        .read => entry = next,
-                        .download => {
-                            store.downloadBook(next.key, next.kind);
-                            watch_until = nowUs() + download_watch_us;
-                            catalog_db.exportLibrary();
-                            var fresh = loadLibrary(a) catch break :browse;
-                            lib.deinit();
-                            lib = fresh;
-                            fresh = undefined;
-                            break;
-                        },
-                    }
+                    if (!try upNext(a, next, buf)) break;
+                    entry = next;
                 }
                 break :browse;
             }
@@ -488,7 +492,10 @@ pub fn runLibrary(a: *app.App) !void {
                 const change = try bookSheet(a, entry, buf);
                 if (change != .none) {
                     // Only a download needs watching; nothing else finishes later.
-                    if (change == .downloading) watch_until = nowUs() + download_watch_us;
+                    if (change == .downloading) {
+                        watch_until = nowUs() + download_watch_us;
+                        a.downloads_until = watch_until; // Wi-Fi stays on for it while reading
+                    }
                     catalog_db.exportLibrary();
                     var fresh = loadLibrary(a) catch break :browse;
                     lib.deinit();

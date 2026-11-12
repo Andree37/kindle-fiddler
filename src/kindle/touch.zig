@@ -28,7 +28,14 @@ pub fn isPull(start_y: i32, y: i32) bool {
     return y - start_y >= pull_distance;
 }
 
-const swipe_distance = 100; // Sideways travel that turns a tap into a swipe
+const swipe_distance = 100; // Sideways travel that makes a stroke a swipe
+
+const stroke_distance = 90; // Travel past which a touch is a stroke, not a rolled tap
+
+/// Whether a finger travelled far enough to mean a movement, not a tap that rolled.
+pub fn isStroke(x0: i32, y0: i32, x: i32, y: i32) bool {
+    return @max(@abs(x - x0), @abs(y - y0)) >= stroke_distance;
+}
 
 /// A finger that went from (x0, y0) to (x, y) and lifted: -1 swiped right (back),
 /// 1 swiped left (on), null for anything else. At least as far across as up or
@@ -40,7 +47,7 @@ pub fn swipeDirection(x0: i32, y0: i32, x: i32, y: i32) ?i32 {
     return if (dx < 0) 1 else -1;
 }
 
-test "a sideways stroke swipes, anything else taps" {
+test "a sideways stroke swipes, at most as steep as it is wide" {
     try std.testing.expectEqual(@as(?i32, 1), swipeDirection(900, 800, 600, 830));
     try std.testing.expectEqual(@as(?i32, -1), swipeDirection(300, 800, 700, 760));
     try std.testing.expect(swipeDirection(300, 800, 380, 800) == null); // Too short
@@ -88,4 +95,9 @@ test "the newest power event wins" {
     try std.testing.expectEqual(PowerEvent.unlock, lastPowerEvent("goingToScreenSaver\noutOfScreenSaver\n").?);
     try std.testing.expectEqual(PowerEvent.lock, lastPowerEvent("outOfScreenSaver\ngoingToScreenSaver\n").?);
     try std.testing.expect(lastPowerEvent("something else\n") == null);
+}
+
+test "a rolled tap isn't a stroke, a real movement is" {
+    try std.testing.expect(!isStroke(400, 1140, 440, 1140));
+    try std.testing.expect(isStroke(600, 600, 620, 900));
 }
