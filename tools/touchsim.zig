@@ -9,6 +9,9 @@ const linux = std.os.linux;
 const InputEvent = extern struct { sec: u32 = 0, usec: u32 = 0, kind: u16, code: u16, value: i32 };
 
 const ev_syn = 0;
+const ev_key = 1;
+const touch_major = 0x30;
+const btn_touch = 0x14a; // "A finger is down": the stock UI waits for it, noface doesn't need it
 const ev_abs = 3;
 const slot = 0x2f;
 const pos_x = 0x35;
@@ -29,6 +32,8 @@ fn down(x: i32, y: i32) void {
     next_id += 1;
     send(ev_abs, pos_x, x);
     send(ev_abs, pos_y, y);
+    send(ev_abs, touch_major, 8); // A fingertip's contact size, as the panel sends
+    send(ev_key, btn_touch, 1);
     send(ev_syn, 0, 0);
 }
 
@@ -40,6 +45,7 @@ fn move(x: i32, y: i32) void {
 
 fn up() void {
     send(ev_abs, tracking, -1);
+    send(ev_key, btn_touch, 0);
     send(ev_syn, 0, 0);
 }
 

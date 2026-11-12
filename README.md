@@ -7,9 +7,15 @@ Wi-Fi, purchases and highlights carry on as before.
 noface is free for personal, noncommercial use (see [License](#license)). It is an
 independent project, not made, endorsed or supported by Amazon.
 
-<p align="center"><img src="docs/tour.gif" width="420" alt="A tour of noface: the library, a book's cover and an illustrated chapter, a page of text, a dictionary lookup, a picture shown full screen and zoomed, the light panel, text settings, searching as you type, the next book offered on finishing one of a series, the library sorted by series, and reading stats"></p>
+<p align="center"><img src="docs/speed.gif" width="560" alt="The stock Kindle reader and noface side by side, turning pages of the same book: the stock reader's new page appears about 300 ms after the tap, noface's about 60 ms after"></p>
 
-Page turns take about 250 ms, from touch to finished screen.
+**Turning a page: about 60 ms in noface, about 330 ms in the stock reader.** Measured on
+the same Kindle Paperwhite 12th gen and the same public-domain book, eight page turns
+each, from the moment of the tap until the new page is in the screen's memory (median;
+recorded with `tools/fbrec`, frames 33 ms apart). The e‑ink panel then takes the same
+time to show it in both, so what you see is the gap above plus the panel's own refresh.
+
+<p align="center"><img src="docs/tour.gif" width="420" alt="A tour of noface: the library, a book's cover and an illustrated chapter, a page of text, a dictionary lookup, a picture shown full screen and zoomed, the light panel, text settings, searching as you type, the next book offered on finishing one of a series, the library sorted by series, and reading stats"></p>
 
 ## What it does
 
