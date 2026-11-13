@@ -19,8 +19,13 @@ const nowUs = os.nowUs;
 const unixTime = os.unixTime;
 const failed = os.failed;
 const app = @import("../../app.zig");
+const draw = @import("../../ui/draw.zig");
 
 pub const Query = @import("../../model/search.zig").Query;
+
+/// Turns from a jump after which the Back button goes: the reader is reading there.
+const back_turns = 10;
+const back_width = 330;
 
 pub const Session = struct {
     app: *app.App,
@@ -44,6 +49,12 @@ pub const Session = struct {
     chapters: []const book_model.Chapter = &.{},
     words_before: []const u64 = &.{}, // Words before each paragraph, for time left
     shown_us: u64 = 0, // When the clock last started on this page; 0 while paused
+    /// Where the reader was before jumping elsewhere (Go To, search, a chapter, the
+    /// slider, a link): a Back button on the page returns there. The first place is
+    /// kept through several jumps, and let go after `back_turns` turns from the jump.
+    back: ?book_model.Pos = null,
+    turns_since_jump: u32 = 0,
+    turning: bool = false, // Set by a normal page turn, so `show` can tell it from a jump
     page_us: u64 = 0, // Time on the current page before that
     seconds_read: u64 = 0, // Time spent in this book, saved with the position
 
@@ -210,6 +221,61 @@ pub const Session = struct {
         return slot.hits.find(x, y);
     }
 
+    /// Keeps the Back button's place up to date for a move to page `index`: a jump
+    /// remembers where the reader was (unless an earlier jump's place is still kept),
+    /// arriving back there lets go of it, and so does reading on a while.
+    fn noteJump(s: *Session, index: usize) void {
+        const turning = s.turning;
+        s.turning = false;
+        if (index == s.current or s.pages.len == 0) return;
+        const before = s.back;
+        if (s.back) |b| {
+            if (pageContaining(s.pages, b.para, b.byte) == index) {
+                s.back = null; // Back where they were
+            } else if (turning) {
+                s.turns_since_jump += 1;
+                if (s.turns_since_jump >= back_turns) s.back = null; // Reading here now
+            }
+        } else if (!turning) {
+            s.back = s.pages[s.current];
+            s.turns_since_jump = 0;
+        }
+        // Pages are kept drawn with the button on or off: draw them again
+        if ((before == null) != (s.back == null)) s.app.forgetPages();
+    }
+
+    /// The Back button's place on the page: the bottom left, over the footer.
+    pub fn backRect(s: *const Session) struct { x: u32, y: u32, w: u32, h: u32 } {
+        return .{ .x = 40, .y = s.app.screen.height - 112, .w = back_width, .h = 84 };
+    }
+
+    pub fn onBack(s: *const Session, x: i32, y: i32) bool {
+        if (s.back == null) return false;
+        const r = s.backRect();
+        // A fingertip's margin around it
+        return x >= @as(i32, @intCast(r.x)) - 12 and x < @as(i32, @intCast(r.x + r.w)) + 12 and
+            y >= @as(i32, @intCast(r.y)) - 12 and y < @as(i32, @intCast(r.y + r.h)) + 12;
+    }
+
+    /// The page the Back button returns to.
+    pub fn backPage(s: *const Session) ?usize {
+        const b = s.back orelse return null;
+        return pageContaining(s.pages, b.para, b.byte);
+    }
+
+    fn drawBack(s: *const Session, page: Page) !void {
+        const a = s.app;
+        const r = s.backRect();
+        page.fillRect(0, r.y - 8, r.x + r.w + 24, a.screen.height - (r.y - 8), 0xff); // Over the footer's text there
+        draw.box(page, r.x, r.y, r.w, r.h);
+        var buf: [32]u8 = undefined;
+        // The page number only once the whole book is laid out
+        const label = if (s.progress != null) "Back" else std.fmt.bufPrint(&buf, "Back to p. {d}", .{(s.backPage() orelse 0) + 1}) catch "Back";
+        const cy: f32 = @floatFromInt(r.y + r.h / 2);
+        icons.back(page, @floatFromInt(r.x + 44), cy);
+        try a.ui.small.draw(page, @floatFromInt(r.x + 80), @intFromFloat(cy + 12), label);
+    }
+
     /// "12 min left in chapter" on the left of the footer, the book's on the right.
     fn drawTimeLeft(s: *const Session, page: Page, index: usize) !void {
         const a = s.app;
@@ -247,6 +313,7 @@ pub const Session = struct {
         try a.footer.draw(page, x, @intCast(a.screen.height - 60), counter);
         if (s.isBookmarked(index)) icons.ribbon(page, a.screen.width);
         if (a.settings.time_left) try s.drawTimeLeft(page, index);
+        if (s.back != null) try s.drawBack(page);
 
         a.slots[victim].page = @intCast(index);
         return buf;
@@ -254,6 +321,7 @@ pub const Session = struct {
 
     pub fn show(s: *Session, index: usize, touched_us: ?u64, force_clean: bool) !void {
         const a = s.app;
+        s.noteJump(index);
         s.setPage(index);
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);

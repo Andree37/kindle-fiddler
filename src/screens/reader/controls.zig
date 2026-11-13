@@ -12,6 +12,7 @@ const lock = @import("../lock.zig");
 pub fn drawToolbar(a: *app.App, s: *sess.Session, title: []const u8, sheet: bool, whole_page: bool) !void {
     @memcpy(a.overlay, try s.ensure(s.current, s.current));
     const total = if (s.layoutPending()) 0 else s.pages.len; // No page count until it's known
+    _ = a.refreshStatus(); // A charger may have come or gone since it was last drawn
     var fonts = a.ui;
     if (sheet and a.tab == .font) fonts.families = a.familySamples();
     try toolbar.render(fonts, a.page(a.overlay), title, s.current, total, &a.quick, if (sheet) a.tab else null, a.settings, s.isBookmarked(s.current));

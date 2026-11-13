@@ -302,6 +302,7 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         .stb_budget = &stb_budget,
         .settings = .{},
         .utc_offset = 0,
+        .power = pretendBattery,
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &reference },
     };
     // Every typeface the settings could pick is the test font: no Kindle fonts needed.
@@ -458,6 +459,18 @@ const scenarios = [_]Scenario{
             // the next start checks again, so it's kept until Wi-Fi is seen on
         }
     }.run },
+    .{ .name = "after jumping to a chapter, Back returns to the page being read", .run = struct {
+        fn run() !void {
+            const read_on = try play(&.{ forward, forward, forward });
+            const contents = tap(816, 118);
+            const first_chapter = tap(636, 390);
+            const back_button = tap(205, 1626);
+            const jumped = try play(&.{ forward, forward, forward, top, contents, first_chapter });
+            try expect(!samePlace(read_on.saved, jumped.saved), "the chapter didn't move the place");
+            const returned = try play(&.{ forward, forward, forward, top, contents, first_chapter, back_button });
+            try expect(samePlace(read_on.saved, returned.saved), "Back didn't return to the page");
+        }
+    }.run },
     .{ .name = "a quick look into a book leaves Wi-Fi alone", .run = struct {
         fn run() !void {
             const r = try play(&.{ wait(60_000), forward });
@@ -550,6 +563,12 @@ const scenarios = [_]Scenario{
         }
     }.run },
 };
+
+/// The pretend Kindle's battery: 80%, unplugged, whatever the computer running the
+/// tests has.
+fn pretendBattery() ?@import("kindle/devices.zig").Power {
+    return .{ .level = 80, .plugged = false };
+}
 
 /// A tap in the middle of `r`.
 fn tapIn(r: library_ui.Rect) Step {

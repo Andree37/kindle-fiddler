@@ -27,6 +27,7 @@ const dictionary = @import("model/dictionary.zig");
 const os = @import("sys/os.zig");
 const battery_model = @import("model/battery.zig");
 const battery_log = @import("kindle/battery_log.zig");
+const devices = @import("kindle/devices.zig");
 const Input = input_mod.Input;
 const unixTime = os.unixTime;
 
@@ -80,6 +81,9 @@ pub const App = struct {
     quick: quick_model.Quick = .{},
     utc_offset: i64,
     clock_minute: u64 = 0,
+    /// The battery and charger, as the system's files say. Tests swap in their own, so a
+    /// real Kindle's charger never shows on their screens.
+    power: *const fn () ?devices.Power = devices.power,
     layout: text.Layout,
     // Made the first time a book in that language opens, then kept
     hyphenators: [@typeInfo(hyphen.Lang).@"enum".field_names.len]?hyphen.Hyphenator = @splat(null),
@@ -225,6 +229,32 @@ pub const App = struct {
         const time = clock.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
         draw.centered(a.ui.caption, target, @floatFromInt(a.screen.width / 2), clock_top + 38, time) catch {};
         a.clock_minute = unixTime() / 60;
+    }
+
+    /// Brings the status bar's battery, charger and clock up to date from cheap sources
+    /// (files the system keeps, and the clock): no programs started. True when any
+    /// of them changed, so whatever shows them should be redrawn.
+    pub fn refreshStatus(a: *App) bool {
+        var changed = false;
+        if (a.power()) |p| {
+            changed = p.level != a.quick.battery or p.plugged != a.quick.plugged;
+            a.quick.battery = p.level;
+            a.quick.plugged = p.plugged;
+        }
+        var buf: [8]u8 = undefined;
+        const time = clock.formatClock(&buf, @intCast(unixTime()), a.utc_offset);
+        const old = a.quick.clockText();
+        const old_time = old[0 .. std.mem.indexOfScalar(u8, old, ' ') orelse old.len];
+        if (!std.mem.eql(u8, old_time, time)) {
+            // Only the time changes; the rest of the line (the date) stays as lipc gave it
+            var line: [40]u8 = undefined;
+            const rest = old[old_time.len..];
+            const fresh = std.fmt.bufPrint(&line, "{s}{s}", .{ time, rest[0..@min(rest.len, line.len - time.len)] }) catch time;
+            @memcpy(a.quick.clock[0..fresh.len], fresh);
+            a.quick.clock_len = fresh.len;
+            changed = true;
+        }
+        return changed;
     }
 
     /// Notes the battery level if it changed, for how long it will last.

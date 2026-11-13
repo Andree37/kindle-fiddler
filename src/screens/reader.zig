@@ -56,7 +56,8 @@ fn needsAllPages(action: input_mod.Action, view: View, s: *const sess.Session) b
     return switch (action) {
         .tick, .drag, .drag_end => false,
         .tap => |t| switch (view) {
-            .page => t.y < touch_zones.top_zone or (input_mod.turnDirection(t.x, s.app.input.width) < 0 and s.current == 0),
+            // The toolbar, going back from the first page, or the Back button: all count pages
+            .page => t.y < touch_zones.top_zone or s.onBack(t.x, t.y) or (input_mod.turnDirection(t.x, s.app.input.width) < 0 and s.current == 0),
             // Text settings and closing don't count pages; the toolbar's other buttons do
             .toolbar, .sheet => switch (toolbar.hit(t.x, t.y, if (view == .sheet) s.app.tab else null)) {
                 .sheet, .close, .stay, .text => false,
@@ -79,6 +80,7 @@ fn turnBy(session: *sess.Session, entry: *catalog.Entry, state_path: [*:0]const 
     const last: i64 = @intCast(session.pages.len - 1);
     const target = std.math.clamp(@as(i64, @intCast(session.current)) + delta, 0, last);
     if (target == session.current) return;
+    session.turning = true; // Reading on, not a jump
     try session.show(@intCast(target), touched_us, false);
     since_save.* += 1;
     if (since_save.* >= save_every) {
@@ -372,6 +374,10 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
                     }
                 },
                 .page => {
+                    if (session.onBack(t.x, t.y)) {
+                        if (session.backPage()) |back| try session.show(back, t.us, false);
+                        continue;
+                    }
                     if (selection.wordUnder(hl.pageWords(a, &session), t.x, t.y)) |word| {
                         if (highlights.atWord(session.highlights.items, word)) |id| {
                             active = id;

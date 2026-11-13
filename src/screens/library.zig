@@ -33,6 +33,8 @@ pub const download_poll_us = 5 * 1000 * 1000;
 /// coming back from airplane mode.
 const status_watch_us = 40 * 1000 * 1000;
 const status_poll_us = 10 * 1000 * 1000;
+/// The library's tick while nothing else is going on: its clock and battery.
+const idle_tick_us = 60 * 1_000_000;
 pub const download_watch_us = 3 * 60 * 1000 * 1000;
 
 pub fn loggedHit(x: i32, y: i32, index: usize, count: usize, searching: bool) library.Hit {
@@ -340,7 +342,8 @@ pub fn runLibrary(a: *app.App) !void {
         var hero = catalog.pickHero(lib.entries);
         var count = choose(&lib, filter, hero, query.words());
         index = @min(index, library.pageCount(count) - 1);
-        a.input.tick_us = if (nowUs() < watch_until) download_poll_us else if (nowUs() < status_until) status_poll_us else 0;
+        // Otherwise once a minute, for the clock and the battery (a charger unplugged)
+        a.input.tick_us = if (nowUs() < watch_until) download_poll_us else if (nowUs() < status_until) status_poll_us else idle_tick_us;
         // A book still coming down keeps Wi-Fi on, even once a book is open
         for (lib.entries) |e| {
             if (e.availability == .downloading) a.downloads_until = @max(a.downloads_until, nowUs() + download_watch_us);
@@ -441,6 +444,10 @@ pub fn runLibrary(a: *app.App) !void {
                     },
                 },
                 .tick => {
+                    if (a.refreshStatus()) {
+                        try library.render(alloc, a.ui, a.page(buf), lib.entries, hero, lib.visible[0..count], index, filter, order, query.words(), "", &a.quick, moment(a));
+                        try a.present(buf, .screen);
+                    }
                     if (nowUs() < status_until) {
                         const fresh_status = lipc.read(a.quick);
                         if (!fresh_status.same(&a.quick)) {
@@ -451,13 +458,13 @@ pub fn runLibrary(a: *app.App) !void {
                     }
                     if (nowUs() >= watch_until) {
                         if (watch_until == 0) {
-                            if (nowUs() >= status_until) a.input.tick_us = 0;
+                            if (nowUs() >= status_until) a.input.tick_us = idle_tick_us;
                             continue;
                         }
                         // The watch is over: one last look, for a download that
                         // finished since the last one
                         watch_until = 0;
-                        if (nowUs() >= status_until) a.input.tick_us = 0;
+                        if (nowUs() >= status_until) a.input.tick_us = idle_tick_us;
                     }
                     catalog_db.exportLibrary();
                     var fresh = loadLibrary(a) catch continue;
