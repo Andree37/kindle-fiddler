@@ -187,6 +187,7 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
     defer sess.saveProgress(entry, state_path, &session);
     defer a.input.deferred = false;
     defer a.input.edge_zones = true;
+    defer a.input.grip_exempt = null;
     var last_place = session.current;
     while (true) {
         _ = scratch_arena.reset(.retain_capacity); // Nothing from the last action is still needed
@@ -202,6 +203,11 @@ pub fn readBook(a: *app.App, entry: *catalog.Entry) !Outcome {
         if (view == .page) session.resumeClock() else session.pauseClock();
         a.input.deferred = view == .page;
         a.input.edge_zones = view != .highlight;
+        // The Back button sits where a resting thumb is ignored: taps on it count
+        a.input.grip_exempt = if (view == .page and session.back != null) blk: {
+            const r = session.backRect();
+            break :blk .{ .x = @intCast(r.x - 12), .y = @intCast(r.y - 12), .w = @intCast(r.w + 24), .h = @intCast(r.h + 24) };
+        } else null;
         // A first open's layout goes on in idle moments, about 40 ms at a time
         a.input.tick_us = if (session.layoutPending()) 1000 else clock_check_us;
         const action = a.input.next();

@@ -39,7 +39,13 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) W
         // The key kept is of what was really drawn: a picture that won't decode leaves
         // the book's cover, which mustn't be kept as if it were the picture
         var drew_picture = false;
-        if (own_data) |d| drew_picture = cover.fillScreen(a.alloc, d, target, a.screen.width, a.screen.height, a.screen.stride);
+        if (own_data) |d| if (wanted != a.lock_picture_bad) {
+            drew_picture = cover.fillScreen(a.alloc, d, target, a.screen.width, a.screen.height, a.screen.stride);
+            if (!drew_picture) {
+                a.lock_picture_bad = wanted; // Not decoded again until the file changes
+                std.debug.print("lock screen picture can't be read\n", .{});
+            }
+        };
         const drawn = drew_picture or (if (entry) |e| drawCover(a, e, target) else false);
         if (!drawn) drawTitle(a, entry, target);
         a.lock_cover_key = if (drew_picture) wanted else book_key;

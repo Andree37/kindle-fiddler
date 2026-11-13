@@ -136,6 +136,13 @@ pub const Script = struct {
             switch (step) {
                 .act => |a| {
                     os.fake_us = nowUs() + 1000; // A touch takes a moment
+                    // Through the same grip zones as a finger, so a test can't tap what
+                    // a reader couldn't
+                    switch (a) {
+                        .tap => |t| if (in.ignores(t.x, t.y)) continue,
+                        .hold => |h| if (in.ignores(h.x, h.y)) continue,
+                        else => {},
+                    }
                     in.last_input = nowUs();
                     return a;
                 },
@@ -189,6 +196,17 @@ pub const Input = struct {
     script: ?*Script = null, // Set in scenario tests: actions to play instead of the panel
     /// Set in the simulator: a pipe of whole Actions, written by its web page's taps.
     remote: i32 = -1,
+    /// A control inside the grip zones (the reader's Back button): touches there count.
+    grip_exempt: ?struct { x: i32, y: i32, w: i32, h: i32 } = null,
+
+    /// Whether a touch at (x, y) is taken for a resting thumb and ignored.
+    pub fn ignores(in: *const Input, x: i32, y: i32) bool {
+        if (!(in.edge_zones and in.grips and touch_zones.isGrip(x, y, in.width, in.height))) return false;
+        if (in.grip_exempt) |r| {
+            if (x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h) return false;
+        }
+        return true;
+    }
 
     /// The next action from the simulator's pipe, or a tick when one is due first.
     fn fromRemote(in: *Input) Action {
@@ -465,7 +483,7 @@ pub const Input = struct {
         in.last_touched = touched;
         const px = @divTrunc(in.xs[touched] * in.width, in.x_max);
         const py = @divTrunc(in.ys[touched] * in.height, in.y_max);
-        if (in.edge_zones and in.grips and touch_zones.isGrip(px, py, in.width, in.height)) return null;
+        if (in.ignores(px, py)) return null;
         if (in.deferred or (in.edge_zones and py < touch_zones.top_zone)) {
             in.top_slot = touched;
             in.top_x = px;

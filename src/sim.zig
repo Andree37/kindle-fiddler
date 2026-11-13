@@ -49,6 +49,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // The pretend Kindle answers the system; the Wi-Fi saver's note stays in the folder
     var fake = try FakeKindle.init(alloc);
     fake.clock = localClock;
+    // A computer is on its charger, and full
+    try fake.put("com.lab126.powerd battLevel", "100");
+    try fake.put("com.lab126.powerd usbState", "1");
     fake.install();
     wifi_saver.marker = data ++ "/wifi-paused";
 
@@ -97,7 +100,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .stb_budget = &stb_budget,
         .settings = app.loadSettings(data ++ "/settings"),
         .utc_offset = 0,
-        .power = simBattery,
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &reference },
     };
     // Every typeface is the Go font: the Kindle's own aren't on a computer
@@ -110,11 +112,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
     std.debug.print("noface-sim: open http://localhost:{d}  (books from {s})\n", .{ port, books });
 
     try library_screen.runLibrary(&a);
-}
-
-/// The simulator's battery: full, on a charger, as a computer is.
-fn simBattery() ?@import("kindle/devices.zig").Power {
-    return .{ .level = 100, .plugged = true };
 }
 
 extern "c" fn time(t: ?*i64) i64;

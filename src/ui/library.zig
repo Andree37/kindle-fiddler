@@ -18,7 +18,7 @@ const gutter = 40;
 const columns = 4;
 const cell_step = cover.width + gutter;
 const row_height = 410;
-const status_height = 96;
+pub const status_height = 96; // The clock, battery and Wi-Fi strip along the top
 
 // Page one always leads with the current book, on every tab and sort.
 const hero_top = 112;
@@ -179,7 +179,7 @@ fn percentBadge(font: *Font, page: Page, x: u32, y: u32, percent: u32) !void {
 fn seriesBadge(font: *Font, page: Page, x: u32, y: u32, index: f32) !void {
     var label: [12]u8 = undefined;
     const s = if (@floor(index) == index)
-        std.fmt.bufPrint(&label, "#{d}", .{@as(u32, @intFromFloat(@min(@max(index, 0), 9999)))}) catch return
+        std.fmt.bufPrint(&label, "#{d}", .{@as(u32, @intFromFloat(@min(@max(index, 0), catalog.max_index)))}) catch return
     else
         std.fmt.bufPrint(&label, "#{d:.1}", .{index}) catch return;
     const r: f32 = 19;

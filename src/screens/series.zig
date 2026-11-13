@@ -175,7 +175,7 @@ fn manage(a: *app.App, alloc: std.mem.Allocator, entries: []const catalog.Entry,
         }
         var next: f32 = 1;
         for (order.items[0..in_series]) |i| {
-            next = @max(next, @floor(places[i].index) + 1);
+            next = @min(@max(next, @floor(places[i].index) + 1), catalog.max_index); // Beyond it, a number isn't kept
             try rows.append(alloc, .{ .label = try std.fmt.allocPrint(alloc, "#{d}  {s}", .{ places[i].index, entries[i].title }), .page = 0, .note = "" });
         }
         for (order.items[in_series..]) |i| try rows.append(alloc, .{ .label = entries[i].title, .page = 0, .note = "Add" });

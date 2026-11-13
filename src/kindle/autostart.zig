@@ -19,6 +19,17 @@ pub fn installed() bool {
     return want.len > 0 and std.mem.eql(u8, want, have);
 }
 
+/// Whether the system's copy is there but differs from the one noface ships: one from
+/// an older version, which may run a script that no longer reads the settings. Not
+/// when either is missing: a reader may have deleted the system's copy on purpose.
+pub fn outdated() bool {
+    var a: [2048]u8 = undefined;
+    var b: [2048]u8 = undefined;
+    const want = state.readSmall(shipped, &a);
+    const have = state.readSmall(installed_path, &b);
+    return want.len > 0 and have.len > 0 and !std.mem.eql(u8, want, have);
+}
+
 fn run(argv: [*:null]const ?[*:0]const u8) void {
     var out: [256]u8 = undefined;
     _ = process.run(argv, &out);

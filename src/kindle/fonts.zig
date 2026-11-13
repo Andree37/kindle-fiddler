@@ -4,6 +4,7 @@
 const std = @import("std");
 const settings = @import("../model/settings.zig");
 const file = @import("../sys/file.zig");
+const process = @import("../sys/process.zig");
 const linux = @import("../sys/calls.zig");
 
 const font_dir = "/usr/java/lib/fonts/";
@@ -65,7 +66,10 @@ pub fn named(file_name: []const u8) ?Named {
             joined[len] = c;
             len += 1;
         }
-        if (styleOf(joined[0..len])) |which| {
+        // "Roman" is the regular after a dash ("Crimson-Roman"), but part of the name
+        // after a space ("Times New Roman")
+        const roman = take == 1 and std.ascii.eqlIgnoreCase(joined[0..len], "Roman") and from > 0 and stem[from - 1] != ' ';
+        if (if (roman) @as(??usize, 0) else styleOf(joined[0..len])) |which| {
             const family = std.mem.trimEnd(u8, stem[0..from], "-_ ");
             return if (family.len > 0) .{ .family = family, .which = which } else null;
         }
@@ -156,7 +160,8 @@ pub fn findOwn(alloc: std.mem.Allocator, usable_font: *const fn ([]const u8) boo
         const usable = for (&paths, files) |*p, name| {
             p.* = std.fmt.allocPrintSentinel(alloc, "{s}/{s}", .{ own_dir, name }, 0) catch break false;
             const data = file.map(p.*) catch break false;
-            if (!usable_font(data)) break false;
+            // Tried in a child process: a damaged font can crash the font library
+            if (!process.survives(FontTrial{ .data = data, .check = usable_font }, FontTrial.run)) break false;
         } else true;
         if (!usable) {
             std.debug.print("fonts: {s} can't be used\n", .{f.name});
@@ -168,6 +173,14 @@ pub fn findOwn(alloc: std.mem.Allocator, usable_font: *const fn ([]const u8) boo
         std.debug.print("fonts: added {s}\n", .{f.name});
     }
 }
+
+const FontTrial = struct {
+    data: []const u8,
+    check: *const fn ([]const u8) bool,
+    fn run(t: FontTrial) bool {
+        return t.check(t.data);
+    }
+};
 
 /// The names of the files in `dir`.
 fn listDir(alloc: std.mem.Allocator, dir: [*:0]const u8, out: [][]const u8) [][]const u8 {
@@ -209,6 +222,10 @@ test "styles of several words, and family names that end like a style" {
     try std.testing.expectEqualStrings("Times New Roman", times.family);
     try std.testing.expectEqual(@as(?usize, 1), times.which);
     try std.testing.expectEqual(@as(?usize, 3), named("Literata-Bold-Italic.otf").?.which);
+    const crimson = named("Crimson-Roman.otf").?;
+    try std.testing.expectEqualStrings("Crimson", crimson.family);
+    try std.testing.expectEqual(@as(?usize, 0), crimson.which);
+    try std.testing.expectEqualStrings("XCharter", named("XCharter_Roman.otf").?.family);
 }
 
 test "files group into families, and missing styles borrow from the others" {

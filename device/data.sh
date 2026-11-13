@@ -13,7 +13,7 @@ DATA=/mnt/us/noface-data
 # Whether a file in the app folder is part of the app, or the install log
 is_app() {
     case "${1##*/}" in
-        noface | noface.new | jxr2pgm | selftest | *.sh | noface-autostart.conf | LICENSE.md | \
+        noface | noface.new | noface-* | jxr2pgm | selftest | *.sh | noface-autostart.conf | LICENSE.md | \
         THIRD_PARTY_NOTICES.md | VERSION | kpm | launch.log) return 0 ;;
     esac
     return 1

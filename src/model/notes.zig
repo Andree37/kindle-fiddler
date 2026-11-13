@@ -41,6 +41,17 @@ pub fn isMark(s: []const u8) bool {
 /// A short link inside longer text pointing forward is a note reference.
 /// That leaves out contents pages, where the link is the whole line, and
 /// back-links inside notes, which point backward.
+/// Whether `text` begins with the letters and digits of `mark`, ignoring brackets and
+/// spaces around either: "[12] See…" opens with "12", as does "12. See…".
+fn opensWith(text: []const u8, mark: []const u8) bool {
+    const core = std.mem.trim(u8, mark, " []().*\u{a0}");
+    if (core.len == 0) return true; // An asterisk or dagger: nothing to compare
+    const start = std.mem.trimStart(u8, text, " [(\u{a0}");
+    if (!std.mem.startsWith(u8, start, core)) return false;
+    // "1" opens "1 The note", not "12 Another"
+    return start.len == core.len or !std.ascii.isDigit(start[core.len]);
+}
+
 pub fn markNotes(paragraphs: []book.Paragraph) void {
     for (paragraphs, 0..) |p, i| {
         for (p.links) |l| {
@@ -52,7 +63,11 @@ pub fn markNotes(paragraphs: []book.Paragraph) void {
             if (l.inside or t.image != null or t.look.size > book.normal_size) continue;
             const span = l.end - l.start;
             if (span > max_reference_bytes or span * 2 > p.text.len) continue;
-            if (!isMark(p.text[l.start..l.end])) continue;
+            const mark = p.text[l.start..l.end];
+            if (!isMark(mark)) continue;
+            // Smaller than the text: a note only if it opens with the same mark, as
+            // notes do ("1 The…"); a caption a list of pictures links to doesn't
+            if (t.look.size < book.normal_size and !opensWith(t.text, mark)) continue;
             paragraphs[l.target].note = true;
             paragraphs[l.target].note_start = true;
         }
@@ -181,4 +196,13 @@ test "a note set smaller than the text is still a note" {
     };
     markNotes(&paras);
     try std.testing.expect(paras[1].note_start);
+}
+
+test "a smaller caption a list of pictures links to stays in the text" {
+    var paras = [_]book.Paragraph{
+        .{ .text = "The castle at dawn 21", .style = 0, .links = &.{.{ .start = 19, .end = 21, .target = 1 }} },
+        .{ .text = "Plate 3. The castle at dawn.", .style = 0, .look = .{ .size = 0 } },
+    };
+    markNotes(&paras);
+    try std.testing.expect(!paras[1].note_start);
 }

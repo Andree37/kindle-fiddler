@@ -30,15 +30,18 @@ pub const Outcome = enum {
 /// it nothing would ever turn the radio on again.
 pub fn pause(downloading: bool) Outcome {
     if (downloading) return .later;
-    if (lipc.airplaneOn() orelse return .later) return .never;
+    // On already: noface's own doing if its note is there (a switch that answered late),
+    // else the reader's
+    if (lipc.airplaneOn() orelse return .later) return if (marked()) .paused else .never;
     if (lipc.bluetoothOn() orelse return .later) return .later;
     state.writeSmall(marker, "1\n");
     if (!marked()) return .never;
     lipc.setAirplane(true);
-    // Only a clear "still on" means it didn't happen. No answer (cmd busy taking the
-    // radio down) keeps the note: noface may well have turned it off, and must be the
-    // one to turn it back on
-    if (lipc.airplaneOn() == false) {
+    // A clear "still on": it didn't happen, try again later. No answer (cmd busy taking
+    // the radio down, or not working at all): keep the note, as noface may well have
+    // turned it off and must be the one to turn it back on, and look again later
+    const now = lipc.airplaneOn() orelse return .later;
+    if (!now) {
         forget();
         return .later;
     }

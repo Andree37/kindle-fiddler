@@ -124,6 +124,8 @@ const references = .{
 /// pixels more than a few grays apart may be at most 0.3% of the screen.
 fn matchesReference(alloc: std.mem.Allocator, name: []const u8, pixels: []const u8) !bool {
     if (write_snapshots) |dir| {
+        var dir_buf: [256]u8 = undefined;
+        _ = linux.mkdir(try std.fmt.bufPrintSentinel(&dir_buf, "{s}", .{dir}, 0), 0o755);
         var path_buf: [256]u8 = undefined;
         const path = try std.fmt.bufPrintSentinel(&path_buf, "{s}/{s}.pgm", .{ dir, name }, 0);
         var head_buf: [32]u8 = undefined;
@@ -302,7 +304,6 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
         .stb_budget = &stb_budget,
         .settings = .{},
         .utc_offset = 0,
-        .power = pretendBattery,
         .layout = .{ .margin_x = 100, .margin_top = 90, .margin_bottom = 150, .indent = 60, .reference = &reference },
     };
     // Every typeface the settings could pick is the test font: no Kindle fonts needed.
@@ -469,6 +470,12 @@ const scenarios = [_]Scenario{
             try expect(!samePlace(read_on.saved, jumped.saved), "the chapter didn't move the place");
             const returned = try play(&.{ forward, forward, forward, top, contents, first_chapter, back_button });
             try expect(samePlace(read_on.saved, returned.saved), "Back didn't return to the page");
+            // The toolbar's chapter skip is a jump too
+            const chapter_back = tap(110, 1450);
+            const moved = try play(&.{ forward, forward, forward, top, chapter_back, page_middle });
+            try expect(!samePlace(read_on.saved, moved.saved), "the chapter skip didn't move the place");
+            const skipped = try play(&.{ forward, forward, forward, top, chapter_back, page_middle, back_button });
+            try expect(samePlace(read_on.saved, skipped.saved), "Back didn't follow a chapter skip");
         }
     }.run },
     .{ .name = "a quick look into a book leaves Wi-Fi alone", .run = struct {
@@ -563,12 +570,6 @@ const scenarios = [_]Scenario{
         }
     }.run },
 };
-
-/// The pretend Kindle's battery: 80%, unplugged, whatever the computer running the
-/// tests has.
-fn pretendBattery() ?@import("kindle/devices.zig").Power {
-    return .{ .level = 80, .plugged = false };
-}
 
 /// A tap in the middle of `r`.
 fn tapIn(r: library_ui.Rect) Step {

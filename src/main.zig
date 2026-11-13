@@ -33,6 +33,15 @@ pub const panic = std.debug.FullPanic(struct {
     }
 }.crash);
 
+/// Whether a font of the reader's own can set text: it opens, has letters, and draws
+/// some. Run in a child process by findOwn, so a damaged one only ends that.
+fn setsText(data: []const u8) bool {
+    if (!Font.usable(data)) return false;
+    var font = Font.init(std.heap.page_allocator, data, 30, 1.2) catch return false;
+    _ = font.measure("Aa Bb Gg Qq yj 0123 .,;!?") catch return false;
+    return true;
+}
+
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
     // `noface doctor`: what this Kindle has, and whether noface can run on it
@@ -103,7 +112,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const journal_path = try std.fmt.bufPrintSentinel(&journal_buf, "{s}/journal", .{state_dir}, 0);
     var battery_buf: [320]u8 = undefined;
     const battery_path = try std.fmt.bufPrintSentinel(&battery_buf, "{s}/battery", .{state_dir}, 0);
-    fonts_db.findOwn(alloc, Font.usable); // Before the settings: a chosen typeface of the reader's is found by name
+    fonts_db.findOwn(alloc, setsText); // Before the settings: a chosen typeface of the reader's is found by name
     const ui = Fonts{ .title = &title, .small = &small, .caption = &caption, .hero = &hero, .cover = &cover_type };
 
     var shared = app.App{
@@ -143,7 +152,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // On, but the system's startup file isn't this version's (an older install's points
     // somewhere that no longer reads the settings): put the current one back, as the
     // reader agreed to when they turned it on
-    if (shared.settings.autostart and !autostart.installed()) {
+    if (shared.settings.autostart and autostart.outdated()) {
         std.debug.print("autostart: startup file out of date, reinstalled: {}\n", .{autostart.install()});
     }
     try library_screen.runLibrary(&shared);

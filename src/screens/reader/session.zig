@@ -201,6 +201,7 @@ pub const Session = struct {
     /// Every move to another page comes through here, so reading time stays right.
     pub fn setPage(s: *Session, index: usize) void {
         check.thatf(index < s.pages.len, "page {d} of {d}", .{ index, s.pages.len });
+        s.noteJump(index);
         s.leavePage(index);
         s.current = index;
         s.anchor = s.pages[index];
@@ -227,16 +228,23 @@ pub const Session = struct {
     fn noteJump(s: *Session, index: usize) void {
         const turning = s.turning;
         s.turning = false;
-        if (index == s.current or s.pages.len == 0) return;
+        if (s.pages.len == 0) return;
         const before = s.back;
+        // Page numbers are only final once the whole book is laid out: until then an
+        // earlier place would look like page 0, so nothing is let go of
+        const settled = s.progress == null;
         if (s.back) |b| {
-            if (pageContaining(s.pages, b.para, b.byte) == index) {
-                s.back = null; // Back where they were
+            if (settled and pageContaining(s.pages, b.para, b.byte) == index) {
+                s.back = null; // Back where they were, however they got there
+            } else if (index == s.current) {
+                // Drawn again in place: nothing moved
             } else if (turning) {
                 s.turns_since_jump += 1;
                 if (s.turns_since_jump >= back_turns) s.back = null; // Reading here now
+            } else {
+                s.turns_since_jump = 0; // Another jump: the count starts again from here
             }
-        } else if (!turning) {
+        } else if (!turning and index != s.current) {
             s.back = s.pages[s.current];
             s.turns_since_jump = 0;
         }
@@ -284,10 +292,11 @@ pub const Session = struct {
         const margin: f32 = @floatFromInt(a.layout.margin_x);
         var buf: [48]u8 = undefined;
         var line: [64]u8 = undefined;
-        if (left.chapter) |m| {
+        // The Back button takes the left side while it's there
+        if (left.chapter) |m| if (s.back == null) {
             const t = std.fmt.bufPrint(&line, "{s} left in chapter", .{stats.formatMinutes(&buf, m)}) catch "";
             try a.footer.draw(page, margin, y, t);
-        }
+        };
         // Like the Kindle, say so while the speed is still being learned rather than guess.
         const t = if (left.book) |m| std.fmt.bufPrint(&line, "{s} left in book", .{stats.formatMinutes(&buf, m)}) catch "" else "Learning reading speed";
         try a.footer.draw(page, @as(f32, @floatFromInt(a.screen.width)) - margin - try a.footer.measure(t), y, t);
@@ -321,7 +330,6 @@ pub const Session = struct {
 
     pub fn show(s: *Session, index: usize, touched_us: ?u64, force_clean: bool) !void {
         const a = s.app;
-        s.noteJump(index);
         s.setPage(index);
         const buf = try s.ensure(index, index);
         @memcpy(a.screen.pixels, buf);

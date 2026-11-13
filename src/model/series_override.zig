@@ -14,7 +14,7 @@ pub fn parse(alloc: std.mem.Allocator, text: []const u8) ![]Override {
         const path = fields.next() orelse continue;
         const name = fields.next() orelse continue;
         const index = std.fmt.parseFloat(f32, fields.next() orelse continue) catch continue;
-        if (path.len == 0 or std.math.isNan(index) or index < 0 or index > 9999) continue;
+        if (path.len == 0 or std.math.isNan(index) or index < 0 or index > @import("catalog.zig").max_index) continue;
         try out.append(alloc, .{ .path = path, .name = name, .index = index });
     }
     return out.items;

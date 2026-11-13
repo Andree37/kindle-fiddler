@@ -220,8 +220,9 @@ const Sureness = enum { stated, guessed };
 /// The highest place in a series noface believes.
 pub const max_index = 9999;
 
-/// Words a guessed series name can't end in: "Penguin Edition", "Part", a bare "Book".
-/// Inside a name they're fine: "Malazan Book of the Fallen".
+/// Words that make a guessed name not a series when they end it ("Penguin Edition") or
+/// a number follows them ("Volume 2", "Vol. 1", "Part 3"). Inside a name they're fine:
+/// "Malazan Book of the Fallen", "Book of the New Sun".
 const not_series = [_][]const u8{ "edition", "reprint", "printing", "impression", "book", "part", "volume", "vol" };
 
 fn named(name_part: []const u8, number_part: []const u8, sureness: Sureness) ?SeriesPlace {
@@ -236,10 +237,14 @@ fn named(name_part: []const u8, number_part: []const u8, sureness: Sureness) ?Se
         for (name) |c| letters = letters or std.ascii.isAlphabetic(c) or c >= 0x80;
         if (!letters or index > 200) return null;
         var words = std.mem.tokenizeScalar(u8, name, ' ');
-        var last: []const u8 = "";
-        while (words.next()) |w| last = w;
-        for (not_series) |bad| {
-            if (std.ascii.eqlIgnoreCase(std.mem.trimEnd(u8, last, ".,"), bad)) return null;
+        while (words.next()) |w| {
+            const bare = std.mem.trimEnd(u8, w, ".,");
+            const is_bad = for (not_series) |bad| {
+                if (std.ascii.eqlIgnoreCase(bare, bad)) break true;
+            } else false;
+            if (!is_bad) continue;
+            const after = words.peek() orelse return null; // The last word
+            if (std.ascii.isDigit(after[0])) return null; // "Volume 2"
         }
     }
     return .{ .name = name, .index = index };
@@ -259,7 +264,7 @@ fn withoutThe(name: []const u8) []const u8 {
 pub fn seriesLabel(buf: []u8, e: Entry) []const u8 {
     if (e.series.len == 0) return "";
     if (@floor(e.series_index) == e.series_index) {
-        return std.fmt.bufPrint(buf, "{s} #{d}", .{ e.series, @as(u32, @intFromFloat(@min(@max(e.series_index, 0), 9999))) }) catch e.series;
+        return std.fmt.bufPrint(buf, "{s} #{d}", .{ e.series, @as(u32, @intFromFloat(@min(@max(e.series_index, 0), max_index))) }) catch e.series;
     }
     return std.fmt.bufPrint(buf, "{s} #{d:.1}", .{ e.series, e.series_index }) catch e.series;
 }
@@ -561,6 +566,14 @@ test "sorting by title holds together when one series is named with and without 
         // Never both before the other
         try std.testing.expect(!(byTitle(rows[i], rows[j]) and byTitle(rows[j], rows[i])));
     };
+}
+
+test "volumes and parts aren't series" {
+    try std.testing.expect(seriesFromFileName("/mnt/us/documents/Works -- Author -- Volume 2, 2, 1969 -- Pub.epub") == null);
+    try std.testing.expect(seriesFromFileName("/mnt/us/documents/Works -- Author -- Vol. 1, 3, 1997 -- Pub.epub") == null);
+    try std.testing.expect(seriesFromFileName("/mnt/us/documents/Works -- Author -- Part 2, 1, 2001 -- Pub.epub") == null);
+    const sun = seriesFromFileName("/mnt/us/documents/[Book of the New Sun 01] The Shadow of the Torturer -- Gene Wolfe.kfx").?;
+    try std.testing.expectEqualStrings("Book of the New Sun", sun.name);
 }
 
 test "series with Book inside the name are found, ISBNs after # aren't numbers" {

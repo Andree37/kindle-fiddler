@@ -171,3 +171,36 @@ pub fn stop(pid: i32) void {
     var status: i32 = 0;
     _ = linux.waitpid(pid, &status, 0);
 }
+
+/// Runs `check(ctx)` in a child process and says whether it returned true there. For
+/// trying something that could crash (a font file of unknown quality, say): only the
+/// child dies. Under the scenario tests' fake, it runs here instead.
+pub fn survives(ctx: anytype, comptime check: fn (@TypeOf(ctx)) bool) bool {
+    if (fake != null) return check(ctx);
+    const pid = linux.fork();
+    if (failed(pid)) return false;
+    if (pid == 0) linux.exit(if (check(ctx)) 0 else 1);
+    const deadline = os.nowUs() + 5 * 1_000_000;
+    while (os.nowUs() < deadline) {
+        if (exited(@intCast(pid))) |ok| return ok;
+        os.sleepMs(5);
+    }
+    stop(@intCast(pid));
+    return false;
+}
+
+test "a check that crashes only ends its child" {
+    const ok = struct {
+        fn check(_: void) bool {
+            return true;
+        }
+    }.check;
+    const crashes = struct {
+        fn check(_: void) bool {
+            const p: ?*volatile u8 = null;
+            return p.?.* == 0; // A read through nothing, as a damaged font can cause
+        }
+    }.check;
+    try std.testing.expect(survives({}, ok));
+    try std.testing.expect(!survives({}, crashes));
+}
