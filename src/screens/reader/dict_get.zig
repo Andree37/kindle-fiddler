@@ -18,7 +18,7 @@ pub fn languageOf(lang: hyphen.Lang) dict_download.Language {
     };
 }
 
-pub const Answer = enum { download, not_now };
+pub const Answer = enum { download, not_now, dismissed };
 
 /// The first time: whether to download it. "Not now" stops the asking; the sheet
 /// still offers it.
@@ -29,8 +29,9 @@ pub fn ask(a: *app.App, background: []const u8, lang: hyphen.Lang) !Answer {
     const title = std.fmt.bufPrint(&title_buf, "Get the {s} dictionary?", .{l.name}) catch "";
     const subtitle = std.fmt.bufPrint(&sub_buf, "A {d} MB download over Wi-Fi, {d} MB on the Kindle. Definitions from Wiktionary.", .{ l.download_mb, l.size_mb }) catch "";
     const rows = [_]card.Row{ .{ .label = "Download" }, .{ .label = "Not now" } };
-    const picked = try app.chooseFromCard(a, background, title, subtitle, &rows);
+    const picked = try app.chooseFromCard(a, background, title, subtitle, &rows) orelse return .dismissed;
     if (picked == 0) return .download;
+    // Only "Not now" itself stops the asking; a tap beside the card, or locking, doesn't
     a.settings.offer_dictionary = false;
     app.saveSettings(a.settings_path, a.settings);
     return .not_now;
@@ -46,7 +47,10 @@ pub fn get(a: *app.App, background: []const u8, lang: hyphen.Lang) !bool {
         return false;
     }
     if (ours) wifi_saver.restore();
-    a.downloads_until = os.nowUs() + 15 * 60 * 1_000_000; // Kept on until it's done
+    // Kept on until it's done, then back to whatever else was keeping it on
+    const downloads_until = a.downloads_until;
+    a.downloads_until = os.nowUs() + 15 * 60 * 1_000_000;
+    defer a.downloads_until = downloads_until;
     defer if (ours) {
         _ = wifi_saver.pause(false); // Off again for reading
     };

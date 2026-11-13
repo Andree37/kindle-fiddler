@@ -37,12 +37,37 @@ pub const Font = struct {
     glyphs: std.AutoHashMapUnmanaged(u32, Glyph) = .empty,
     alloc: std.mem.Allocator,
 
-    /// Whether `ttf` is a font that can set text: it opens, and has letters.
+    /// Whether `ttf` is a font that can set text: it opens, and has letters. Any file
+    /// can be named .ttf, and stb_truetype trusts what it's given, so its table
+    /// directory is checked first: every table inside the file.
     pub fn usable(ttf: []const u8) bool {
-        if (ttf.len < 64) return false;
+        if (!tablesInside(ttf)) return false;
         const handle = ft_open(ttf.ptr) orelse return false;
         defer ft_close(handle);
         return ft_index(handle, 'a') != 0 and ft_index(handle, 'A') != 0;
+    }
+
+    /// A TrueType or OpenType font (or the first of a collection) whose tables all lie
+    /// within `data`.
+    pub fn tablesInside(data: []const u8) bool {
+        if (data.len < 12) return false;
+        var at: usize = 0;
+        if (std.mem.eql(u8, data[0..4], "ttcf")) {
+            if (data.len < 16) return false;
+            at = std.mem.readInt(u32, data[12..16], .big);
+            if (at > data.len - 12) return false;
+        }
+        const tag = std.mem.readInt(u32, data[at..][0..4], .big);
+        if (tag != 0x00010000 and tag != 0x74727565 and tag != 0x4f54544f) return false; // 1.0, "true", "OTTO"
+        const tables = std.mem.readInt(u16, data[at + 4 ..][0..2], .big);
+        if (tables == 0 or at + 12 + @as(usize, tables) * 16 > data.len) return false;
+        for (0..tables) |i| {
+            const record = data[at + 12 + i * 16 ..][0..16];
+            const offset = std.mem.readInt(u32, record[8..12], .big);
+            const length = std.mem.readInt(u32, record[12..16], .big);
+            if (@as(u64, offset) + length > data.len) return false;
+        }
+        return true;
     }
 
     pub fn init(alloc: std.mem.Allocator, ttf: []const u8, px: f32, line_spacing: f32) !Font {
@@ -163,4 +188,15 @@ fn blit(p: Page, g: Glyph, x: i32, y: i32) void {
             p.buf[at] = @min(p.buf[at], 255 - a);
         }
     }
+}
+
+test "files that aren't fonts are turned down before stb sees them" {
+    try std.testing.expect(!Font.tablesInside(""));
+    try std.testing.expect(!Font.tablesInside("<!doctype html><html><head><title>font</title></head>"));
+    var zeros: [4096]u8 = @splat(0);
+    try std.testing.expect(!Font.tablesInside(&zeros));
+    // A real font's directory, then the same with one table said to run past the end
+    const go = @embedFile("../testdata/fonts/Go-Regular.ttf");
+    try std.testing.expect(Font.tablesInside(go));
+    try std.testing.expect(!Font.tablesInside(go[0 .. go.len / 2]));
 }

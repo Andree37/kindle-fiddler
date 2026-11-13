@@ -21,7 +21,17 @@ const app = @import("app.zig");
 const library_screen = @import("screens/library.zig");
 const wifi_saver = @import("kindle/wifi_saver.zig");
 const doctor = @import("kindle/doctor.zig");
+const autostart = @import("kindle/autostart.zig");
 const battery_log = @import("kindle/battery_log.zig");
+
+/// A crash during `noface selftest` must say why, though the scenarios hide the app's
+/// own messages while they run.
+pub const panic = std.debug.FullPanic(struct {
+    fn crash(msg: []const u8, first: ?usize) noreturn {
+        @import("scenarios.zig").showCrashes();
+        std.debug.defaultPanic(msg, first);
+    }
+}.crash);
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const argv = init.args.vector;
@@ -130,6 +140,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try shared.applySettings();
     };
     app.saveSettings(settings_path, shared.settings); // Older files come back in the current format
+    // On, but the system's startup file isn't this version's (an older install's points
+    // somewhere that no longer reads the settings): put the current one back, as the
+    // reader agreed to when they turned it on
+    if (shared.settings.autostart and !autostart.installed()) {
+        std.debug.print("autostart: startup file out of date, reinstalled: {}\n", .{autostart.install()});
+    }
     try library_screen.runLibrary(&shared);
     std.debug.print("quit\n", .{});
 }

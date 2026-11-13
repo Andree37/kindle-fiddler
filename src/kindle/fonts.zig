@@ -42,22 +42,59 @@ pub fn named(file_name: []const u8) ?Named {
     if (!std.ascii.eqlIgnoreCase(ext, "ttf") and !std.ascii.eqlIgnoreCase(ext, "otf")) return null;
     const stem = file_name[0..dot];
     if (stem.len == 0 or stem[0] == '.') return null; // Hidden, like the Mac's "._" files
-    const cut = std.mem.lastIndexOfAny(u8, stem, "-_ ") orelse return .{ .family = stem, .which = 0 };
-    const family = stem[0..cut];
-    const style = stem[cut + 1 ..];
-    const styles = [_]struct { []const u8, ?usize }{
-        .{ "Regular", 0 },     .{ "Rg", 0 },          .{ "Roman", 0 },          .{ "Book", 0 },
-        .{ "Bold", 1 },        .{ "Bd", 1 },          .{ "Italic", 2 },         .{ "It", 2 },
-        .{ "Oblique", 2 },     .{ "RegularItalic", 2 }, .{ "BoldItalic", 3 },   .{ "BdIt", 3 },
-        .{ "BoldOblique", 3 }, .{ "Thin", null },     .{ "ExtraLight", null },  .{ "Light", null },
-        .{ "Medium", null },   .{ "SemiBold", null }, .{ "ExtraBold", null },   .{ "Black", null },
-        .{ "LightItalic", null }, .{ "MediumItalic", null }, .{ "SemiBoldItalic", null }, .{ "ExtraBoldItalic", null },
-        .{ "BlackItalic", null }, .{ "ThinItalic", null }, .{ "ExtraLightItalic", null },
-    };
-    for (styles) |s| {
-        if (std.ascii.eqlIgnoreCase(style, s[0])) return if (family.len > 0) .{ .family = family, .which = s[1] } else null;
+    // The style is the last word or words ("Bold", "Bold Italic", "Bold-Italic"):
+    // try the longest run of trailing words that spells one
+    var starts: [16]usize = undefined;
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < stem.len and n < starts.len) {
+        while (i < stem.len and isSeparator(stem[i])) i += 1;
+        if (i == stem.len) break;
+        starts[n] = i;
+        n += 1;
+        while (i < stem.len and !isSeparator(stem[i])) i += 1;
     }
-    return .{ .family = stem, .which = 0 }; // A style it doesn't know is part of the name
+    var take: usize = @min(n -| 1, 3);
+    while (take > 0) : (take -= 1) {
+        const from = starts[n - take];
+        var joined: [48]u8 = undefined;
+        var len: usize = 0;
+        for (stem[from..]) |c| {
+            if (isSeparator(c)) continue;
+            if (len == joined.len) break;
+            joined[len] = c;
+            len += 1;
+        }
+        if (styleOf(joined[0..len])) |which| {
+            const family = std.mem.trimEnd(u8, stem[0..from], "-_ ");
+            return if (family.len > 0) .{ .family = family, .which = which } else null;
+        }
+    }
+    return .{ .family = stem, .which = 0 }; // No style in the name: the regular
+}
+
+fn isSeparator(c: u8) bool {
+    return c == '-' or c == '_' or c == ' ';
+}
+
+/// Which of the four a style word is; null inside for weights noface doesn't use,
+/// null outside for a word that isn't a style at all.
+fn styleOf(word: []const u8) ??usize {
+    const styles = [_]struct { []const u8, ?usize }{
+        .{ "Regular", 0 },          .{ "Rg", 0 },               .{ "Book", 0 },
+        .{ "Bold", 1 },             .{ "Bd", 1 },               .{ "Italic", 2 },
+        .{ "It", 2 },               .{ "Oblique", 2 },          .{ "RegularItalic", 2 },
+        .{ "BoldItalic", 3 },       .{ "BdIt", 3 },             .{ "BoldOblique", 3 },
+        .{ "Thin", null },          .{ "ExtraLight", null },    .{ "Light", null },
+        .{ "Medium", null },        .{ "SemiBold", null },      .{ "ExtraBold", null },
+        .{ "Black", null },         .{ "LightItalic", null },   .{ "MediumItalic", null },
+        .{ "SemiBoldItalic", null }, .{ "ExtraBoldItalic", null }, .{ "BlackItalic", null },
+        .{ "ThinItalic", null },    .{ "ExtraLightItalic", null },
+    };
+    for (styles) |st| {
+        if (std.ascii.eqlIgnoreCase(word, st[0])) return st[1];
+    }
+    return null;
 }
 
 /// One family's files as found, by which of the four each is.
@@ -160,6 +197,18 @@ test "a font file's name says its family and style" {
     try std.testing.expect(named("Readme.txt") == null);
     try std.testing.expect(named("._Literata-Regular.ttf") == null);
     try std.testing.expectEqualStrings("Atkinson-Hyperlegible", named("Atkinson-Hyperlegible.ttf").?.family);
+}
+
+test "styles of several words, and family names that end like a style" {
+    const georgia = named("Georgia Bold Italic.ttf").?;
+    try std.testing.expectEqualStrings("Georgia", georgia.family);
+    try std.testing.expectEqual(@as(?usize, 3), georgia.which);
+    try std.testing.expectEqual(@as(?usize, 1), named("Georgia Bold.ttf").?.which);
+    try std.testing.expectEqualStrings("Times New Roman", named("Times New Roman.ttf").?.family);
+    const times = named("Times New Roman Bold.ttf").?;
+    try std.testing.expectEqualStrings("Times New Roman", times.family);
+    try std.testing.expectEqual(@as(?usize, 1), times.which);
+    try std.testing.expectEqual(@as(?usize, 3), named("Literata-Bold-Italic.otf").?.which);
 }
 
 test "files group into families, and missing styles borrow from the others" {

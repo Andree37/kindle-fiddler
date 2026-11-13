@@ -5,6 +5,7 @@
 //! and replaced. The code part is a fingerprint of the source files themselves, taken
 //! at compile time, so an update that changes layout can never serve stale pages.
 const std = @import("std");
+const settings_model = @import("../../model/settings.zig");
 const book_model = @import("../../model/book.zig");
 const file = @import("../../sys/file.zig");
 const state = @import("../../sys/state.zig");
@@ -43,11 +44,14 @@ pub fn key(a: *const app.App, book_bytes: usize) u64 {
     const s = a.settings;
     const l = a.layout;
     const parts = [_]u64{
-        book_bytes,              a.screen.width,          a.screen.height,      s.size, s.spacing, s.font, s.margin,
+        book_bytes,              a.screen.width,          a.screen.height,      s.size, s.spacing, s.margin,
         @intFromBool(s.bold),    @intFromBool(l.justify), @intFromBool(l.bold_starts), @bitCast(@as(i64, l.margin_x)),
         @bitCast(@as(i64, l.margin_top)), @bitCast(@as(i64, l.margin_bottom)), @as(u32, @bitCast(l.indent)),
     };
     h.update(std.mem.sliceAsBytes(&parts));
+    // The typeface by name: the reader's own take their places in the list from the
+    // fonts folder at each start, so a place can pass to another font
+    h.update(settings_model.families[s.font]);
     return h.final();
 }
 

@@ -77,7 +77,17 @@ pub fn report(fd: i32, data_dir: []const u8) void {
     var path_buf: [320]u8 = undefined;
     var samples: [4096]battery.Sample = undefined;
     const log_path = std.fmt.bufPrintSentinel(&path_buf, "{s}/battery", .{data_dir}, 0) catch return;
-    const log = load(log_path, &samples);
+    // Only times the Kindle's clock could really have had, in order: a torn line or
+    // one from a clock reset after a flat battery would point the report at 1970
+    const now_s = @import("../sys/os.zig").unixTime();
+    var kept: usize = 0;
+    for (load(log_path, &samples)) |sm| {
+        if (!battery.plausible(sm.time, now_s)) continue;
+        if (kept > 0 and sm.time < samples[kept - 1].time) continue;
+        samples[kept] = sm;
+        kept += 1;
+    }
+    const log = samples[0..kept];
     var journal_buf: [journal.max_format_bytes]u8 = undefined;
     const journal_path = std.fmt.bufPrintSentinel(&path_buf, "{s}/journal", .{data_dir}, 0) catch return;
     const j = journal.parse(state.readSmall(journal_path, &journal_buf));

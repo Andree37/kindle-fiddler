@@ -46,9 +46,10 @@ pub fn markNotes(paragraphs: []book.Paragraph) void {
         for (p.links) |l| {
             if (l.target <= i or l.target >= paragraphs.len) continue;
             // A page marker partway into a paragraph, a heading or a picture: body, not a note.
-            // (A list of illustrations links its page numbers to such places.)
+            // (A list of illustrations links its page numbers to such places.) Notes
+            // themselves are often set smaller than the text, so only larger counts.
             const t = paragraphs[l.target];
-            if (l.inside or t.image != null or t.look.size != book.normal_size) continue;
+            if (l.inside or t.image != null or t.look.size > book.normal_size) continue;
             const span = l.end - l.start;
             if (span > max_reference_bytes or span * 2 > p.text.len) continue;
             if (!isMark(p.text[l.start..l.end])) continue;
@@ -171,4 +172,13 @@ test "a linked word does not hide its target" {
     };
     markNotes(&paras);
     try std.testing.expect(!paras[1].note);
+}
+
+test "a note set smaller than the text is still a note" {
+    var paras = [_]book.Paragraph{
+        .{ .text = "See the note.1", .style = 0, .links = &.{.{ .start = 13, .end = 14, .target = 1 }} },
+        .{ .text = "1 The note itself.", .style = 0, .look = .{ .size = 0 } },
+    };
+    markNotes(&paras);
+    try std.testing.expect(paras[1].note_start);
 }

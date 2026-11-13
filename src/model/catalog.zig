@@ -217,13 +217,18 @@ fn bracketed(first: []const u8) ?SeriesPlace {
 
 const Sureness = enum { stated, guessed };
 
-/// Words a guessed series name can't be: an edition, a printing, a bare "Book".
+/// The highest place in a series noface believes.
+pub const max_index = 9999;
+
+/// Words a guessed series name can't end in: "Penguin Edition", "Part", a bare "Book".
+/// Inside a name they're fine: "Malazan Book of the Fallen".
 const not_series = [_][]const u8{ "edition", "reprint", "printing", "impression", "book", "part", "volume", "vol" };
 
 fn named(name_part: []const u8, number_part: []const u8, sureness: Sureness) ?SeriesPlace {
     const name = std.mem.trim(u8, name_part, " ");
     const index = std.fmt.parseFloat(f32, std.mem.trim(u8, number_part, " _")) catch return null;
-    if (name.len == 0 or std.math.isNan(index) or std.math.isInf(index) or index < 0) return null;
+    // A place in a series, never an ISBN or a year: kept small enough to show as a number
+    if (name.len == 0 or std.math.isNan(index) or std.math.isInf(index) or index < 0 or index > max_index) return null;
     if (sureness == .guessed) {
         // A name has letters, in any script (not a year), and a place in a series is
         // a small number
@@ -231,10 +236,10 @@ fn named(name_part: []const u8, number_part: []const u8, sureness: Sureness) ?Se
         for (name) |c| letters = letters or std.ascii.isAlphabetic(c) or c >= 0x80;
         if (!letters or index > 200) return null;
         var words = std.mem.tokenizeScalar(u8, name, ' ');
-        while (words.next()) |w| {
-            for (not_series) |bad| {
-                if (std.ascii.eqlIgnoreCase(std.mem.trimEnd(u8, w, "."), bad)) return null;
-            }
+        var last: []const u8 = "";
+        while (words.next()) |w| last = w;
+        for (not_series) |bad| {
+            if (std.ascii.eqlIgnoreCase(std.mem.trimEnd(u8, last, ".,"), bad)) return null;
         }
     }
     return .{ .name = name, .index = index };
@@ -254,7 +259,7 @@ fn withoutThe(name: []const u8) []const u8 {
 pub fn seriesLabel(buf: []u8, e: Entry) []const u8 {
     if (e.series.len == 0) return "";
     if (@floor(e.series_index) == e.series_index) {
-        return std.fmt.bufPrint(buf, "{s} #{d}", .{ e.series, @as(u32, @intFromFloat(e.series_index)) }) catch e.series;
+        return std.fmt.bufPrint(buf, "{s} #{d}", .{ e.series, @as(u32, @intFromFloat(@min(@max(e.series_index, 0), 9999))) }) catch e.series;
     }
     return std.fmt.bufPrint(buf, "{s} #{d:.1}", .{ e.series, e.series_index }) catch e.series;
 }
@@ -556,4 +561,12 @@ test "sorting by title holds together when one series is named with and without 
         // Never both before the other
         try std.testing.expect(!(byTitle(rows[i], rows[j]) and byTitle(rows[j], rows[i])));
     };
+}
+
+test "series with Book inside the name are found, ISBNs after # aren't numbers" {
+    const malazan = seriesFromFileName("/mnt/us/documents/Gardens of the Moon -- Steven Erikson -- Malazan Book of the Fallen, 1, 2004 -- Tor.kfx").?;
+    try std.testing.expectEqualStrings("Malazan Book of the Fallen", malazan.name);
+    try std.testing.expectEqual(@as(f32, 1), malazan.index);
+    try std.testing.expect(seriesFromFileName("/mnt/us/documents/Title -- Author -- Saga #5000000000.kfx") == null);
+    try std.testing.expect(seriesFromFileName("/mnt/us/documents/Title -- Author -- Saga #9780141439518.kfx") == null);
 }

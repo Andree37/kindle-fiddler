@@ -33,13 +33,16 @@ pub fn lockScreen(a: *app.App, entry: ?*const catalog.Entry, options: Options) W
     const own = if (a.settings.lock_picture) picturePath(a, &picture_buf) else null;
     const own_data: ?[]const u8 = if (own) |p| file.map(p) catch null else null;
     defer if (own_data) |d| file.unmap(d);
-    const key = if (own_data) |d| pictureKey(d) else if (entry) |e| keyFor(e) else 1;
-    if (a.lock_cover_key != key) {
-        const drawn = if (own_data) |d|
-            cover.fillScreen(a.alloc, d, target, a.screen.width, a.screen.height, a.screen.stride) or (if (entry) |e| drawCover(a, e, target) else false)
-        else if (entry) |e| drawCover(a, e, target) else false;
+    const book_key: u64 = if (entry) |e| keyFor(e) else 1;
+    const wanted = if (own_data) |d| pictureKey(d) else book_key;
+    if (a.lock_cover_key != wanted) {
+        // The key kept is of what was really drawn: a picture that won't decode leaves
+        // the book's cover, which mustn't be kept as if it were the picture
+        var drew_picture = false;
+        if (own_data) |d| drew_picture = cover.fillScreen(a.alloc, d, target, a.screen.width, a.screen.height, a.screen.stride);
+        const drawn = drew_picture or (if (entry) |e| drawCover(a, e, target) else false);
         if (!drawn) drawTitle(a, entry, target);
-        a.lock_cover_key = key;
+        a.lock_cover_key = if (drew_picture) wanted else book_key;
         std.debug.print("locked, cover drawn: {}\n", .{drawn});
     } else std.debug.print("locked, cover kept\n", .{});
     a.present(target, .flash) catch |err| std.debug.print("lock screen not shown: {s}\n", .{@errorName(err)});

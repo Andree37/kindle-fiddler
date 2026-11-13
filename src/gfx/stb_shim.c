@@ -21,7 +21,8 @@ void *noface_realloc(void *p, size_t size);
 void *ft_open(const unsigned char *ttf) {
     stbtt_fontinfo *f = noface_malloc(sizeof *f);
     if (!f) return 0;
-    if (!stbtt_InitFont(f, ttf, stbtt_GetFontOffsetForIndex(ttf, 0))) {
+    int offset = stbtt_GetFontOffsetForIndex(ttf, 0);
+    if (offset < 0 || !stbtt_InitFont(f, ttf, offset)) {
         noface_free(f);
         return 0;
     }

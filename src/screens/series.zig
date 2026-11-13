@@ -80,6 +80,7 @@ fn typeName(a: *app.App, alloc: std.mem.Allocator) !?[]const u8 {
     var first = true;
     while (true) {
         const page = a.page(a.screen.pixels);
+        if (first) page.fillRect(0, 0, page.width, page.height, style.white); // Not over the list it came from
         try search_sheet.renderBar(a.ui, page, 0, q.slice(), "Series name", .none);
         if (first) keyboard.render(a.ui, page) catch {};
         try a.showBand(0, if (first) a.screen.height else keyboard.top);

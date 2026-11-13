@@ -46,7 +46,7 @@ pub fn secondsLeft(log: []const Sample, now: u64, level: u32) ?u64 {
 }
 
 /// After 2001 and not in the future: a time the Kindle's clock could really have had.
-fn plausible(time: u64, now: u64) bool {
+pub fn plausible(time: u64, now: u64) bool {
     return time >= 1_000_000_000 and time <= now + 86400;
 }
 

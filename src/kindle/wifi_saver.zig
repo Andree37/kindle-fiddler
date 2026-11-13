@@ -35,7 +35,10 @@ pub fn pause(downloading: bool) Outcome {
     state.writeSmall(marker, "1\n");
     if (!marked()) return .never;
     lipc.setAirplane(true);
-    if (lipc.airplaneOn() != true) {
+    // Only a clear "still on" means it didn't happen. No answer (cmd busy taking the
+    // radio down) keeps the note: noface may well have turned it off, and must be the
+    // one to turn it back on
+    if (lipc.airplaneOn() == false) {
         forget();
         return .later;
     }

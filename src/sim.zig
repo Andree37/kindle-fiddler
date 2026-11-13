@@ -179,7 +179,7 @@ const Server = struct {
             if (action(query)) |act| {
                 var bytes = act;
                 _ = sys.write(s.actions, @ptrCast(&bytes), @sizeOf(input_mod.Action));
-                if (act == .hold) { // A press held, then the finger lifted
+                if (act == .hold or act == .tap) { // Then the finger lifts: a slider or picture follows it until then
                     var lift: input_mod.Action = .drag_end;
                     _ = sys.write(s.actions, @ptrCast(&lift), @sizeOf(input_mod.Action));
                 }

@@ -17,6 +17,10 @@ pub const FakeKindle = struct {
     /// What `date` prints, "12:00 - 01 Jan 2026", when set: the simulator's real clock.
     /// Otherwise a fixed time, so tests see the same screen every run.
     clock: ?*const fn (out: []u8) usize = null,
+    /// A property that stops answering once it's been set once, as cmd can while it
+    /// takes the radio down: reads time out, though the set went through.
+    busy_after_set: ?[]const u8 = null,
+    busy: bool = false,
 
     /// A Kindle awake, on Wi-Fi, Bluetooth off, not in airplane mode.
     pub fn init(alloc: std.mem.Allocator) !FakeKindle {
@@ -88,6 +92,10 @@ pub const FakeKindle = struct {
         var key_buf: [128]u8 = undefined;
         if (std.mem.eql(u8, program, "lipc-get-prop") and args.len >= 2) {
             const key = std.fmt.bufPrint(&key_buf, "{s} {s}", .{ args[0], args[1] }) catch return null;
+            if (k.busy) if (k.busy_after_set) |b| if (std.mem.eql(u8, b, key)) {
+                k.busy = false; // Answers again next time
+                return null;
+            };
             const value = k.get(key);
             if (value.len == 0) return null; // An unknown property: lipc fails
             const n = @min(value.len, out.len);
@@ -97,6 +105,9 @@ pub const FakeKindle = struct {
         if (std.mem.eql(u8, program, "lipc-set-prop") and args.len >= 3) {
             const key = std.fmt.bufPrint(&key_buf, "{s} {s}", .{ args[0], args[1] }) catch return null;
             k.put(key, args[2]) catch return null;
+            if (k.busy_after_set) |b| if (std.mem.eql(u8, b, key)) {
+                k.busy = true;
+            };
             const call = std.fmt.allocPrint(k.alloc, "{s} {s}", .{ key, args[2] }) catch return null;
             k.sets.append(k.alloc, call) catch return null;
             return 0;

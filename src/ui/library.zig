@@ -179,7 +179,7 @@ fn percentBadge(font: *Font, page: Page, x: u32, y: u32, percent: u32) !void {
 fn seriesBadge(font: *Font, page: Page, x: u32, y: u32, index: f32) !void {
     var label: [12]u8 = undefined;
     const s = if (@floor(index) == index)
-        std.fmt.bufPrint(&label, "#{d}", .{@as(u32, @intFromFloat(index))}) catch return
+        std.fmt.bufPrint(&label, "#{d}", .{@as(u32, @intFromFloat(@min(@max(index, 0), 9999)))}) catch return
     else
         std.fmt.bufPrint(&label, "#{d:.1}", .{index}) catch return;
     const r: f32 = 19;

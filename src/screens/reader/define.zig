@@ -30,8 +30,8 @@ pub fn find(a: *app.App, s: *const sess.Session, word: book_model.Word, lang: ?h
 pub fn run(a: *app.App, s: *const sess.Session, word: book_model.Word, lang: ?hyphen.Lang) !Choice {
     var found = find(a, s, word, lang);
     std.debug.print("lookup: found {}, form of another {}\n", .{ found.entry != null, found.base != null });
-    @memcpy(a.overlay, a.screen.pixels);
-    // The page as it was, for the cards about getting a dictionary to sit over
+    // The page as it was: what the sheet and any card about getting a dictionary sit
+    // over, and what's put back when they close
     const page_copy = try a.alloc.dupe(u8, a.screen.pixels);
     defer a.alloc.free(page_copy);
     if (found.no_dictionary) if (lang) |l| {
@@ -41,6 +41,7 @@ pub fn run(a: *app.App, s: *const sess.Session, word: book_model.Word, lang: ?hy
             if (try dict_get.get(a, page_copy, l)) found = find(a, s, word, lang);
         }
     };
+    @memcpy(a.screen.pixels, page_copy); // Not over a card that was just answered
     try definition.render(a.ui, a.page(a.screen.pixels), found);
     try a.showBand(0, a.screen.height);
     // Highlight sits along the bottom, where a resting thumb is otherwise ignored
@@ -71,7 +72,7 @@ pub fn run(a: *app.App, s: *const sess.Session, word: book_model.Word, lang: ?hy
             else => {},
         }
     };
-    @memcpy(a.screen.pixels, a.overlay);
+    @memcpy(a.screen.pixels, page_copy); // The cards drew into the overlay; this is the page
     try a.showBand(0, a.screen.height);
     return choice;
 }

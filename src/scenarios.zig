@@ -94,6 +94,8 @@ const Kindle = struct {
     /// One of the reader's own books, opened where it is (never written to), with the
     /// Kindle's own fonts: the self-test's timing of real books.
     real_book: ?[:0]const u8 = null,
+    /// Wi-Fi's on/off goes unanswered right after it's set.
+    radio_slow: bool = false,
     /// Compares the screen at the end with the reference image of this name.
     snapshot: ?[]const u8 = null,
 };
@@ -230,6 +232,7 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     var fake = try FakeKindle.init(alloc);
     if (kindle.airplane) try fake.put("com.lab126.cmd wirelessEnable", "0");
     if (kindle.bluetooth) try fake.put("com.lab126.btfd BTstate", "1");
+    if (kindle.radio_slow) fake.busy_after_set = "com.lab126.cmd wirelessEnable";
     fake.install();
     defer fake.release();
     var marker_buf: [128]u8 = undefined;
@@ -319,7 +322,9 @@ fn playOn(kindle: Kindle, steps: []const Step) !Outcome {
     var entry = catalog.Entry{ .path = book_path, .title = "Scenario Book", .author = "noface tests", .percent = 0, .last = 0, .kind = kind };
     // The app reports as it goes; a run shows only its results
     const saved_stderr: i32 = @intCast(linux.dup(2));
+    hidden_stderr = saved_stderr;
     defer {
+        hidden_stderr = -1;
         _ = linux.dup2(saved_stderr, 2);
         _ = linux.close(saved_stderr);
     }
@@ -418,7 +423,7 @@ const scenarios = [_]Scenario{
             const plain = try play(&.{forward});
             const busy = try play(&.{
                 forward,
-                hold(600, 700), lift, tap(636, 300), // A word's definition, closed above the sheet
+                hold(600, 700), lift, above_sheet, above_sheet, // The dictionary question, then the definition, each closed above it
                 top, tap(696, 118), page_middle, // The text settings, closed
                 top, tap(816, 118), tap(636, 120), // Contents, closed above it
                 top, tap(1176, 118), tap(636, 200), // The menu, closed above the card
@@ -442,6 +447,15 @@ const scenarios = [_]Scenario{
             try expect(r.airplane_asked_on, "airplane mode wasn't turned on");
             try expect(!r.airplane_at_end, "Wi-Fi wasn't put back");
             try expect(!r.wifi_note_left, "the note was left behind");
+        }
+    }.run },
+    .{ .name = "Wi-Fi comes back even when the Kindle was slow to say it went off", .run = struct {
+        fn run() !void {
+            const r = try playOn(.{ .radio_slow = true }, &.{ wait(150_000), forward });
+            try expect(r.airplane_asked_on, "airplane mode wasn't turned on");
+            try expect(!r.airplane_at_end, "Wi-Fi was left off");
+            // The note may stay, as Wi-Fi coming back went unconfirmed too: noface.sh or
+            // the next start checks again, so it's kept until Wi-Fi is seen on
         }
     }.run },
     .{ .name = "a quick look into a book leaves Wi-Fi alone", .run = struct {
@@ -549,6 +563,23 @@ fn expect(ok: bool, why: []const u8) !void {
     }
 }
 
+/// The real stderr, kept aside while a scenario's app output goes nowhere; -1 when
+/// it's in place. A crash puts it back first, so its message is seen.
+var hidden_stderr: i32 = -1;
+
+pub fn showCrashes() void {
+    if (hidden_stderr >= 0) _ = linux.dup2(hidden_stderr, 2);
+}
+
+/// The panic handler for noface-scenarios: the message reaches the terminal even
+/// when it happens mid-scenario.
+pub const panic = std.debug.FullPanic(struct {
+    fn crash(msg: []const u8, first: ?usize) noreturn {
+        showCrashes();
+        std.debug.defaultPanic(msg, first);
+    }
+}.crash);
+
 /// Wall time, for how long a scenario really took: the app's own clock is the fake one.
 fn realMs() u64 {
     var ts: linux.timespec = undefined;
@@ -612,14 +643,22 @@ pub fn selftest() bool {
     const dir = @import("sys/dir.zig");
     for ([_][]const u8{ ".epub", ".kfx" }) |suffix| {
         const found = dir.findFiles(arena.allocator(), "/mnt/us/documents", suffix) catch continue;
-        for (found[0..@min(found.len, 3)]) |path| {
+        // Up to three that noface can open; protected ones (most bought from Amazon)
+        // open in the Kindle's own reader instead, so they're passed over, not failed
+        var opened: usize = 0;
+        for (found[0..@min(found.len, 12)]) |path| {
+            if (opened == 3) break;
             const name = std.fs.path.stem(path);
             const short = name[0..@min(name.len, 48)];
             if (playOn(.{ .real_book = path }, &.{})) |r| {
                 std.debug.print("ok    opened {s} ({d} ms)\n", .{ short, r.ms });
-            } else |err| {
-                std.debug.print("FAIL  opened {s}: {s}\n", .{ short, @errorName(err) });
-                ok = false;
+                opened += 1;
+            } else |err| switch (err) {
+                error.Encrypted, error.Compressed, error.NotKfx => std.debug.print("--    {s}: not one noface opens ({s})\n", .{ short, @errorName(err) }),
+                else => {
+                    std.debug.print("FAIL  opened {s}: {s}\n", .{ short, @errorName(err) });
+                    ok = false;
+                },
             }
         }
     }
